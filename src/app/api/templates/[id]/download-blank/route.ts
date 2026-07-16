@@ -27,7 +27,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   XLSX.utils.book_append_sheet(workbook, worksheet, "範本");
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-  return new NextResponse(buffer, {
+  // 修正：同一類 Buffer<ArrayBufferLike> 與 DOM BodyInit 型別不相容的問題，
+  // 用 new Uint8Array(buffer) 複製成型別乾淨的 Uint8Array，不影響檔案內容。
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${encodeURIComponent(definition.name)}_範本.xlsx"`,

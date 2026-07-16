@@ -24,7 +24,12 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken = await getActiveAccessToken();
     const buffer = await downloadFile(accessToken, fileId);
-    return new NextResponse(buffer, {
+    // 修正：Node Buffer 的型別是 Buffer<ArrayBufferLike>，較新版 @types/node 底下
+    // 跟 DOM lib 的 BodyInit（要求較嚴格的 ArrayBuffer，不接受 ArrayBufferLike／
+    // SharedArrayBuffer）對不起來，會在 Render 的 Next.js Build 出現 TypeScript
+    // 型別錯誤。用 `new Uint8Array(buffer)` 複製出一份型別乾淨的 Uint8Array<ArrayBuffer>
+    // 再傳給 NextResponse，內容位元組完全相同，不影響任何下載行為與檔案內容。
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
