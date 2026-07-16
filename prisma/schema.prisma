@@ -701,6 +701,12 @@ model TempleEvent {
   printBatches  TempleEventPrintBatch[]
   checklist     TempleEventChecklistItem[]
   expenses      TempleEventExpense[]
+  // 修正：PurificationEntry.templeEvent 是 @relation(fields: [templeEventId], references: [id])
+  // 的 FK 端（見下方 PurificationEntry model，欄位與外鍵在資料庫裡本來就存在），但這裡漏了
+  // 對應的反向欄位，導致 Prisma Client 產生/驗證失敗（Render build 報錯：
+  // "PurificationEntry is missing an opposite relation field on model TempleEvent"）。
+  // 純粹補上反向欄位，不新增任何資料庫欄位、不影響既有業務邏輯。
+  purificationEntries PurificationEntry[]
   additionalPrintItems AdditionalPrintItem[] // V9.1：普渡附加列印項目（寶袋等），只有透過活動精靈建立/沿用去年的普渡活動才會有值
   activityOfferings ActivityOffering[] // V10.1：本活動掛的供品設定
   floralOfferingSlots FloralOfferingSlot[] // V10.1：本活動年度的花果供品排程（冗餘關聯，方便查詢）
