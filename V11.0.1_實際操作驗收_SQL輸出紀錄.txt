@@ -1,0 +1,190 @@
+Timing is off.
+=== 情境準備：普渡活動與贊普資料（UNIVERSAL_SALVATION_SPONSOR）===
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+--- 情境 5：普渡贊普分兩次付款（未付款→部分付款→已付款），不得覆蓋前一次付款 ---
+     id      | amountDue | amountPaid | amountUnpaid 
+-------------+-----------+------------+--------------
+ USD_V1101_1 |   5000.00 |    2000.00 |      3000.00
+(1 row)
+
+UPDATE 1
+INSERT 0 1
+>>> 預期：amountPaid=2000, amountUnpaid=3000（部分付款）
+     id      | amountDue | amountPaid | amountUnpaid 
+-------------+-----------+------------+--------------
+ USD_V1101_1 |   5000.00 |    2000.00 |      3000.00
+(1 row)
+
+     id      | amountDue | amountPaid | amountUnpaid 
+-------------+-----------+------------+--------------
+ USD_V1101_1 |   5000.00 |    5000.00 |         0.00
+(1 row)
+
+UPDATE 1
+INSERT 0 1
+>>> 預期：amountPaid=5000, amountUnpaid=0（已付款），付款分錄仍有兩筆（歷程保留，沒有覆蓋前一次）
+     id      | amountDue | amountPaid | amountUnpaid 
+-------------+-----------+------------+--------------
+ USD_V1101_1 |   5000.00 |    5000.00 |         0.00
+(1 row)
+
+     id      |  kind   | amount  |             note              
+-------------+---------+---------+-------------------------------
+ USP_V1101_1 | PAYMENT | 2000.00 | [V11.0.1情境驗證：第一次付款]
+ USP_V1101_2 | PAYMENT | 3000.00 | [V11.0.1情境驗證：第二次付款]
+(2 rows)
+
+--- 情境：超額付款必須被原子條件式 UPDATE 擋下（0 rows）---
+ id 
+----
+(0 rows)
+
+UPDATE 0
+>>> 預期：上面這條 UPDATE 沒有任何一列被更新（因為 amountUnpaid 已經是 0，不足以扣款）
+
+=== 情境準備：祭改資料（PURIFICATION_ENTRY）===
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+--- 情境 6：祭改分兩次付款，且需同步舊版 paymentStatus/paymentAmount 欄位 ---
+     id     | amountDue | amountPaid | amountUnpaid 
+------------+-----------+------------+--------------
+ PE_V1101_1 |    800.00 |     500.00 |       300.00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+INSERT 0 1
+>>> 預期：amountPaid=500, amountUnpaid=300, 舊版 paymentStatus=PARTIAL / paymentAmount=500
+     id     | feeStatus  | amountDue | amountPaid | amountUnpaid | paymentStatus | paymentAmount 
+------------+------------+-----------+------------+--------------+---------------+---------------
+ PE_V1101_1 | CHARGEABLE |    800.00 |     500.00 |       300.00 | PARTIAL       |        500.00
+(1 row)
+
+
+=== 情境 5：祭改與供品認捐合併付款（一筆 PaymentTransaction + 兩筆 PaymentAllocation）===
+ transaction_no 
+----------------
+ PT-115-000003
+(1 row)
+
+>>> 上面這個序號應該接續既有 PT-115-000001/PT-115-000002 之後（見交付報告代收/合併收款既有測試資料），此為第 3 號
+INSERT 0 1
+     id     | amountPaid | amountUnpaid 
+------------+------------+--------------
+ PE_V1101_1 |     800.00 |         0.00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+     id      | amountDue | amountPaid | amountUnpaid 
+-------------+-----------+------------+--------------
+ OC_FLORAL_2 |   1500.00 |     500.00 |      1000.00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+>>> 驗證：一筆 PaymentTransaction（PT-115-000003）底下兩筆 PaymentAllocation，加總等於 totalAmount=800，各自來源正確回寫
+ transactionNo | totalAmount | allocations_sum | allocation_count 
+---------------+-------------+-----------------+------------------
+ PT-115-000003 |      800.00 |          800.00 |                2
+(1 row)
+
+     id     | amountDue | amountPaid | amountUnpaid | paymentStatus 
+------------+-----------+------------+--------------+---------------
+ PE_V1101_1 |    800.00 |     800.00 |         0.00 | PAID
+(1 row)
+
+     id      | amountDue | amountPaid | amountUnpaid | paymentStatus 
+-------------+-----------+------------+--------------+---------------
+ OC_FLORAL_2 |   1500.00 |     500.00 |      1000.00 | PARTIAL
+(1 row)
+
+
+=== 情境：退款（REFUND）——沖銷後 financeSourceKey 不會撞號 ===
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+>>> 預期：amountPaid=300（500-200）, amountUnpaid=200（500-300）；PaymentAllocation.financeSourceKey 與 PaymentAdjustment.financeSourceKey 是兩組不同命名空間，不會撞號
+     id      | amountDue | amountPaid | amountUnpaid | paymentStatus 
+-------------+-----------+------------+--------------+---------------
+ OC_FLORAL_2 |   1500.00 |     300.00 |      1200.00 | PARTIAL
+(1 row)
+
+              financeSourceKey              
+--------------------------------------------
+ OFFERING_CLAIM:OC_FLORAL_2:PT_V1101_MERGED
+(1 row)
+
+         financeSourceKey          
+-----------------------------------
+ ADJUSTMENT:PA_V1101_2:ADJ_V1101_1
+(1 row)
+
+
+=== 情境 11：收款編號安全產生機制——連續取號不重複、跨年度各自從1開始 ===
+   next_no_1   
+---------------
+ PT-115-000004
+(1 row)
+
+   next_no_2   
+---------------
+ PT-115-000005
+(1 row)
+
+ next_no_new_year 
+------------------
+ PT-116-000001
+(1 row)
+
+>>> 預期：115年度序號接續 4、5（先前已用到3），116年度是全新年度，從 1 開始，兩個年度互不影響、不會產生重複序號
+ year | currentValue 
+------+--------------
+  115 |            5
+  116 |            1
+(2 rows)
+
+
+=== 情境 10/13：代收對帳 FOR UPDATE 防止同一批代收款被兩個對帳批次重複認領 ===
+INSERT 0 2
+BEGIN
+--- 第一個對帳批次：SELECT ... FOR UPDATE 鎖定代收人張三目前所有待對帳交易 ---
+        id        | totalAmount 
+------------------+-------------
+ PT_V1101_AGENT_1 |     3000.00
+ PT_V1101_AGENT_2 |     2000.00
+(2 rows)
+
+INSERT 0 1
+UPDATE 2
+COMMIT
+>>> 對帳完成後，再次查詢同一個代收人待對帳交易，預期為 0 筆（不會被第二個對帳批次重複認領）
+ still_pending 
+---------------
+             0
+(1 row)
+
+>>> 對帳完成後不得再次勾選繳回：agentRemittanceStatus 已經是 RECONCILED，不在 PENDING/PARTIALLY_REMITTED 範圍內，畫面上代收對帳頁不會再顯示這兩筆
+        id        | agentRemittanceStatus | agentReconciliationRecordId 
+------------------+-----------------------+-----------------------------
+ PT_V1101_AGENT_1 | RECONCILED            | ARR_V1101_1
+ PT_V1101_AGENT_2 | RECONCILED            | ARR_V1101_1
+(2 rows)
+
+
+=== 情境：月結報表數字一致性——代收已繳回不得計為第二次收入 ===
+ total_amount | direct_collected | agent_uncollected_remitted | agent_remitted 
+--------------+------------------+----------------------------+----------------
+      7800.00 |           800.00 |                            |        7000.00
+(1 row)
+
+>>> 驗證：total_amount = direct_collected + agent_uncollected_remitted + agent_remitted（代收繳回沒有被算成第二筆收入，因為 agent_remitted 只是從 total_amount 裡再分類出來，不是另外加總）
+
+=== 全部情境驗證結束 ===

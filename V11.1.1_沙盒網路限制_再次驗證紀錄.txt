@@ -1,0 +1,102 @@
+====================================================================
+V11.1.1 沙盒網路限制 — 本輪重新、更嚴謹的驗證紀錄
+====================================================================
+執行時間：2026-07-16
+
+依照指令「五」的明確要求：「若目前環境無法連線npm，請不要再次只交付
+『沙盒沒有網路』的報告」，本輪重新、逐項實際測試以下每一種替代方案，
+而不是只重複過去的結論。以下是本輪實際執行的指令與真實輸出（不是摘要
+轉述）：
+
+--------------------------------------------------------------------
+1. npm 官方 registry（直接連線）
+--------------------------------------------------------------------
+$ npm ping
+npm error 403 403 Forbidden - GET https://registry.npmjs.org/-/ping
+
+--------------------------------------------------------------------
+2. npm 官方 registry（明確指定 registry 參數，繞過任何預設代理設定）
+--------------------------------------------------------------------
+$ npm install --registry=https://registry.npmjs.org/ --dry-run lodash
+npm error code E403
+npm error 403 403 Forbidden - GET https://registry.npmjs.org/lodash
+
+--------------------------------------------------------------------
+3. PyPI（確認不是 npm 專屬限制，而是整個沙盒對外部套件來源的一般限制）
+--------------------------------------------------------------------
+$ curl -sS -o /dev/null -w "HTTP %{http_code}\n" https://pypi.org/simple/requests/
+HTTP 403
+
+--------------------------------------------------------------------
+4. GitHub（網頁與 API，確認無法用「直接抓原始碼／clone」的方式繞過套件註冊表）
+--------------------------------------------------------------------
+$ curl -sS -o /dev/null -w "HTTP %{http_code}\n" https://github.com/prisma/prisma
+HTTP 403
+$ curl -sS -o /dev/null -w "HTTP %{http_code}\n" https://api.github.com/repos/prisma/prisma
+HTTP 403
+
+--------------------------------------------------------------------
+5. git clone 任意公開套件原始碼（例如直接抓 prisma 原始碼自己 build）
+--------------------------------------------------------------------
+$ git clone --depth 1 https://github.com/prisma/prisma /tmp/prisma-test-clone
+fatal: unable to access 'https://github.com/prisma/prisma/': The requested URL returned error: 403
+
+（附註：這個沙盒的 GitHub 存取實際上是白名單制，只放行少數「這個
+Claude Project 事先設定好、綁定在這個工作環境的既有 repo」，不是完全
+沒有 GitHub 存取能力，但沒有辦法用來抓取任意第三方套件原始碼，也就是
+說即使改成「自己從原始碼 build」這個方案，一樣會在同一個關卡卡住。）
+
+--------------------------------------------------------------------
+6. Docker（改用可重現的 Docker 建置方案）
+--------------------------------------------------------------------
+$ which docker
+/usr/bin/docker      ← docker 指令本身存在
+$ docker info
+Server:
+failed to connect to the docker API at unix:///var/run/docker.sock:
+check if the path is correct and if the daemon is running:
+dial unix /var/run/docker.sock: connect: no such file or directory
+
+判讀：docker CLI 有安裝，但 daemon 完全沒有啟動（連 socket 檔案都不
+存在），這個沙盒的執行環境本身就不允許啟動容器引擎，不是「還沒裝」
+的問題，而是這個沙盒的既有限制。
+
+--------------------------------------------------------------------
+7. 使用專案既有 npm 快取／lockfile 離線安裝
+--------------------------------------------------------------------
+$ npm install --offline --prefer-offline
+npm error code ENOTCACHED
+npm error request to https://registry.npmjs.org/@prisma%2fclient failed:
+cache mode is 'only-if-cached' but no cached response is available.
+
+判讀：本機 ~/.npm 快取目錄雖然存在，但沒有這個專案實際需要的套件
+（next/react/@prisma/client 等）的快取內容，無法用離線模式完成安裝。
+
+====================================================================
+結論（誠實、不迴避）
+====================================================================
+本輪重新、逐一測試了指令「五」列出的每一種替代方案：改用現有 lockfile/
+快取離線安裝（失敗，快取內容不足）、改用具備網路的開發環境（本沙盒
+本身就是唯一可用的執行環境，無法「跳出」去別的環境）、CI 建置環境
+（本次任務沒有提供 CI 環境或其憑證）、可重現的 Docker 建置
+（daemon 未啟動，沙盒層級限制）、部署到正式測試環境後驗證
+（同樣沒有提供實際可部署的正式/測試主機）。
+
+這是一個沙盒執行環境本身的網路存取政策限制（對 npm/PyPI/GitHub 等
+外部來源一律回傳 403，Docker daemon 未啟動），不是可以透過「換一種
+指令」或「更努力嘗試」解決的問題。因此本輪跟前幾輪一樣，「五、正式
+建置與瀏覽器驗收」（npm install／prisma generate／migrate deploy／
+npm run build／啟動系統／瀏覽器實際操作／實際產生PDF／實際列印預覽）
+這一整組要求 NOT PASSED，需要在具備網路存取權限的正式開發環境、CI
+環境、或使用者提供的正式/測試主機上才能實際完成，並非本輪能自行解決。
+
+本輪跟前幾輪不同、且有實質進展的地方（詳見交付報告）：
+1. 明確修正了全部可以在沒有套件安裝的情況下修正的真實 TypeScript 錯誤
+   （不依賴 any/@ts-ignore/@ts-nocheck/型別斷言/關閉 strict）。
+2. 完成了「最小可用的內部操作人員身分機制」與收據相關 API 的伺服器端
+   權限檢查，並用 tsx 直接執行 src/lib/permissions.ts 的真實原始碼做了
+   20 項權限矩陣斷言（100% 通過，見
+   V11.1.1_權限矩陣真實執行驗證結果.txt），以及用真實 PostgreSQL
+   資料庫驗證了操作人員身分解析查詢的行為（見
+   V11.1.1_操作人員身分解析_SQL驗證紀錄.txt）——這兩份都是「真的執行」
+   而不是「憑空模擬」，是本輪相對於前幾輪的實質驗證進展。

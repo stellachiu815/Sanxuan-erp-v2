@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>台北三玄宮 ERP — 收款中心 低保真 Wireframe（V7.1）</title>
+<style>
+  :root {
+    --bg: #FBF7EE;           /* 暖白 */
+    --primary: #F3E8C9;      /* 淡奶油黃 */
+    --accent: #F0DDC0;       /* 淡杏色 */
+    --secondary: #EFE3B4;    /* 淡菊黃 */
+    --done: #A9C1AE;         /* 鼠尾草綠 */
+    --info: #C7DCE4;         /* 淡湖水藍 */
+    --unpaid: #E3C7CB;       /* 灰粉玫瑰色 */
+    --text: #5B5347;
+    --text-light: #8C8375;
+    --card-bg: #FFFDF8;
+    --border: #E9E1CF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+  }
+  header.app-header {
+    padding: 20px 32px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header.app-header h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  header.app-header p { margin: 0; font-size: 13px; color: var(--text-light); }
+  nav.screen-tabs {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 16px 32px; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  nav.screen-tabs button {
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  nav.screen-tabs button.active {
+    background: var(--secondary);
+    border-color: var(--secondary);
+    font-weight: 600;
+  }
+  main { padding: 24px 32px 64px; max-width: 1080px; margin: 0 auto; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .screen-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .screen-desc { font-size: 12px; color: var(--text-light); margin: 0 0 20px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 20px 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(90,80,60,0.04);
+  }
+  .card h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field {
+    flex: 1; min-width: 140px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-light);
+  }
+  .field b { display: block; color: var(--text); font-size: 13px; font-weight: 500; margin-top: 2px; }
+  .btn {
+    display: inline-block;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .btn-primary { background: var(--primary); }
+  .btn-accent { background: var(--accent); }
+  .btn-outline { background: var(--card-bg); border: 1px solid var(--border); }
+  .tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-unpaid { background: var(--unpaid); color: #6b4048; }
+  .tag-partial { background: var(--info); color: #3d5c66; }
+  .tag-paid { background: var(--done); color: #33513a; }
+  .tag-overpaid { background: var(--unpaid); color: #6b4048; }
+  .tag-refund { background: var(--unpaid); color: #6b4048; }
+  .tag-refunded { background: var(--done); color: #33513a; }
+  .tag-voided { background: #E7E1D6; color: #8c8375; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-light); font-weight: 500; }
+  .totals-bar {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;
+  }
+  .totals-bar .field { text-align: center; }
+  .search-box {
+    display: flex; gap: 10px; margin-bottom: 16px;
+  }
+  .search-box input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-size: 13px;
+    background: var(--card-bg);
+  }
+  .filter-chip {
+    background: var(--secondary);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+  .note-box {
+    background: var(--info);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #3d5c66;
+    margin-top: 12px;
+  }
+  .warn-box {
+    background: var(--unpaid);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #6b4048;
+    margin-top: 12px;
+  }
+  .name-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .name-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .footer-note {
+    font-size: 11px; color: var(--text-light); text-align: center; margin-top: 32px;
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>台北三玄宮 ERP — 收款中心（Collection Center）</h1>
+  <p>低保真 Wireframe · V7.1 規格定稿 · 僅為畫面結構示意，非最終視覺稿</p>
+</header>
+
+<nav class="screen-tabs" id="tabs"></nav>
+
+<main id="screens"></main>
+
+<div class="footer-note">本頁為 docs/COLLECTION_CENTER.md 第十三節附件，本輪未開發任何可運作的畫面或 API。</div>
+
+<script>
+const screens = [
+  {
+    id: "home",
+    label: "① 首頁",
+    title: "收款中心首頁",
+    desc: "搜尋框 + 待處理提醒卡片，橫跨七個活動的共用入口。",
+    body: `
+      <div class="card">
+        <div class="search-box">
+          <input placeholder="搜尋姓名／家戶／贊助人／付款人／電話／地址／活動別／年度／狀態…" />
+          <button class="btn btn-primary">搜尋</button>
+        </div>
+        <div>
+          <span class="filter-chip">活動別</span>
+          <span class="filter-chip">年度</span>
+          <span class="filter-chip">狀態</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card" style="flex:1;min-width:220px;">
+          <h3>待處理提醒</h3>
+          <div class="field">溢收待處理 <b>3 筆</b></div>
+          <div class="field" style="margin-top:8px;">退款待處理 <b>1 筆</b></div>
+        </div>
+        <div class="card" style="flex:1;min-width:220px;">
+          <h3>今日收款</h3>
+          <div class="field">今日已收款 <b>NT$ 48,600</b></div>
+          <div class="field" style="margin-top:8px;">快速收款（尚未連結）<b>2 筆</b></div>
+        </div>
+        <div class="card" style="flex:1;min-width:220px;">
+          <h3>快速動作</h3>
+          <button class="btn btn-accent" style="width:100%;margin-bottom:8px;">＋ 快速收款</button>
+          <button class="btn btn-outline" style="width:100%;">查詢未繳清單</button>
+        </div>
+      </div>
+    `
+  },
+  {
+    id: "search",
+    label: "② 搜尋結果",
+    title: "搜尋結果／未繳清單畫面",
+    desc: "列出每筆報名的贊助人／付款人／活動／年度／應收／已收／未收／狀態／最後收款日期／備註。",
+    body: `
+      <div class="card">
+        <table>
+          <thead><tr>
+            <th>贊助人</th><th>付款人</th><th>活動</th><th>年度</th>
+            <th>應收</th><th>已收</th><th>未收</th><th>狀態</th><th>最後收款</th>
+          </tr></thead>
+          <tbody>
+            <tr><td>王林美玲</td><td>同贊助人</td><td>年度燈</td><td>115</td><td>1,200</td><td>1,200</td><td>0</td><td><span class="tag tag-paid">已繳清</span></td><td>2026-01-12</td></tr>
+            <tr><td>陳金水</td><td>陳小華（子女代繳）</td><td>普渡</td><td>115</td><td>3,600</td><td>1,800</td><td>1,800</td><td><span class="tag tag-partial">部分繳款</span></td><td>2026-06-20</td></tr>
+            <tr><td>李家全家燈</td><td>同贊助人</td><td>年度燈</td><td>115</td><td>3,000</td><td>0</td><td>3,000</td><td><span class="tag tag-unpaid">未繳</span></td><td>—</td></tr>
+            <tr><td>林淑芬</td><td>同贊助人</td><td>南巡</td><td>115</td><td>2,500</td><td>3,000</td><td>-500</td><td><span class="tag tag-overpaid">溢收待處理</span></td><td>2026-05-02</td></tr>
+            <tr><td>張老太太</td><td>同贊助人</td><td>祭改</td><td>115</td><td>600</td><td>0</td><td>600</td><td><span class="tag tag-voided">已作廢</span></td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `
+  },
+  {
+    id: "twobutton",
+    title: "報名完成計價後的兩按鈕畫面",
+    label: "③ 兩按鈕",
+    desc: "跨活動通用：先存為未繳／立即收款。",
+    body: `
+      <div class="card">
+        <h3>報名明細（試算）</h3>
+        <table>
+          <thead><tr><th>姓名</th><th>單價</th><th>數量</th><th>小計</th></tr></thead>
+          <tbody>
+            <tr><td>王小明</td><td>600</td><td>1</td><td>600</td></tr>
+            <tr><td>王小華</td><td>600</td><td>1</td><td>600</td></tr>
+          </tbody>
+        </table>
+        <div class="totals-bar">
+          <div class="field">應收總額<b>NT$ 1,200</b></div>
+        </div>
+        <div class="row" style="margin-top:16px;">
+          <button class="btn btn-outline">【先存為未繳】</button>
+          <button class="btn btn-primary">【立即收款】</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>立即收款欄位（按下後展開）</h3>
+        <div class="row">
+          <div class="field">實收金額<b>1,200</b></div>
+          <div class="field">付款方式<b>現金</b></div>
+          <div class="field">現金／銀行帳戶<b>現金櫃</b></div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div class="field">付款人（留空＝同贊助人）<b>—</b></div>
+          <div class="field">收款日期<b>2026-07-15</b></div>
+          <div class="field">備註<b>—</b></div>
+        </div>
+      </div>
+    `
+  },
+  {
+    id: "partial",
+    title: "部分付款／補收款畫面",
+    label: "④ 補收款",
+    desc: "狀態自動判定：部分繳款／已繳清／溢收待處理。",
+    body: `
+      <div class="card">
+        <h3>陳金水（普渡代辦）</h3>
+        <div class="totals-bar">
+          <div class="field">應收<b>3,600</b></div>
+          <div class="field">已收<b>1,800</b></div>
+          <div class="field">未收<b>1,800</b></div>
+          <div class="field">狀態<b><span class="tag tag-partial">部分繳款</span></b></div>
+        </div>
+        <div class="note-box">本次補收款完成後，系統會依實收 vs 應收自動重新計算狀態。</div>
+        <div class="row" style="margin-top:14px;">
+          <div class="field">本次實收金額<b>1,800</b></div>
+          <div class="field">付款方式<b>轉帳</b></div>
+          <div class="field">收款日期<b>2026-07-15</b></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:14px;">確認收款</button>
+      </div>
+      <div class="warn-box">若實收金額使總額超過應收，狀態將轉為「溢收待處理」，系統不會自動吞掉差額。</div>
+    `
+  },
+  {
+    id: "group",
+    title: "一人代辦多人：群組明細與總計",
+    label: "⑤ 代辦群組",
+    desc: "回答「她這一整批總共多少錢」。",
+    body: `
+      <div class="card">
+        <h3>代辦人：林美玲（共 5 筆明細）</h3>
+        <table>
+          <thead><tr><th>姓名</th><th>家戶</th><th>單價</th><th>數量</th><th>小計</th></tr></thead>
+          <tbody>
+            <tr><td>王大明</td><td>王家</td><td>600</td><td>1</td><td>600</td></tr>
+            <tr><td>王林美玲</td><td>王家</td><td>600</td><td>1</td><td>600</td></tr>
+            <tr><td>陳阿花</td><td>陳家</td><td>600</td><td>1</td><td>600</td></tr>
+            <tr><td>李國強</td><td>李家</td><td>600</td><td>1</td><td>600</td></tr>
+            <tr><td>李美美</td><td>李家</td><td>600</td><td>1</td><td>600</td></tr>
+          </tbody>
+        </table>
+        <div class="totals-bar">
+          <div class="field">應收總額<b>NT$ 3,000</b></div>
+          <div class="field">已收總額<b>NT$ 3,000</b></div>
+          <div class="field">未收總額<b>NT$ 0</b></div>
+          <div class="field">狀態<b><span class="tag tag-paid">已繳清</span></b></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>全家燈範例：李家全家燈（整組固定價，不逐人計價）</h3>
+        <div class="totals-bar">
+          <div class="field">整組價格<b>NT$ 3,000</b></div>
+        </div>
+        <div class="name-list">
+          <span class="name-chip">李國強</span>
+          <span class="name-chip">李美美</span>
+          <span class="name-chip">李小娟（已出嫁，跨戶併入）</span>
+          <span class="name-chip">李阿公</span>
+        </div>
+        <div class="note-box">查看名單（4 位）— 點開展開完整名單，收款金額不因人數而變動。</div>
+      </div>
+    `
+  },
+  {
+    id: "salvation",
+    title: "普渡對外收款畫面",
+    label: "⑥ 普渡收款",
+    desc: "只顯示贊助人姓名 + 總額，隱藏四個內部類別名稱。",
+    body: `
+      <div class="card">
+        <h3>對外收款收據預覽</h3>
+        <div class="totals-bar">
+          <div class="field">贊助人<b>陳金水</b></div>
+          <div class="field">普渡合計<b>NT$ 3,600</b></div>
+          <div class="field">狀態<b><span class="tag tag-partial">部分繳款</span></b></div>
+        </div>
+        <div class="note-box">內部祭祀類別（歷代祖先／個人乙位正魂／冤親債主／無緣子女）僅供內部登記使用，本畫面不顯示。</div>
+      </div>
+    `
+  },
+  {
+    id: "tour",
+    title: "南巡／北巡車次財務彙總",
+    label: "⑦ 南北巡車次",
+    desc: "以車次為單位彙總，不提供逐人收據。",
+    body: `
+      <div class="card">
+        <h3>115 年南巡 — 車次財務彙總</h3>
+        <table>
+          <thead><tr><th>車次</th><th>單價</th><th>人數</th><th>雙人房加價</th><th>應收</th><th>已收</th><th>未收</th></tr></thead>
+          <tbody>
+            <tr><td>1 車</td><td>1,500</td><td>40</td><td>2,000</td><td>62,000</td><td>62,000</td><td>0</td></tr>
+            <tr><td>3 車</td><td>1,500</td><td>38</td><td>1,000</td><td>58,000</td><td>50,000</td><td>8,000</td></tr>
+            <tr><td>5 車</td><td>1,500</td><td>42</td><td>0</td><td>63,000</td><td>63,000</td><td>0</td></tr>
+            <tr><td>2 車（隱藏，管理者未啟用）</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <div class="totals-bar">
+          <div class="field">海報認捐（手動輸入）<b>NT$ 12,000</b></div>
+        </div>
+        <div class="warn-box">本畫面只提供車次層級彙總，不提供「某人這趟南巡繳了多少」的逐人收據。</div>
+      </div>
+    `
+  },
+  {
+    id: "quick",
+    title: "快速收款輸入畫面",
+    label: "⑧ 快速收款",
+    desc: "資料尚未備齊時先收款入帳，之後再連結回正式報名。",
+    body: `
+      <div class="card">
+        <h3>快速收款</h3>
+        <div class="row">
+          <div class="field">實收金額<b>500</b></div>
+          <div class="field">付款方式<b>現金</b></div>
+          <div class="field">現金／銀行帳戶<b>現金櫃</b></div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div class="field">付款人姓名（大概記錄即可）<b>不知道全名的阿姨</b></div>
+          <div class="field">概略描述<b>說要報年度燈，資料還沒給</b></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:14px;">送出（立即入帳）</button>
+        <div class="note-box">送出後立即建立收款與流水分錄，狀態顯示「尚未連結正式報名」，可於備妥資料後執行「連結到報名」。</div>
+      </div>
+      <div class="card">
+        <h3>待連結清單</h3>
+        <table>
+          <thead><tr><th>付款人</th><th>金額</th><th>收款日期</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td>不知道全名的阿姨</td><td>500</td><td>2026-07-15</td><td><span class="tag tag-unpaid">尚未連結</span></td><td><button class="btn btn-outline">連結到報名</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    `
+  }
+];
+
+const tabsEl = document.getElementById("tabs");
+const screensEl = document.getElementById("screens");
+
+screens.forEach((s, i) => {
+  const btn = document.createElement("button");
+  btn.textContent = s.label;
+  btn.dataset.target = s.id;
+  if (i === 0) btn.classList.add("active");
+  btn.onclick = () => showScreen(s.id);
+  tabsEl.appendChild(btn);
+
+  const div = document.createElement("div");
+  div.className = "screen" + (i === 0 ? " active" : "");
+  div.id = "screen-" + s.id;
+  div.innerHTML = `<h2 class="screen-title">${s.title}</h2><p class="screen-desc">${s.desc}</p>${s.body}`;
+  screensEl.appendChild(div);
+});
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
+  document.getElementById("screen-" + id).classList.add("active");
+  document.querySelectorAll("nav.screen-tabs button").forEach(b => {
+    b.classList.toggle("active", b.dataset.target === id);
+  });
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,74 @@
+=== V11.0.1 tsc --noEmit 完整錯誤代碼統計（全專案） ===
+總錯誤數：4541
+
+--- 各錯誤代碼出現次數（全專案） ---
+   3621 error TS7026
+    501 error TS7006
+    278 error TS2307
+     29 error TS2591
+     28 error TS18047
+     19 error TS2741
+     14 error TS2339
+     13 error TS2503
+     13 error TS2322
+      7 error TS7053
+      7 error TS2552
+      5 error TS5097
+      4 error TS7031
+      1 error TS2882
+      1 error TS2367
+
+--- 這一輪新增/修改檔案，各自的錯誤代碼分布 ---
+=== src/lib/collectionCenter.ts ===
+      1 error TS2307
+     25 error TS7006
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/lib/receivableAdapters.ts ===
+      1 error TS2307
+     28 error TS7006
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/lib/collectionCenterRules.ts ===
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/lib/labels.ts ===
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/lib/ritual.ts ===
+      1 error TS2307
+     12 error TS7006
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/lib/purification.ts ===
+      1 error TS2307
+     17 error TS7006
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/components/collection/PendingReceivablesScreen.tsx ===
+      2 error TS2307
+      2 error TS7006
+     65 error TS7026
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/components/collection/QuickPaymentScreen.tsx ===
+      1 error TS2307
+     28 error TS7006
+    121 error TS7026
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/components/collection/MonthlyReportScreen.tsx ===
+      1 error TS2307
+      7 error TS7006
+     86 error TS7026
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+=== src/components/collection/types.ts ===
+非既有雜訊代碼（TS7006/TS7026/TS2307以外）：
+0
+
+--- 既有 V10.1 offering-center 頁面同樣錯誤代碼出現次數（佐證為環境雜訊，非本輪新增邏輯錯誤）---
+      9 error TS2307
+      7 error TS7006
+    148 error TS7026
+      2 error TS7031

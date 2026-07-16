@@ -1,0 +1,33 @@
+PASS - canSystem(SUPER_ADMIN, "viewSystemCenter") => actual=true expected=true
+PASS - canSystem(SUPER_ADMIN, "runBackup") => actual=true expected=true
+PASS - canSystem(SUPER_ADMIN, "downloadBackup") => actual=true expected=true
+PASS - canSystem(SUPER_ADMIN, "restoreBackup") => actual=true expected=true
+PASS - canSystem(SUPER_ADMIN, "manageGoogleDriveConnection") => actual=true expected=true
+PASS - canSystem(SUPER_ADMIN, "manageBackupSchedule") => actual=true expected=true
+PASS - canSystem(ADMIN, "viewSystemCenter") => actual=false expected=false
+PASS - canSystem(ADMIN, "runBackup") => actual=false expected=false
+PASS - canSystem(ADMIN, "downloadBackup") => actual=false expected=false
+PASS - canSystem(ADMIN, "restoreBackup") => actual=false expected=false
+PASS - canSystem(ADMIN, "manageGoogleDriveConnection") => actual=false expected=false
+PASS - canSystem(ADMIN, "manageBackupSchedule") => actual=false expected=false
+PASS - canSystem(STAFF, "viewSystemCenter") => actual=false expected=false
+PASS - canSystem(STAFF, "runBackup") => actual=false expected=false
+PASS - canSystem(STAFF, "downloadBackup") => actual=false expected=false
+PASS - canSystem(STAFF, "restoreBackup") => actual=false expected=false
+PASS - canSystem(STAFF, "manageGoogleDriveConnection") => actual=false expected=false
+PASS - canSystem(STAFF, "manageBackupSchedule") => actual=false expected=false
+PASS - canSystem(READONLY, "viewSystemCenter") => actual=false expected=false
+PASS - canSystem(READONLY, "runBackup") => actual=false expected=false
+PASS - canSystem(READONLY, "downloadBackup") => actual=false expected=false
+PASS - canSystem(READONLY, "restoreBackup") => actual=false expected=false
+PASS - canSystem(READONLY, "manageGoogleDriveConnection") => actual=false expected=false
+PASS - canSystem(READONLY, "manageBackupSchedule") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "viewSystemCenter") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "runBackup") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "downloadBackup") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "restoreBackup") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "manageGoogleDriveConnection") => actual=false expected=false
+PASS - canSystem(FINANCE_CLERK, "manageBackupSchedule") => actual=false expected=false
+PASS - canSystem("NOT_A_REAL_ROLE" as Role, "viewSystemCenter") 不應為 true => actual=false expected=false
+
+共 31 項斷言，通過 31 項，失敗 0 項。

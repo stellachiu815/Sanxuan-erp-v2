@@ -1,0 +1,143 @@
+=== 完整權限矩陣（角色 x 動作）真實執行結果 ===
+SUPER_ADMIN: view, issue, markNoReceiptRequired, print, reprint, void, reissue, manageSettings, manageNumbering, exportData, viewAuditLog
+ADMIN: view, issue, markNoReceiptRequired, print, reprint, void, reissue, manageSettings, exportData, viewAuditLog
+STAFF: view, issue, print, reprint, exportData, viewAuditLog
+READONLY: view, exportData, viewAuditLog
+FINANCE_CLERK: (無)
+
+=== 指令「二」明確場景驗證 ===
+PASS - STAFF 嘗試作廢收據應被拒絕 => actual=false expected=false
+PASS - STAFF 嘗試換開收據應被拒絕 => actual=false expected=false
+PASS - READONLY 嘗試開立收據應被拒絕 => actual=false expected=false
+PASS - READONLY 嘗試標記不需開立應被拒絕 => actual=false expected=false
+PASS - SUPER_ADMIN 可以管理收據號碼規則 => actual=true expected=true
+PASS - ADMIN 不可以管理收據號碼規則（僅 SUPER_ADMIN） => actual=false expected=false
+PASS - STAFF 不可以管理收據號碼規則 => actual=false expected=false
+PASS - READONLY 不可以管理收據號碼規則 => actual=false expected=false
+PASS - FINANCE_CLERK 不可以管理收據號碼規則 => actual=false expected=false
+PASS - SUPER_ADMIN 可以作廢收據 => actual=true expected=true
+PASS - ADMIN 可以作廢收據 => actual=true expected=true
+PASS - SUPER_ADMIN 可以換開收據 => actual=true expected=true
+PASS - ADMIN 可以換開收據 => actual=true expected=true
+PASS - STAFF 不可以作廢收據 => actual=false expected=false
+PASS - FINANCE_CLERK 完全沒有任何收據權限 => actual=false expected=false
+
+=== 指令「四」核准人資格驗證（canApproveReceiptVoidOrReissue） ===
+PASS - SUPER_ADMIN 可擔任核准人 => actual=true expected=true
+PASS - ADMIN 可擔任核准人 => actual=true expected=true
+PASS - STAFF 不可擔任核准人 => actual=false expected=false
+PASS - READONLY 不可擔任核准人 => actual=false expected=false
+PASS - FINANCE_CLERK 不可擔任核准人 => actual=false expected=false
+
+=== 結果：20 通過 / 0 失敗（共 20 項真實執行的斷言） ===
+
+=== V11.2 getFullPermissionSnapshot() 真實執行測試 ===
+{
+  "generatedAt": "2026-07-16T11:54:17.883Z",
+  "finance": {
+    "SUPER_ADMIN": [
+      "view",
+      "viewFullReport",
+      "create",
+      "update",
+      "void",
+      "export"
+    ],
+    "ADMIN": [
+      "view",
+      "viewFullReport",
+      "create",
+      "update",
+      "void",
+      "export"
+    ],
+    "STAFF": [],
+    "READONLY": [
+      "view"
+    ],
+    "FINANCE_CLERK": [
+      "create"
+    ]
+  },
+  "purification": {
+    "SUPER_ADMIN": [
+      "manageBannedNumbers"
+    ],
+    "ADMIN": [
+      "manageBannedNumbers"
+    ],
+    "STAFF": [],
+    "READONLY": [],
+    "FINANCE_CLERK": []
+  },
+  "additionalPrintItem": {
+    "SUPER_ADMIN": [
+      "create",
+      "createExtra",
+      "modifyBeforePrint",
+      "modifyAfterPrint",
+      "cancel",
+      "restore",
+      "permanentlyDelete",
+      "viewAll",
+      "print",
+      "reprint"
+    ],
+    "ADMIN": [
+      "create",
+      "createExtra",
+      "modifyBeforePrint",
+      "modifyAfterPrint",
+      "cancel",
+      "restore",
+      "viewAll",
+      "print",
+      "reprint"
+    ],
+    "STAFF": [
+      "createExtra",
+      "modifyBeforePrint",
+      "print",
+      "reprint"
+    ],
+    "READONLY": [
+      "viewAll"
+    ],
+    "FINANCE_CLERK": []
+  },
+  "offering": {
+    "SUPER_ADMIN": [
+      "manageOfferingTypes",
+      "manageActivityOfferings",
+      "createClaim",
+      "modifyClaimBeforePayment",
+      "recordPayment",
+      "waiveClaim",
+      "cancelClaim",
+      "refundClaim",
+      "permanentlyDelete",
+      "viewFullHistory",
+      "manageStoveMaster"
+    ],
+    "ADMIN": [
+      "manageOfferingTypes",
+      "manageActivityOfferings",
+      "createClaim",
+      "modifyClaimBeforePayment",
+      "recordPayment",
+      "waiveClaim",
+      "cancelClaim",
+      "refundClaim",
+      "permanentlyDelete",
+      "viewFullHistory",
+      "manageStoveMaster"
+    ],
+    "STAFF": [
+      "createClaim",
+      "modifyClaimBeforePayment",
+      "recordPayment",
+      "manageStoveMaster"
+    ],
+    "READONLY": [
+      "
+PASS - getFullPermissionSnapshot() 執行成功，回傳物件包含 keys: generatedAt, finance, purification, additionalPrintItem, offering, receipt, system, approveReceiptVoidOrReissue

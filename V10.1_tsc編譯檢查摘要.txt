@@ -1,0 +1,126 @@
+=== tsc --noEmit 錯誤代碼統計（總計 3851 行）===
+   3074 error TS7026
+    392 error TS7006
+    246 error TS2307
+     30 error TS2591
+     28 error TS18047
+     19 error TS2741
+     14 error TS2339
+     13 error TS2503
+     13 error TS2322
+      7 error TS7053
+      5 error TS5097
+      4 error TS7031
+      4 error TS2552
+      1 error TS2882
+      1 error TS2367
+
+=== 全部歸類為缺套件噪音（Cannot find module/@prisma/client/next/@types），非邏輯錯誤 ===
+=== 以下為 offering-center 相關錯誤，逐一確認皆屬同一類噪音 ===
+src/app/api/temple-events/[id]/offering-claims/import/analyze/route.ts(26,20): error TS2552: Cannot find name 'Buffer'. Did you mean 'buffer'?
+src/app/api/temple-events/[id]/offerings/[offeringId]/floral-roster/route.ts(23,30): error TS7031: Binding element 'slot' implicitly has an 'any' type.
+src/app/api/temple-events/[id]/offerings/[offeringId]/floral-roster/route.ts(23,36): error TS7031: Binding element 'claim' implicitly has an 'any' type.
+src/app/api/temple-events/[id]/offerings/[offeringId]/floral-roster/route.ts(29,49): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/api/temple-events/[id]/offerings/[offeringId]/floral-roster/route.ts(37,28): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/app/offering-center/activity/[id]/page.tsx(33,67): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/app/offering-center/activity/[id]/page.tsx(67,58): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/app/offering-center/floral/[offeringId]/page.tsx(26,30): error TS7031: Binding element 'slot' implicitly has an 'any' type.
+src/app/offering-center/floral/[offeringId]/page.tsx(26,36): error TS7031: Binding element 'claim' implicitly has an 'any' type.
+src/app/offering-center/floral/[offeringId]/page.tsx(32,49): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/offering-center/member/[memberId]/page.tsx(68,30): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/app/offering-center/page.tsx(77,32): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/app/offering-center/settings/page.tsx(11,55): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/app/offering-center/unpaid/page.tsx(20,37): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(47,46): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(54,23): error TS7006: Parameter 'offering' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(184,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(199,91): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(204,73): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(208,90): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(241,47): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(242,48): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(242,51): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(253,28): error TS7006: Parameter 'claim' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(254,19): error TS2322: Type '{ key: any; claim: any; onChanged: () => Promise<void>; }' is not assignable to type '{ claim: OfferingClaimJSON; onChanged: () => void; }'.
+  Property 'key' does not exist on type '{ claim: OfferingClaimJSON; onChanged: () => void; }'.
+src/components/offering/ActivityOfferingsPanel.tsx(342,62): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(345,25): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(366,91): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(370,92): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/ActivityOfferingsPanel.tsx(455,108): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(41,41): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(42,38): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(78,26): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(78,31): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(80,17): error TS2322: Type '{ key: any; row: any; templeEventId: string; activityOfferingId: string; onClaimed: (updated: RosterRow) => void; }' is not assignable to type '{ row: RosterRow; templeEventId: string; activityOfferingId: string; onClaimed: (row: RosterRow) => void; }'.
+  Property 'key' does not exist on type '{ row: RosterRow; templeEventId: string; activityOfferingId: string; onClaimed: (row: RosterRow) => void; }'.
+src/components/offering/FloralRosterScreen.tsx(226,62): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/FloralRosterScreen.tsx(229,25): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(51,34): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(70,21): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(70,24): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(218,65): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(222,69): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(226,74): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(236,66): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(246,98): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(250,95): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(254,71): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(264,65): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(269,68): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(273,74): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(277,74): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/OfferingTypeSettingsScreen.tsx(281,75): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/StoveMasterPanel.tsx(53,46): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/StoveMasterPanel.tsx(54,50): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/StoveMasterPanel.tsx(65,26): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/StoveMasterPanel.tsx(174,20): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/StoveMasterPanel.tsx(182,25): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/offering/UnpaidListScreen.tsx(35,67): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/offering/UnpaidListScreen.tsx(55,26): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/activityOfferings.ts(78,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/activityOfferings.ts(152,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/activityOfferings.ts(177,36): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/activityOfferings.ts(312,39): error TS7006: Parameter 'slot' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(134,55): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(149,25): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(166,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(203,26): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(260,25): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(272,46): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(272,73): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(273,21): error TS7006: Parameter 'slot' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(321,14): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(322,14): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(322,17): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(324,14): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(325,14): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(325,17): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(329,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(387,51): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(448,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(484,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(521,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(558,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(632,36): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(695,52): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(695,55): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(705,50): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(707,49): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(714,42): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(721,62): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(723,50): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(723,53): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(730,66): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(733,54): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(733,59): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(734,48): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(734,90): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(740,45): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(754,59): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(754,62): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/lib/offeringClaims.ts(771,24): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/offeringImport.ts(108,44): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/lib/offeringImport.ts(119,54): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/lib/offeringImport.ts(143,55): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/offeringTypes.ts(206,52): error TS7006: Parameter 'tx' implicitly has an 'any' type.

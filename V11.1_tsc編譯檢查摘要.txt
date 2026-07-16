@@ -1,0 +1,103 @@
+V11.1 tsc --noEmit 全專案編譯檢查摘要
+執行指令：npx tsc --noEmit -p tsconfig.json
+執行時間：2026-07-16
+
+===========================================
+一、整體錯誤碼統計（全專案，含所有既有模組）
+===========================================
+TS7026   4255   缺少 React/JSX 型別環境 —— 套件未安裝（@types/react 等不存在）的連鎖效應，非程式邏輯錯誤
+TS7006    589   隱性 any 參數 —— 同上，套件未安裝的連鎖效應
+TS2307    313   找不到模組 —— @prisma/client 等套件確實未安裝
+TS2591     31   找不到 node:test —— 缺 @types/node，套件未安裝的連鎖效應
+TS18047    28   \
+TS2741     19    \
+TS2339     14     \  以下 112 個錯誤屬於「非套件安裝連鎖噪音」的真實型別錯誤，
+TS2322     13     /  逐檔核對後確認全部落在 V1～V10 既有、本輪（V11.1）未觸碰的檔案內
+TS2503     13    /
+TS2552      7   /
+TS7053      7
+TS5097      5
+TS7031      4
+TS2882      1
+TS2367      1
+-------------------------------------------
+合計非噪音錯誤：112（全部落在既有未觸碰檔案，46 個檔案）
+合計噪音錯誤：5188（TS7026+TS7006+TS2307+TS2591，套件未安裝連鎖效應）
+
+註：本輪整體專案檔案數增加（新增收據中心相關檔案），噪音錯誤總數字面上比
+V11.0.2 當時的 4429 增加，屬於全專案掃描範圍內既有噪音比例的自然變化，
+不代表新增了任何新的邏輯錯誤（見下方第二節逐檔核對，V11.1 新增/修改檔案
+非噪音錯誤全部為 0）。
+
+===========================================
+二、本輪（V11.1）新增／修改檔案的非噪音錯誤逐檔核對
+===========================================
+src/lib/receipt.ts                                              : 0 個非噪音錯誤
+src/lib/receiptRules.ts                                         : 0 個非噪音錯誤
+src/lib/permissions.ts                                          : 0 個非噪音錯誤
+src/lib/recordVersion.ts                                        : 0 個非噪音錯誤
+src/lib/collectionCenter.ts                                     : 0 個非噪音錯誤
+src/lib/labels.ts                                               : 0 個非噪音錯誤
+src/app/page.tsx                                                : 0 個非噪音錯誤
+src/app/receipt-center/page.tsx                                 : 0 個非噪音錯誤
+src/app/receipt-center/pending/page.tsx                         : 0 個非噪音錯誤
+src/app/receipt-center/receipts/page.tsx                        : 0 個非噪音錯誤
+src/app/receipt-center/receipts/[id]/page.tsx                   : 0 個非噪音錯誤
+src/app/receipt-center/receipts/[id]/print/page.tsx             : 0 個非噪音錯誤
+src/app/receipt-center/settings/page.tsx                        : 0 個非噪音錯誤
+src/app/receipt-center/stats/page.tsx                           : 0 個非噪音錯誤
+src/components/receipt/ReceiptHomeCard.tsx                      : 0 個非噪音錯誤
+src/components/receipt/PendingReceiptsScreen.tsx                : 0 個非噪音錯誤
+src/components/receipt/ReceiptListScreen.tsx                    : 0 個非噪音錯誤
+src/components/receipt/ReceiptDetailScreen.tsx                  : 0 個非噪音錯誤
+src/components/receipt/ReceiptPrintView.tsx                     : 0 個非噪音錯誤
+src/components/receipt/ReceiptSettingsScreen.tsx                : 0 個非噪音錯誤
+src/app/api/receipt-center/home-summary/route.ts                : 0 個非噪音錯誤
+src/app/api/receipt-center/pending/route.ts                     : 0 個非噪音錯誤
+src/app/api/receipt-center/issue/route.ts                       : 0 個非噪音錯誤
+src/app/api/receipt-center/allocations/[id]/mark-no-receipt-required/route.ts : 0 個非噪音錯誤
+src/app/api/receipt-center/receipts/route.ts                    : 0 個非噪音錯誤
+src/app/api/receipt-center/receipts/[id]/route.ts               : 0 個非噪音錯誤
+src/app/api/receipt-center/receipts/[id]/print/route.ts         : 0 個非噪音錯誤
+src/app/api/receipt-center/receipts/[id]/void/route.ts          : 0 個非噪音錯誤
+src/app/api/receipt-center/receipts/[id]/reissue/route.ts       : 0 個非噪音錯誤
+src/app/api/receipt-center/stats/route.ts                       : 0 個非噪音錯誤
+src/app/api/receipt-center/numbering-config/route.ts            : 0 個非噪音錯誤
+src/app/api/collection-center/payments/[id]/void/route.ts       : 0 個非噪音錯誤
+src/app/api/collection-center/allocations/[id]/adjustments/route.ts : 0 個非噪音錯誤
+tests/receiptRules.test.ts                                      : 0 個非噪音錯誤
+
+結論：本輪新增／修改的全部檔案，非套件連鎖效應的真實型別錯誤全部為 0。
+
+===========================================
+三、尚未處理、需要誠實列出的既有錯誤（與 V11.0.2 完全相同，未增未減）
+===========================================
+全專案還有 46 個檔案、112 個非噪音型別錯誤，分佈在 V1～V10 既有模組
+（本輪 V11.1 完全未觸碰）。逐檔比對確認：這 46 個檔案、112 個錯誤與
+V11.0.2 交付時完全相同（同一份檔案清單、同一個總數），證明本輪沒有
+在既有模組引入任何新的型別錯誤，也沒有意外修正或掩蓋既有錯誤。
+
+依照專案「不自行擴大修改範圍」的規則，本輪未處理這批既有檔案（超出
+V11.1 收據中心範圍），這點如實標示為「未完成」，與前一輪相同。
+
+===========================================
+四、關於「套件未安裝造成的連鎖噪音」為何無法消除
+===========================================
+TS7026/TS7006/TS2307/TS2591 共 5188 個錯誤的根本原因是這個雲端沙盒環境
+無法連線任何套件庫（registry.npmjs.org 等全部回傳 403/連線被拒），因此
+node_modules 下沒有 @types/react、@types/node、@prisma/client 等套件的
+型別定義。這不是能靠修改程式碼消除的錯誤，必須先能執行 npm install 才能
+讓這批噪音消失。此為沙盒環境的硬性限制，已在 Claude Project 的
+V11.0.2 進度增補文件中記錄，本輪不再重複診斷，僅重新確認結論不變。
+
+===========================================
+五、自動化測試結果
+===========================================
+npx tsx --test tests/*.test.ts
+# tests 206
+# pass 206
+# fail 0
+
+較 V11.0.2 的 160/160 新增 46 個測試，全部來自本輪新增的
+tests/receiptRules.test.ts（收據號碼格式、可開立餘額計算、明細金額驗證、
+補印判斷、國字大寫金額換算等純函式邏輯），206/206 全數通過。

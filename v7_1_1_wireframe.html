@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>台北三玄宮 ERP — 代收待繳回對帳＋月底財務報表 低保真 Wireframe（V7.1.1）</title>
+<style>
+  :root {
+    --bg: #FBF7EE;           /* 暖白 */
+    --primary: #F3E8C9;      /* 淡奶油黃 */
+    --accent: #F0DDC0;       /* 淡杏色 */
+    --secondary: #EFE3B4;    /* 淡菊黃／提醒 */
+    --done: #A9C1AE;         /* 鼠尾草綠／已繳回 */
+    --info: #C7DCE4;         /* 淡湖水藍／資訊 */
+    --unpaid: #E3C7CB;       /* 灰粉玫瑰色／逾期爭議 */
+    --text: #5B5347;
+    --text-light: #8C8375;
+    --card-bg: #FFFDF8;
+    --border: #E9E1CF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+  }
+  header.app-header {
+    padding: 20px 32px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header.app-header h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  header.app-header p { margin: 0; font-size: 13px; color: var(--text-light); }
+  nav.screen-tabs {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 16px 32px; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  nav.screen-tabs button {
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  nav.screen-tabs button.active {
+    background: var(--secondary);
+    border-color: var(--secondary);
+    font-weight: 600;
+  }
+  main { padding: 24px 32px 64px; max-width: 1080px; margin: 0 auto; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .screen-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .screen-desc { font-size: 12px; color: var(--text-light); margin: 0 0 20px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 20px 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(90,80,60,0.04);
+  }
+  .card h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field {
+    flex: 1; min-width: 140px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-light);
+  }
+  .field b { display: block; color: var(--text); font-size: 13px; font-weight: 500; margin-top: 2px; }
+  .btn {
+    display: inline-block;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .btn-primary { background: var(--primary); }
+  .btn-accent { background: var(--accent); }
+  .btn-done { background: var(--done); color: #fff; }
+  .btn-info { background: var(--info); }
+  .btn-ghost { background: var(--card-bg); border: 1px solid var(--border); }
+  .pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pill-secondary { background: var(--secondary); color: var(--text); }
+  .pill-done { background: var(--done); color: #fff; }
+  .pill-unpaid { background: var(--unpaid); color: #6b3f45; }
+  .pill-info { background: var(--info); color: #33505c; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-light); font-weight: 500; font-size: 11px; }
+  .group-header { background: var(--bg); font-weight: 600; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat-box {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px;
+  }
+  .stat-box .label { font-size: 11px; color: var(--text-light); margin-bottom: 6px; }
+  .stat-box .value { font-size: 20px; font-weight: 700; }
+  .note-box {
+    background: var(--info); border-radius: 12px; padding: 12px 14px;
+    font-size: 12px; color: #33505c; margin-top: 8px;
+  }
+  .warn-box {
+    background: var(--unpaid); border-radius: 12px; padding: 12px 14px;
+    font-size: 12px; color: #6b3f45; margin-top: 8px;
+  }
+  .checkbox-row { display: flex; align-items: center; gap: 10px; }
+  .checkbox-row input[type=checkbox] { width: 16px; height: 16px; }
+  .summary-bar {
+    position: sticky; bottom: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px 20px;
+    margin-top: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 -2px 8px rgba(90,80,60,0.06);
+  }
+  .discrepancy-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+  .option-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    background: var(--bg); font-size: 12px;
+  }
+  .option-card b { display: block; font-size: 13px; margin-bottom: 4px; }
+
+  /* ===== A4 報表列印預覽：刻意脫離莫蘭迪色系，改用黑白列印優先樣式 ===== */
+  .a4-wrap {
+    background: #6b6b6b;
+    padding: 32px;
+    border-radius: 8px;
+  }
+  .a4-page {
+    background: #ffffff;
+    color: #000000;
+    width: 100%;
+    max-width: 794px;
+    margin: 0 auto;
+    padding: 48px 56px;
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", monospace, sans-serif;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    border: 1px solid #000;
+  }
+  .a4-page h2 { font-size: 18px; margin: 0 0 2px; text-align: center; }
+  .a4-page .a4-sub { text-align: center; font-size: 12px; margin-bottom: 2px; }
+  .a4-page .a4-meta { text-align: center; font-size: 11px; color: #333; margin-bottom: 20px; }
+  .a4-page hr { border: none; border-top: 1px solid #000; margin: 16px 0; }
+  .a4-page table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .a4-page th, .a4-page td {
+    border: 1px solid #000; padding: 6px 8px; text-align: left;
+  }
+  .a4-page th { background: #eee; font-weight: 700; }
+  .a4-page td.num, .a4-page th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "Courier New", monospace; }
+  .a4-page .section-title { font-size: 13px; font-weight: 700; margin: 18px 0 6px; }
+  .a4-page .footer-note { font-size: 10px; color: #333; margin-top: 24px; display: flex; justify-content: space-between; }
+  .a4-page .stamp-area { border: 1px dashed #000; height: 60px; margin-top: 12px; display:flex; align-items:center; justify-content:center; font-size: 11px; color:#555; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>台北三玄宮 ERP — V7.1.1 低保真 Wireframe</h1>
+  <p>代收待繳回對帳＋月底財務報表規格整合版｜純畫面示意，不代表最終視覺／未串接任何 API</p>
+</header>
+
+<nav class="screen-tabs">
+  <button class="tab-btn active" data-target="s1">① 首頁代收提醒卡</button>
+  <button class="tab-btn" data-target="s2">② 代收對帳／尚未繳回</button>
+  <button class="tab-btn" data-target="s3">③ 逐筆勾選＋確認對帳（含差額）</button>
+  <button class="tab-btn" data-target="s4">④ 首頁月底報表提醒卡</button>
+  <button class="tab-btn" data-target="s5">⑤ A4 月底報表列印預覽</button>
+</nav>
+
+<main>
+
+  <!-- ============ 畫面 1：首頁「代收待繳回」提醒卡 ============ -->
+  <section id="s1" class="screen active">
+    <p class="screen-title">畫面①　首頁「代收待繳回」提醒卡</p>
+    <p class="screen-desc">出現在行政人員登入後的首頁儀表板上，只要有任何 PENDING／PARTIAL／DISPUTED 狀態的代收款項就會顯示，不會因為使用者忽略而自動消失。</p>
+
+    <div class="card" style="border: 1px solid var(--secondary); background: linear-gradient(180deg, #FFFDF8 0%, #FBF3DD 100%);">
+      <div class="row" style="justify-content: space-between; align-items:flex-start;">
+        <div>
+          <span class="pill pill-secondary">代收待繳回</span>
+          <h3 style="margin-top:10px;">尚有代收款項尚未繳回宮方</h3>
+        </div>
+        <button class="btn btn-accent">進入代收對帳 →</button>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="label">尚未繳回總筆數</div>
+          <div class="value">18 筆</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">尚未繳回總金額</div>
+          <div class="value">NT$ 42,600</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">最久未繳回天數</div>
+          <div class="value" style="color:#8a4a52;">12 天</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">有爭議待確認</div>
+          <div class="value">2 筆</div>
+        </div>
+      </div>
+
+      <h3 style="font-size:13px; margin-bottom:8px;">依代收人分組</h3>
+      <table>
+        <tr>
+          <th>代收人</th><th>筆數</th><th>尚未繳回金額</th><th>最久天數</th><th>已提醒次數</th><th></th>
+        </tr>
+        <tr>
+          <td><b>林阿姨</b></td><td>5 筆</td><td>NT$ 16,800</td><td>12 天</td><td>已提醒 4 次</td>
+          <td><span class="pill pill-unpaid">逾期提醒中</span></td>
+        </tr>
+        <tr>
+          <td>陳先生</td><td>7 筆</td><td>NT$ 14,200</td><td>6 天</td><td>已提醒 2 次</td>
+          <td><span class="pill pill-secondary">提醒中</span></td>
+        </tr>
+        <tr>
+          <td>王師姐</td><td>4 筆</td><td>NT$ 8,600</td><td>3 天</td><td>已提醒 1 次</td>
+          <td><span class="pill pill-secondary">提醒中</span></td>
+        </tr>
+        <tr>
+          <td>李會長</td><td>2 筆</td><td>NT$ 3,000</td><td>9 天</td><td>已提醒 3 次</td>
+          <td><span class="pill pill-unpaid">有爭議待確認</span></td>
+        </tr>
+      </table>
+      <div class="note-box">範例文字格式：「<b>林阿姨／5 筆／尚未繳回 16,800 元／最久 12 天／已提醒 4 次</b>」——首頁卡片上每位代收人一行，點擊可直接篩選進入「尚未繳回」子頁籤。</div>
+    </div>
+  </section>
+
+  <!-- ============ 畫面 2：代收對帳／尚未繳回清單 ============ -->
+  <section id="s2" class="screen">
+    <p class="screen-title">畫面②　收款中心「代收對帳」頁籤 — 尚未繳回清單</p>
+    <p class="screen-desc">四個子頁籤：尚未繳回／本次對帳／已繳回紀錄／有爭議待確認。此畫面示意「尚未繳回」子頁籤。</p>
+
+    <div class="row" style="margin-bottom:14px;">
+      <button class="btn btn-primary">尚未繳回（18）</button>
+      <button class="btn btn-ghost">本次對帳（0）</button>
+      <button class="btn btn-ghost">已繳回紀錄</button>
+      <button class="btn btn-ghost">有爭議待確認（2）</button>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">依代收人分組顯示</h3>
+        <div class="row">
+          <span class="field" style="min-width:120px;">篩選代收人<b>全部</b></span>
+          <span class="field" style="min-width:120px;">篩選活動<b>全部</b></span>
+          <span class="field" style="min-width:120px;">篩選年度<b>115 年</b></span>
+        </div>
+      </div>
+
+      <table>
+        <tr>
+          <th style="width:26px;"></th>
+          <th>代收人</th><th>功德主</th><th>付款人</th><th>活動</th><th>金額</th>
+          <th>信眾付款日期</th><th>已提醒次數</th><th>下一次提醒</th><th>繳回狀態</th><th>備註</th>
+        </tr>
+        <tr class="group-header"><td colspan="10">林阿姨（5 筆／NT$ 16,800）</td></tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td>林阿姨</td><td>王大明</td><td>王大明</td><td>年度燈・光明燈</td><td>NT$ 3,600</td>
+          <td>2026-07-03</td><td>4 次</td><td>2026-07-17（週五）</td>
+          <td><span class="pill pill-unpaid">尚未繳回</span></td><td>—</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td>林阿姨</td><td>陳美滿</td><td>陳美滿</td><td>年度燈・太歲燈</td><td>NT$ 3,000</td>
+          <td>2026-07-04</td><td>4 次</td><td>2026-07-17（週五）</td>
+          <td><span class="pill pill-unpaid">尚未繳回</span></td><td>—</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td>林阿姨</td><td>張家全家</td><td>張家全家</td><td>年度燈・全家燈</td><td>NT$ 6,000</td>
+          <td>2026-07-04</td><td>4 次</td><td>2026-07-17（週五）</td>
+          <td><span class="pill pill-unpaid">尚未繳回</span></td><td>—</td>
+        </tr>
+        <tr class="group-header"><td colspan="10">陳先生（7 筆／NT$ 14,200）</td></tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td>陳先生</td><td>李小華</td><td>李小華</td><td>祭改</td><td>NT$ 600</td>
+          <td>2026-07-09</td><td>2 次</td><td>2026-07-17（週五）</td>
+          <td><span class="pill pill-secondary">尚未繳回</span></td><td>已口頭確認會繳回</td>
+        </tr>
+      </table>
+      <div class="note-box">未勾選的款項不會自動消失、不會自動視為已繳回；提醒排程於每週三／五 19:30 自動執行，此清單只呈現目前最新狀態。</div>
+    </div>
+  </section>
+
+  <!-- ============ 畫面 3：逐筆勾選＋確認對帳（含差額情境） ============ -->
+  <section id="s3" class="screen">
+    <p class="screen-title">畫面③　「本次對帳」工作區 — 逐筆勾選＋確認對帳（含差額不符情境）</p>
+    <p class="screen-desc">承畫面②勾選後進入本工作區，即時顯示勾選小計，輸入代收人實際繳回總額後由系統比對，若不相符則出現差額處理選項。</p>
+
+    <div class="card">
+      <h3>本次對帳對象：林阿姨</h3>
+      <table>
+        <tr>
+          <th style="width:26px;"><input type="checkbox" checked></th>
+          <th>功德主</th><th>活動</th><th>原始金額</th><th>本次繳回金額</th><th>累計已繳回</th><th>狀態</th>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked></td>
+          <td>王大明</td><td>年度燈・光明燈</td><td>NT$ 3,600</td>
+          <td><span class="field" style="display:inline-block; padding:4px 8px;">3,600</span></td>
+          <td>NT$ 3,600</td><td><span class="pill pill-done">全額</span></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked></td>
+          <td>陳美滿</td><td>年度燈・太歲燈</td><td>NT$ 3,000</td>
+          <td><span class="field" style="display:inline-block; padding:4px 8px;">1,500</span></td>
+          <td>NT$ 1,500</td><td><span class="pill pill-secondary">部分繳回</span></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" checked></td>
+          <td>張家全家</td><td>年度燈・全家燈</td><td>NT$ 6,000</td>
+          <td><span class="field" style="display:inline-block; padding:4px 8px;">6,000</span></td>
+          <td>NT$ 6,000</td><td><span class="pill pill-done">全額</span></td>
+        </tr>
+      </table>
+
+      <div class="summary-bar">
+        <div>
+          <div style="font-size:12px; color:var(--text-light);">已勾選 3 筆，系統小計</div>
+          <div style="font-size:20px; font-weight:700;">NT$ 11,100</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:12px; color:var(--text-light);">林阿姨本次實際繳回總額（輸入）</div>
+          <div style="font-size:20px; font-weight:700;">NT$ 10,600</div>
+        </div>
+        <button class="btn btn-done">比對金額</button>
+      </div>
+
+      <div class="warn-box">
+        <b>⚠ 差額不符：系統小計 NT$ 11,100，實際繳回 NT$ 10,600，差額 NT$ 500。</b>
+        請選擇以下其中一種處理方式，四個選項都會被完整記錄，不會自動吞掉差額。
+      </div>
+
+      <div class="discrepancy-options">
+        <div class="option-card">
+          <b>(a) 調整勾選範圍</b>
+          回到清單重新勾選，或取消其中一筆改列入下次對帳。
+        </div>
+        <div class="option-card">
+          <b>(b) 標記為有爭議待確認</b>
+          填寫爭議原因，本批次移入「有爭議待確認」子頁籤，暫不入帳。
+        </div>
+        <div class="option-card">
+          <b>(c) 以實際收到金額為準</b>
+          差額 NT$ 500 另立備註，本批次以 NT$ 10,600 入帳，差額保留追蹤。
+        </div>
+        <div class="option-card">
+          <b>(d) 取消本次對帳</b>
+          全部項目退回「尚未繳回」，狀態不變，稍後重新開始。
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:16px; justify-content:flex-end;">
+        <button class="btn btn-ghost">取消</button>
+        <button class="btn btn-accent">依選項送出處理</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 畫面 4：首頁「上月財務報表待對帳」提醒卡 ============ -->
+  <section id="s4" class="screen">
+    <p class="screen-title">畫面④　首頁「上月財務報表待對帳」提醒卡</p>
+    <p class="screen-desc">每月 1 日凌晨系統自動產生上個月報表草稿後，於月初出現在首頁，直到報表被確認／鎖定才消失。</p>
+
+    <div class="card" style="border: 1px solid var(--info); background: linear-gradient(180deg, #FFFDF8 0%, #EAF3F6 100%);">
+      <div class="row" style="justify-content: space-between; align-items:flex-start;">
+        <div>
+          <span class="pill pill-info">月底財務報表</span>
+          <h3 style="margin-top:10px;">115 年 6 月財務報表草稿待對帳</h3>
+          <p style="font-size:12px; color:var(--text-light); margin:4px 0 0;">草稿產生時間：2026-07-01 00:10　報表編號：115-06-FR-0001</p>
+        </div>
+        <button class="btn btn-info">進入報表對帳 →</button>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="label">對帳進度</div>
+          <div class="value">3 / 5 帳戶</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">目前狀態</div>
+          <div class="value" style="font-size:15px;"><span class="pill pill-secondary">待對帳</span></div>
+        </div>
+        <div class="stat-box">
+          <div class="label">尚有差額待說明</div>
+          <div class="value" style="color:#8a4a52;">1 帳戶</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">代收人保管中總額</div>
+          <div class="value">NT$ 8,600</div>
+        </div>
+      </div>
+      <div class="note-box">報表確認與鎖定分開兩個動作：確認完成後仍可由具權限者鎖定，鎖定後不可直接修改，任何後續更正都必須透過跨月調整（PeriodAdjustment）處理。</div>
+    </div>
+  </section>
+
+  <!-- ============ 畫面 5：A4 月底報表列印預覽 ============ -->
+  <section id="s5" class="screen">
+    <p class="screen-title">畫面⑤　A4 月底財務報表列印預覽（黑白列印優先）</p>
+    <p class="screen-desc">此畫面刻意脫離系統畫面的莫蘭迪柔色系，採用黑白為主、等寬數字、清楚框線的列印優先設計，確保黑白印表機輸出時仍然清晰易讀。</p>
+
+    <div class="a4-wrap">
+      <div class="a4-page">
+        <h2>財團法人台北三玄宮　月底財務報表</h2>
+        <div class="a4-sub">報表期間：民國 115 年 6 月 1 日 至 115 年 6 月 30 日</div>
+        <div class="a4-meta">
+          台北市中山區吉林路199巷25號1樓　電話：02-2523-4163　報表編號：115-06-FR-0001　狀態：待對帳（草稿）
+        </div>
+        <hr>
+
+        <div class="section-title">一、財務總覽</div>
+        <table>
+          <tr><th>項目</th><th class="num">金額（新台幣）</th></tr>
+          <tr><td>月初帳面餘額</td><td class="num">312,400</td></tr>
+          <tr><td>本月收入</td><td class="num">186,200</td></tr>
+          <tr><td>本月支出</td><td class="num">54,000</td></tr>
+          <tr><td>月底帳面餘額（系統計算）</td><td class="num">444,600</td></tr>
+          <tr><td>現金餘額</td><td class="num">62,300</td></tr>
+          <tr><td>應收總額 / 已收總額 / 未收總額</td><td class="num">520,000 / 478,600 / 41,400</td></tr>
+          <tr><td>代收人保管中總額（尚未繳回）</td><td class="num">8,600</td></tr>
+          <tr><td>本月已繳回代收款總額</td><td class="num">34,000</td></tr>
+          <tr><td>有爭議待確認金額</td><td class="num">3,600</td></tr>
+          <tr><td>退款金額</td><td class="num">1,200</td></tr>
+          <tr><td>前期調整金額</td><td class="num">0</td></tr>
+        </table>
+
+        <div class="section-title">二、依活動分開統計</div>
+        <table>
+          <tr><th>活動</th><th class="num">應收</th><th class="num">已收</th><th class="num">未收</th></tr>
+          <tr><td>年度燈（光明燈／太歲燈／全家燈）</td><td class="num">280,000</td><td class="num">265,400</td><td class="num">14,600</td></tr>
+          <tr><td>祭改</td><td class="num">42,000</td><td class="num">40,200</td><td class="num">1,800</td></tr>
+          <tr><td>南巡</td><td class="num">96,000</td><td class="num">88,000</td><td class="num">8,000</td></tr>
+          <tr><td>北巡</td><td class="num">60,000</td><td class="num">55,000</td><td class="num">5,000</td></tr>
+          <tr><td>宮慶</td><td class="num">18,000</td><td class="num">18,000</td><td class="num">0</td></tr>
+          <tr><td>普渡（內部類別不對外顯示）</td><td class="num">20,000</td><td class="num">8,000</td><td class="num">12,000</td></tr>
+          <tr><td>補庫</td><td class="num">4,000</td><td class="num">4,000</td><td class="num">0</td></tr>
+        </table>
+
+        <div class="section-title">三、依帳戶對帳</div>
+        <table>
+          <tr><th>帳戶</th><th class="num">期初</th><th class="num">本月收入</th><th class="num">本月支出</th><th class="num">系統計算月底</th><th class="num">實際盤點</th><th class="num">差額</th><th>對帳狀態</th></tr>
+          <tr><td>現金</td><td class="num">50,000</td><td class="num">30,200</td><td class="num">17,900</td><td class="num">62,300</td><td class="num">62,300</td><td class="num">0</td><td>已對帳</td></tr>
+          <tr><td>第一銀行・活期</td><td class="num">262,400</td><td class="num">156,000</td><td class="num">36,100</td><td class="num">382,300</td><td class="num">381,800</td><td class="num">-500</td><td>差額待說明</td></tr>
+        </table>
+
+        <div class="section-title">四、收據統計</div>
+        <table>
+          <tr><th>電子收據開立張數</th><th>作廢張數</th><th>尚未列印張數</th></tr>
+          <tr><td>96</td><td>2</td><td>5</td></tr>
+        </table>
+
+        <div class="stamp-area">經辦　　　　　　覆核　　　　　　主管蓋章欄位</div>
+        <div class="footer-note">
+          <span>本報表為系統自動產生草稿，經行政人員對帳確認並由具權限主管鎖定後始為正式報表。</span>
+          <span>列印時間：2026-07-16　第 1 頁，共 1 頁</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.target).classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

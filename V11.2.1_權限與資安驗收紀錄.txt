@@ -1,0 +1,132 @@
+V11.2.1 權限與資安驗收紀錄
+================================
+對應指令「十五、權限與資安驗收」。
+
+【一、系統管理功能僅限 SUPER_ADMIN——程式碼審查＋既有真實執行驗證】
+
+指令要求以下功能只能由 SUPER_ADMIN 使用：
+  Google Drive 連線 / 中斷連線 / 測試連線 / 立即備份 / 下載備份 /
+  檢查備份 / 還原 / 查看系統敏感 Log / 修改備份設定
+
+逐一確認每支 API route 都呼叫 assertSystemPermissionForOperator()
+（src/lib/operator.ts），伺服器端重新查詢資料庫的 User.role，不信任
+前端傳來的角色文字：
+
+  google-drive/connect      → manageGoogleDriveConnection
+  google-drive/disconnect   → manageGoogleDriveConnection
+  google-drive/test-connection → manageGoogleDriveConnection
+  google-drive/status       → viewSystemCenter
+  backup/run                → runBackup
+  backup/download           → downloadBackup
+  backup/check-integrity    → downloadBackup
+  backup/logs                → viewSystemCenter
+  backup/status               → viewSystemCenter
+  backup/run-status           → viewSystemCenter
+  backup/schedule-status      → viewSystemCenter
+  backup/browse                → viewSystemCenter
+  backup/restore                → restoreBackup（在 restoreFromBackup() 內部檢查，
+                                    route 本身只做欄位格式驗證，權限判斷仍在
+                                    伺服器端完成，未信任前端）
+  health                        → viewSystemCenter
+  settings                      → viewSystemCenter（讀取）/ manageBackupSchedule（修改，
+                                    若適用）
+
+oauth-callback 這支 API 是 Google 完成授權後導回的網址，本質上是瀏覽器
+被動導頁，不會帶 operatorUserId——這支 API 改用 OAuth state（見下方
+CSRF 說明）驗證「是哪個操作人員按下連結按鈕」，不是漏掉權限檢查。
+
+scheduled-trigger（外部排程觸發自動備份）不是給人操作的 API，改用共用
+密鑰 BACKUP_CRON_SECRET 驗證，且未設定這把密鑰時一律拒絕執行（不會
+「沒設定就跳過檢查」）。
+
+**真實執行驗證（tsx，非模擬）**：canSystem() 本身的邏輯（哪個角色能做
+哪個系統管理動作）已在 V11.1.1/V11.2 輪用 v11_1_1_verification/
+verify_system_permissions.ts 做過 31 項真實斷言，5 種角色（SUPER_ADMIN/
+ADMIN/STAFF/READONLY/FINANCE_CLERK）× 6 種系統動作，全部符合「只有
+SUPER_ADMIN 為 true，其餘角色一律 false」，100% 通過（結果存於
+V11.2_權限矩陣真實執行驗證結果.txt）。本輪 SystemAction 清單與判斷邏輯
+未變更，這份既有驗證證據仍然有效。
+
+**未實測部分（誠實揭露）**：以上是「程式碼審查＋邏輯層真實驗證」，
+「用非 SUPER_ADMIN 帳號實際呼叫正式環境 API、確認真的收到 HTTP 403」
+（指令「十六」第 18 項）需要正式環境或至少能啟動 Next.js 伺服器才能做，
+本沙盒因為 node_modules 是空的（npm install 被安全政策擋下），無法啟動
+伺服器實際發送 HTTP 請求驗證，這一項未完成實測。
+
+【二、OAuth CSRF 防護】
+
+src/lib/oauthStateStore.ts：
+  - createPendingOAuthState() 用 crypto.randomBytes(24) 產生一次性亂數
+    state，跟「按下連結按鈕的操作人員名稱」一起暫存在記憶體（10 分鐘
+    TTL）。
+  - consumePendingOAuthState() 驗證後立刻從 Map 刪除（一次性、不能重複
+    使用），且會檢查是否已過期。
+  - oauth-callback route 呼叫 consumePendingOAuthState(state)，找不到
+    對應的 state（代表是偽造或已過期的 callback 請求）一律導回錯誤頁面，
+    不會繼續執行授權流程。
+
+這個機制建立在「單一、長時間執行的 Node process」假設上（Render 免費
+方案的一般網站服務符合這個條件）——如果之後改成多實例/Serverless部署，
+需要改成資料庫或 Redis 等共用儲存，這在程式碼註解中已明確記錄，不是
+被忽略的風險。
+
+【三、Refresh Token 加密】
+
+- 使用 AES-256-GCM（Node 內建 crypto，不需要新套件），金鑰來自環境變數
+  GOOGLE_TOKEN_ENCRYPTION_KEY（32 bytes，可用 hex 或 base64 格式）。
+- 儲存格式：`iv.authTag.ciphertext`（皆為 base64），存於
+  GoogleDriveConnection.refreshTokenCipher 欄位，資料庫內沒有明碼。
+- Client ID/Secret/Redirect URI/Cron Secret/加密金鑰全部只透過環境變數
+  讀取（process.env.XXX），程式碼裡沒有任何寫死的值——已用
+  `grep -rn` 逐一確認 googleDrive.ts、health/route.ts、
+  scheduled-trigger/route.ts 內沒有硬編碼的密鑰字串。
+
+【四、Log 不得寫入 Token；API 回應不得包含 Client Secret】
+
+- 稽核紀錄（recordVersion）呼叫處（handleOAuthCallback／
+  disconnectGoogleDrive）只記錄操作人員名稱、動作類型、變更說明文字，
+  沒有任何一處把 access token／refresh token／Client Secret 當作參數
+  傳入 changeNote。
+- 逐一檢查 system-center 底下所有 API route 的回應內容
+  （NextResponse.json(...)），沒有任何一處回傳 Client Secret 或明碼
+  refresh token；health API 對環境變數只回傳布林值（已設定/未設定），
+  已用程式碼確認 getRequiredEnvVarStatus() 回傳的是
+  `!!process.env[name]`，不是 process.env[name] 本身。
+
+【五、錯誤訊息不得包含完整 DATABASE_URL——本輪發現並修正的實際缺口】
+
+詳見《V11.2.1_GoogleDrive正式環境驗收報告.md》第八節與
+《V11.2.1_備份完整性驗證紀錄.txt》。摘要：
+
+- 發現風險：pg_dump／pg_restore 呼叫時把 DATABASE_URL 當作指令參數，
+  失敗時 Node 的錯誤訊息會整段包含這組連線字串（含密碼），若不處理，
+  會被存進 BackupLog 並顯示在備份紀錄畫面、健康檢查畫面上。
+- 修正：新增 redactSensitive()（src/lib/backupErrorClassifier.ts），
+  套用於 backup.ts／restore.ts／health/route.ts 的所有相關 catch 區塊。
+- **已用 tsx 真實執行驗證**：3 項斷言（隱藏 pg_dump 連線字串／隱藏
+  pg_restore 連線字串／確認不誤刪一般錯誤訊息），全部通過，詳細輸出
+  見 V11.2.1_備份完整性驗證紀錄.txt。
+
+【六、Google Drive File ID 不作為唯一權限驗證方式】
+
+- 下載備份（backup/download）、檢查備份完整性（backup/check-integrity）
+  皆先通過 assertSystemPermissionForOperator() 的角色檢查，才會使用
+  googleDriveFileId 去呼叫 Google Drive API，fileId 本身只是「要操作
+  哪一個檔案」的識別碼，不是身分或權限的證明。
+
+【七、所有敏感操作都需寫入稽核紀錄】
+
+已確認寫入 recordVersion() 稽核紀錄的操作：
+  - Google Drive 連結成功（handleOAuthCallback）
+  - Google Drive 中斷連線（disconnectGoogleDrive，含操作人員名稱）
+  - 還原成功／還原失敗（restoreFromBackup，含操作人員、還原的檔名、
+    還原前保護性備份的檔名）
+
+【誠實總結】
+
+本節列出的項目裡，「加密機制本身」「CSRF 防護邏輯」「敏感資訊過濾」
+「權限矩陣的判斷邏輯」都已經用程式碼審查＋（適用時）真實 tsx 執行驗證
+過，可信度高。「用非 SUPER_ADMIN 帳號實際呼叫正式環境、確認真的收到
+403」「實際觸發 OAuth 流程確認 CSRF 防護在真實瀏覽器情境下有效」這兩項
+需要正式環境或至少能啟動伺服器/瀏覽器才能驗證，本沙盒條件不具備，
+誠實列為未完成實測，不宣稱通過。

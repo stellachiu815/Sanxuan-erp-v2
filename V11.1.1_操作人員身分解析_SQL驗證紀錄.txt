@@ -1,0 +1,116 @@
+====================================================================
+V11.1.1 操作人員身分解析（resolveOperator）SQL 層真實驗證紀錄
+====================================================================
+執行時間：2026-07-16
+執行資料庫：sanxuan_v11_1_fresh（PostgreSQL 16，本機 5432 埠，先前輪次已
+            用來驗證 V11.1 schema migrate deploy 的同一顆資料庫）
+
+【誠實說明：這份紀錄驗證的範圍】
+src/lib/operator.ts 的 resolveOperator(userId) 實際程式碼是：
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) return null;
+    return { id: user.id, name: user.name, role: user.role as Role };
+
+因為這個沙盒環境沒有網路，無法安裝 @prisma/client，所以無法真的透過
+Prisma／Next.js 執行這段 TypeScript 程式碼本身。這裡改用「等價的原始
+SQL」直接對同一顆、同一份 schema 的真實資料庫執行，驗證的是「這個查詢
+模式（依 id 查、檢查 isActive）在真實資料上的行為是否符合預期」，
+不是驗證 TypeScript 程式碼的編譯或執行——程式碼本身的正確性另外由
+V11.1.1_權限矩陣真實執行驗證結果.txt（這份是真的用 tsx 執行
+src/lib/permissions.ts 原始碼，不是模擬）與人工程式碼審查佐證。
+
+【前置作業】先在 sanxuan_v11_1_fresh 直接用 SQL 建立 5 個測試人員
+（對應 prisma/seed.ts 新增的 4 個帳號，外加 1 個「已停用」帳號用來測試
+isActive 檢查）：
+
+INSERT INTO users (id, name, email, role, "isActive", "createdAt", "updatedAt") VALUES
+  ('seed-super-admin', '住持（最高管理員）', 'super@sanxuan.local', 'SUPER_ADMIN', true, now(), now()),
+  ('seed-admin', '管理員 王小明', 'manager@sanxuan.local', 'ADMIN', true, now(), now()),
+  ('seed-staff', '工作人員 陳小華', 'staff@sanxuan.local', 'STAFF', true, now(), now()),
+  ('seed-readonly', '唯讀人員 林小美', 'readonly@sanxuan.local', 'READONLY', true, now(), now()),
+  ('seed-inactive-staff', '已離職人員 測試用', 'inactive@sanxuan.local', 'STAFF', false, now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+結果：INSERT 0 5（成功寫入 5 筆）
+
+--------------------------------------------------------------------
+場景 1：有效且啟用的操作人員（模擬 resolveOperator('seed-super-admin')）
+--------------------------------------------------------------------
+> select id, name, role, "isActive" from users where id = 'seed-super-admin';
+
+        id        |        name        |    role     | isActive
+------------------+--------------------+-------------+----------
+ seed-super-admin | 住持（最高管理員） | SUPER_ADMIN | t
+(1 row)
+
+判讀：user 存在且 isActive=true → resolveOperator() 會回傳
+{ id: 'seed-super-admin', name: '住持（最高管理員）', role: 'SUPER_ADMIN' }，
+符合預期。
+
+--------------------------------------------------------------------
+場景 2：存在但已停用的操作人員
+（模擬 resolveOperator('seed-inactive-staff')，應視同「找不到」）
+--------------------------------------------------------------------
+> select id, name, role, "isActive" from users where id = 'seed-inactive-staff';
+
+         id          |       name        | role  | isActive
+---------------------+-------------------+-------+----------
+ seed-inactive-staff | 已離職人員 測試用 | STAFF | f
+(1 row)
+
+判讀：查詢本身找得到這一列，但 isActive=false，依 resolveOperator() 的
+`if (!user || !user.isActive) return null;` 判斷式，會回傳 null，
+呼叫端（assertReceiptPermissionForOperator）會回 401「找不到有效的
+操作人員身分」。也就是說「已停用的人員」即使拿到舊的 userId 也無法
+再通過任何收據操作的權限檢查——這正是指令要求「未授權者即使直接呼叫
+API，也必須回傳403並拒絕執行」的其中一種情境（人員已離職/停用）。
+
+--------------------------------------------------------------------
+場景 3：不存在的操作人員 id（模擬未授權呼叫端亂傳 userId）
+--------------------------------------------------------------------
+> select id, name, role, "isActive" from users where id = 'not-a-real-user-id';
+
+ id | name | role | isActive
+----+------+------+----------
+(0 rows)
+
+判讀：查無此人，user 為 null，resolveOperator() 回傳 null，
+同樣導致 401。
+
+--------------------------------------------------------------------
+enum 結構確認（延續先前輪次已驗證的 migration 20260716100000）
+--------------------------------------------------------------------
+> \dT+ "Role"
+
+ Schema |  Name  | Internal name | Size |   Elements    |  Owner
+--------+--------+---------------+------+---------------+----------
+ public | "Role" | Role          | 4    | SUPER_ADMIN  +| postgres
+        |        |               |      | STAFF        +|
+        |        |               |      | FINANCE_CLERK+|
+        |        |               |      | ADMIN        +|
+        |        |               |      | READONLY      |
+
+確認 ADMIN／READONLY 兩個新值都已經真的存在於資料庫的 enum 型別裡
+（不是只存在於 TypeScript 型別定義中）。
+
+====================================================================
+結論
+====================================================================
+resolveOperator() 依賴的查詢模式（依 id 查詢＋檢查 isActive）在真實
+PostgreSQL 資料庫上驗證行為正確：有效人員能解析出正確角色、已停用人員
+與不存在的 id 都會導致「視同找不到」。搭配 V11.1.1_權限矩陣真實執行
+驗證結果.txt（真的執行 canReceipt()/canApproveReceiptVoidOrReissue()
+原始碼，20/20 通過）,這兩份合起來涵蓋了「身分解析」與「權限矩陣」兩層
+真正可以在目前沙盒條件下執行驗證的部分。
+
+無法涵蓋的部分（誠實揭露，不迴避）：
+- 無法驗證 Next.js API route 這一層本身（request.json()、
+  NextResponse.json()、路由參數解析）是否正確運作，因為 next 套件
+  沒有安�裝，無法啟動伺服器實際送出 HTTP 請求。
+- 無法驗證 resolveVoidOrReissueParties()／voidReceipt()／
+  reissueReceipt()／markNoReceiptRequired() 這幾個直接依賴
+  @prisma/client 的函式本身的執行結果，只能靠程式碼審查佐證邏輯正確。
+- 這兩點都需要等到「五、正式建置與瀏覽器驗收」提到的其中一種替代方案
+  （具備網路的正式開發環境／CI／Docker／正式測試環境）才能真正補齊，
+  詳見交付報告。

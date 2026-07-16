@@ -1,0 +1,563 @@
+V11.1.1 tsc --noEmit 編譯檢查摘要
+執行時間：2026-07-16
+指令：npx tsc --noEmit
+
+=== 錯誤代碼統計（全專案，含套件安裝連鎖噪音） ===
+   4336 error TS7026
+    600 error TS7006
+    319 error TS2307
+     38 error TS2591
+     25 error TS2741
+     14 error TS2503
+     14 error TS2339
+     10 error TS2322
+      7 error TS7053
+      4 error TS7031
+
+總錯誤行數：5367
+涉及檔案數：248
+
+=== 本輪新增/修改檔案中出現的非噪音錯誤代碼（逐檔列出，用來確認沒有新的真實 bug） ===
+src/app/receipt-center/pending/page.tsx(11,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(12,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(13,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(17,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(17,57): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(18,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(19,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(21,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(22,10): error TS2741: Property 'children' is missing in type '{}' but required in type '{ children: React.ReactNode; }'.
+src/app/receipt-center/pending/page.tsx(31,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/pending/page.tsx(32,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(11,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(12,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(13,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(17,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(17,62): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(18,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(19,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(21,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(22,10): error TS2741: Property 'children' is missing in type '{}' but required in type '{ children: React.ReactNode; }'.
+src/app/receipt-center/receipts/page.tsx(25,40): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/app/receipt-center/receipts/page.tsx(33,49): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/receipt-center/receipts/page.tsx(35,41): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/app/receipt-center/receipts/page.tsx(40,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/receipts/page.tsx(41,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(14,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(15,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(16,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(20,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(20,61): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(21,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(22,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(24,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(25,10): error TS2741: Property 'children' is missing in type '{}' but required in type '{ children: React.ReactNode; }'.
+src/app/receipt-center/settings/page.tsx(33,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/app/receipt-center/settings/page.tsx(34,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(74,18): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(87,18): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(91,51): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(92,73): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(124,38): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(177,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(178,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(179,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(183,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(183,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(185,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(189,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(189,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(191,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(194,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(194,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(196,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(196,34): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(197,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(197,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(198,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(198,59): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(199,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(199,48): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(200,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(200,42): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(201,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(202,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(205,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(205,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(207,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(207,34): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(208,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(208,34): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(209,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(209,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(210,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(210,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(211,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(211,35): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(212,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(212,35): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(213,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(214,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(216,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(217,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(219,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(219,94): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(220,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(220,61): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(222,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(223,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(224,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(225,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(226,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(226,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(227,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(227,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(228,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(228,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(229,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(229,44): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(230,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(230,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(231,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(231,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(232,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(232,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(233,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(233,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(234,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(234,47): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(235,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(235,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(236,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(236,44): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(237,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(237,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(238,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(239,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(240,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(241,24): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(242,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(243,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(244,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(245,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(246,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(250,42): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(250,82): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(251,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(252,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(252,93): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(253,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(253,56): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(254,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(255,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(255,37): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(256,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(256,114): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(257,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(258,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(258,89): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(259,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(259,88): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(260,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(260,88): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(261,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(262,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(269,32): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/PendingReceiptsScreen.tsx(271,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(272,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(272,97): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(273,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(273,69): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(274,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(275,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(282,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(283,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(284,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(287,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(288,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(290,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(291,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(293,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(294,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(295,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(298,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(299,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(301,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(302,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(303,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(310,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(311,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(318,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(319,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(320,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/PendingReceiptsScreen.tsx(332,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(59,17): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/components/receipt/ReceiptDetailScreen.tsx(175,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(176,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(177,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(178,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(178,85): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(179,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(181,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(182,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(183,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(186,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(187,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(187,96): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(188,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(193,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(194,35): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(194,100): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(195,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(197,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(198,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(198,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(199,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(200,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(201,33): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/components/receipt/ReceiptDetailScreen.tsx(202,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(203,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(203,50): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(204,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(204,87): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(205,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(207,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(208,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(209,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(211,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(211,94): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(213,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(214,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(221,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(222,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(229,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(230,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(237,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(239,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(246,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(248,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(251,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(252,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(252,39): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(253,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(253,98): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(254,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(254,49): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(255,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(259,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(260,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(260,42): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(261,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(287,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(293,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(296,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(302,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(305,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(306,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(306,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(307,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(308,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(309,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(310,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(310,38): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(311,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(311,38): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(312,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(312,38): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(313,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(313,38): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(314,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(315,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(316,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(317,29): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/components/receipt/ReceiptDetailScreen.tsx(318,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(319,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(319,79): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(320,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(320,87): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(321,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(321,62): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(322,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(322,55): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(323,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(326,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(327,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(329,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(330,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(332,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(333,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(334,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptDetailScreen.tsx(335,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(68,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(69,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(70,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(74,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(74,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(76,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(80,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(80,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(82,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(86,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(86,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(88,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(91,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(91,40): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(93,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(93,32): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(94,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(94,37): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(95,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(95,37): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(96,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(96,39): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(97,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(97,51): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(98,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(99,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(101,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(102,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(104,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(104,94): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(105,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(105,61): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(107,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(108,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(109,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(110,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(111,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(111,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(112,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(112,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(113,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(113,44): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(114,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(114,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(115,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(115,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(116,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(116,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(117,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(117,44): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(118,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(118,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(119,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(119,45): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(120,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(120,43): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(121,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(122,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(123,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(124,24): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/components/receipt/ReceiptListScreen.tsx(125,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(126,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(126,67): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(127,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(127,98): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(128,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(128,56): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(129,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(129,58): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(130,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(130,84): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(131,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(135,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(136,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(136,67): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(137,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(138,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(140,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(141,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(142,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(142,59): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(143,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(147,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(148,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(151,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(152,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(154,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(155,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(157,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(158,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(159,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptListScreen.tsx(160,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(69,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(70,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(71,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(71,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(72,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(72,65): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(73,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(73,70): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(74,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(76,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(77,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(79,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(82,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(82,39): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(84,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(86,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(88,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(91,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(91,39): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(94,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(96,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(98,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(99,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(101,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(103,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(109,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(109,39): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(111,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(113,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(115,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(118,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(118,39): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(121,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(123,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(125,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(126,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(128,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(130,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(135,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(135,39): error TS7006: Parameter 'f' implicitly has an 'any' type.
+src/components/receipt/ReceiptSettingsScreen.tsx(137,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(139,21): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(139,96): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(141,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(143,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(146,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(152,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(154,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(157,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(158,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptSettingsScreen.tsx(159,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(87,6): error TS2741: Property 'children' is missing in type '{ title: string; onClose: () => void; }' but required in type 'ModalProps'.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(88,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(90,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(91,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(91,60): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(92,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(92,72): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(93,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(96,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(97,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(97,47): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(98,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(102,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(105,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(108,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(109,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(109,69): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(111,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(115,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(116,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(116,55): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(117,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(121,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(123,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(125,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(126,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(126,69): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(127,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(130,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(132,15): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(132,39): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(134,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(137,17): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(139,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(140,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(143,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(143,56): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(145,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(146,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(148,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(149,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(151,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(152,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/receipt/ReceiptVoidReissueDialog.tsx(153,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(17,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(18,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(18,47): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(20,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(20,46): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(22,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(22,51): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(24,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(26,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/system/OperatorBar.tsx(29,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(29,35): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(31,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(33,13): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(35,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(38,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(40,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(43,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(43,80): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/OperatorBar.tsx(45,5): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(43,6): error TS2741: Property 'children' is missing in type '{ title: string; onClose: () => void; }' but required in type 'ModalProps'.
+src/components/system/ReasonDialog.tsx(44,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(45,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(46,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(46,48): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(47,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(51,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/system/ReasonDialog.tsx(54,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(55,19): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(55,56): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(56,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(57,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(59,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(60,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(62,11): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(63,9): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/components/system/ReasonDialog.tsx(64,7): error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+src/lib/operatorClient.tsx(39,60): error TS2503: Cannot find namespace 'React'.
+src/lib/operatorClient.tsx(90,51): error TS7006: Parameter 't' implicitly has an 'any' type.
+src/lib/operatorClient.tsx(92,36): error TS7006: Parameter 'u' implicitly has an 'any' type.
+src/lib/receipt.ts(271,11): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/receipt.ts(274,20): error TS7006: Parameter 'adj' implicitly has an 'any' type.
+src/lib/receipt.ts(275,20): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(275,23): error TS7006: Parameter 'adj' implicitly has an 'any' type.
+src/lib/receipt.ts(279,20): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/lib/receipt.ts(280,20): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(280,23): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/lib/receipt.ts(303,14): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/lib/receipt.ts(318,16): error TS7006: Parameter 'adj' implicitly has an 'any' type.
+src/lib/receipt.ts(319,16): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(319,19): error TS7006: Parameter 'adj' implicitly has an 'any' type.
+src/lib/receipt.ts(323,16): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/lib/receipt.ts(324,16): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(324,19): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/lib/receipt.ts(375,53): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(529,54): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(610,38): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(623,28): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/lib/receipt.ts(711,14): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(711,63): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/receipt.ts(712,14): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(739,36): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(851,38): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(864,28): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/lib/receipt.ts(953,57): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/receipt.ts(1054,43): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(1054,46): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/receipt.ts(1083,35): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1084,35): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1085,46): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1089,44): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1097,41): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(1097,44): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1097,74): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/lib/receipt.ts(1098,42): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1129,55): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(1129,58): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1133,63): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(1133,66): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/lib/receipt.ts(1164,44): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/lib/receipt.ts(1164,83): error TS7006: Parameter 'n' implicitly has an 'any' type.
+src/lib/receipt.ts(1165,54): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/receipt.ts(1165,57): error TS7006: Parameter 'l' implicitly has an 'any' type.
+
+=== 判讀 ===
+以上全部都是已知的套件安裝連鎖噪音代碼（TS7026/TS7006/TS2741/TS2503，
+見交付報告「一」的分類表），沒有出現任何新的、非噪音的錯誤類別。

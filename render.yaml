@@ -1,0 +1,129 @@
+# Render Blueprint —— 一次定義「網站服務」與「PostgreSQL 資料庫」兩個服務。
+#
+# 使用方式（Render 網站上操作，不需要 Terminal）：
+# 1. 把這個專案上傳到一個 GitHub repo（可以用 GitHub 網頁版 "Add file → Upload files" 拖拉上傳，
+#    不需要會用 git 指令；記得不要上傳 node_modules、.next、.git 這幾個資料夾）。
+# 2. 到 https://dashboard.render.com 註冊/登入帳號。
+# 3. 右上角「New +」→「Blueprint」→ 選擇剛剛的 GitHub repo。
+# 4. Render 會自動讀到這個檔案，同時建立「sanxuan-erp」網站服務與「sanxuan-erp-db」
+#    PostgreSQL 資料庫，並自動把資料庫連線字串設定成網站的 DATABASE_URL 環境變數。
+# 5. 按「Apply」，等待幾分鐘完成部署，Render 會給一個 https://sanxuan-erp-xxxx.onrender.com
+#    的網址，這就是可以直接測試的線上網址。
+# 6. 之後每次把新的程式碼 push 到這個 GitHub repo 的預設分支，Render 會自動重新部署
+#    （這就是「更新方式」）。
+#
+# 首次部署完成後，如果想要載入 F00009 王家的測試種子資料，可以到 Render 網站服務頁面的
+# 「Shell」分頁，執行一次：npm run seed
+#
+# ============================================================
+# V11.2「系統管理中心 — 備份與還原中心」新增的部署注意事項
+# ============================================================
+#
+# 【重要：pg_dump／pg_restore／zip／unzip 這幾個系統工具，Render 的
+# 「runtime: node」（Render 官方管理的 Node 執行環境）預設不一定有安裝】
+# 備份/還原功能（src/lib/backup.ts／src/lib/restore.ts）需要呼叫這幾個
+# 命令列工具，而不是 npm 套件。如果部署後「立即備份」出現找不到指令的
+# 錯誤，代表目前的 Render 執行環境沒有這些工具，需要改用「Docker」型
+# 服務並自訂 Dockerfile，在建置時安裝 postgresql-client 與 zip：
+#
+#   # Dockerfile 範例（改用 Docker 型服務時使用）：
+#   FROM node:20-slim
+#   RUN apt-get update && apt-get install -y postgresql-client-16 zip unzip && rm -rf /var/lib/apt/lists/*
+#   WORKDIR /app
+#   COPY . .
+#   RUN npm install && npm run build
+#   CMD npm run backup:before-update && npm run migrate:deploy && npm run start
+#
+# 改用 Dockerfile 時，把下面 web service 的 `runtime: node` 改成
+# `runtime: docker`，並移除 buildCommand/startCommand（改由 Dockerfile
+# 的 CMD 決定）。這是本輪交付報告裡明確列出的「建議事項」，不是本輪已經
+# 完成的變更——是否要改成 Docker 型服務，屬於部署方式的重大變更，需要
+# 使用者確認後才實際切換，這裡先保留原本的 `runtime: node`。
+#
+# 【新增環境變數（Google Drive 授權＋排程觸發用）】
+# 這些必須在 Render 網站服務的 Environment 分頁手動新增（Blueprint 不會
+# 自動產生，因為值本身要保密，不能寫在這個檔案裡）：
+#   GOOGLE_OAUTH_CLIENT_ID          Google Cloud Console 建立的 OAuth 用戶端 ID
+#   GOOGLE_OAUTH_CLIENT_SECRET      對應的用戶端密碼
+#   GOOGLE_OAUTH_REDIRECT_URI       例如 https://sanxuan-erp-xxxx.onrender.com/api/system-center/google-drive/oauth-callback
+#   GOOGLE_TOKEN_ENCRYPTION_KEY     32 bytes 的加密金鑰（可用 `openssl rand -hex 32` 產生）
+#   BACKUP_CRON_SECRET              排程觸發 API 的共用密鑰（可用 `openssl rand -hex 32` 產生）
+# 詳細的 Google Cloud Console 設定步驟見
+# 「V11.2_Google雲端硬碟串接設定說明.md」。
+#
+# 【每日/每週/每月自動備份的排程觸發方式】
+# Render 目前只有付費方案才提供「Cron Job」服務類型；免費方案沒有
+# 內建排程能力。因此本輪把「排程本身」設計成一支受保護的 API
+# （POST /api/system-center/backup/scheduled-trigger?type=daily，需要帶
+# 正確的 BACKUP_CRON_SECRET），交給下面任一種外部排程來源在正確時間呼叫：
+#   1. 若升級 Render 付費方案：在 Render 主控台另外新增一個
+#      type: cron 的服務，排程時間依需求「五」「六」「七」設定
+#      （02:00／週日 03:00／每月一號 04:00），command 用
+#      `curl -X POST https://.../api/system-center/backup/scheduled-trigger?type=daily -H "x-backup-cron-secret: $BACKUP_CRON_SECRET"`。
+#   2. 若維持免費方案：可以改用外部免費排程服務（例如
+#      cron-job.org、GitHub Actions 排程 workflow）定時對上面這支 API
+#      發送 POST 請求——這個方式還有一個額外好處：Render 免費方案的
+#      網站服務閒置一段時間會「休眠」，外部排程服務送出的這個 HTTP
+#      請求本身就會把服務喚醒，不需要另外處理「服務睡著了排程就不會
+#      執行」的問題。
+# 這是本輪的建議與程式碼準備（API 端點已經完成），實際排程來源要選哪一種、
+# 何時申請，需要使用者決定，屬於重大修改需要另外確認的範圍。
+#
+# ============================================================
+# V11.2.1「更新前備份」順序與重複執行檢查（對應指令「十三」）
+# ============================================================
+#
+# 【執行順序】startCommand 的順序本來就是「先備份 → 再 migrate → 再啟動」
+# （`npm run backup:before-update && npm run migrate:deploy && npm run
+# start`），符合指令「十三、2. 正確順序」的要求，本輪檢查後確認沒有問題，
+# 不需要調整。
+#
+# 【真正部署 vs 單純重啟】startCommand 在 Render 免費方案上，服務從休眠
+# 喚醒或手動按 Restart 也會重新執行一次，不是只有「推送新程式碼」才會
+# 執行——`scripts/preDeployBackup.ts` 這一輪新增了比對 `RENDER_GIT_COMMIT`
+# 環境變數（Render 官方在每次真正部署時會設定/更新這個值）跟上次成功
+# 備份時記錄的 commit 是否相同來分辨兩者，詳見該檔案開頭註解。如果目前
+# 使用的 Render 方案/服務類型沒有提供這個環境變數，程式會印出警告並改採
+# 「不確定就備份」的保守預設（見指令「十三、7.」的要求）。
+
+services:
+  - type: web
+    name: sanxuan-erp
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: npm run backup:before-update && npm run migrate:deploy && npm run start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sanxuan-erp-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      # 下面這幾個 Google Drive／排程觸發用的環境變數，請到 Render 網站
+      # 服務的 Environment 分頁手動新增實際的值（見上方說明），這裡先
+      # 列出需要的變數名稱，值留白：
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: BACKUP_CRON_SECRET
+        sync: false
+      # 首次部署、資料庫尚為空、還沒有機會登入系統完成 Google Drive
+      # 授權時，暫時設成 "1" 跳過「更新前備份」，否則部署會因為備份失敗
+      # （找不到 Google Drive 連線）而卡住；完成 Google Drive 連結後，
+      # 記得把這個環境變數刪掉或改回非 "1"，之後每次更新才會真的執行
+      # 更新前備份（見 scripts/preDeployBackup.ts 的說明）。
+      - key: SKIP_PRE_DEPLOY_BACKUP
+        value: "1"
+
+databases:
+  - name: sanxuan-erp-db
+    plan: free
+    databaseName: sanxuan_erp
+    user: sanxuan

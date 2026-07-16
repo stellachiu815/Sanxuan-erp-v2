@@ -1,0 +1,133 @@
+Pager usage is off.
+Timing is off.
+=== 場景A：建立測試信眾（陳大文） ===
+INSERT 0 1
+INSERT 0 1
+=== 場景B：小福壽龜認捐（單價覆蓋為3000元，模擬合併收款情境「龜3000」）===
+INSERT 0 1
+=== 場景C：花果供品認捐（另一個尚未認捐的農曆日期，模擬「花果1500」）===
+INSERT 0 1
+=== 場景D：收款中心自建「其他臨時應收項目」（模擬「油香捐獻600」，因該來源尚未串接，用 MANUAL 代替）===
+INSERT 0 1
+=== 場景E：合併收款——陳大文一次付清 3000+1500+600=5100 元，只建立一筆 PaymentTransaction ===
+--- 比照 src/lib/collectionCenter.ts createMergedPaymentTransaction() 的序號產生邏輯：查詢目前年度筆數+1 ---
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+=== 驗證①：一筆真實收款事件只有一筆 PaymentTransaction，底下三筆分配，金額加總=5100 ===
+ transactionNo | totalAmount |  status   
+---------------+-------------+-----------
+ PT-115-000001 |     5100.00 | COMPLETED
+(1 row)
+
+   sourceType   |                 sourceLabel                 | amount  
+----------------+---------------------------------------------+---------
+ OFFERING_CLAIM | 小福壽龜－陳大文（115年度宮慶）             | 3000.00
+ OFFERING_CLAIM | 花果供品－陳大文（115年度宮慶・農曆4月1日） | 1500.00
+ MANUAL         | 臨時捐獻－陳大文（115年度）                 |  600.00
+(3 rows)
+
+ allocation_sum 
+----------------
+        5100.00
+(1 row)
+
+=== 驗證②：OfferingClaim 的收款分錄真的寫進 offering_payments（唯一真實來源，不是另一套資料）===
+        id         | sponsorNameSnapshot | amountPaid | paymentStatus 
+-------------------+---------------------+------------+---------------
+ OC_SMALL_TURTLE_2 | 陳大文              |    3000.00 | PAID
+ OC_FLORAL_2       | 陳大文              |    1500.00 | PAID
+(2 rows)
+
+        id        |  offeringClaimId  |  kind   | amount  |                   note                   
+------------------+-------------------+---------+---------+------------------------------------------
+ OP_TURTLE_MERGED | OC_SMALL_TURTLE_2 | PAYMENT | 3000.00 | [全宮共用收款中心合併收款 PT-115-000001]
+ OP_FLORAL_MERGED | OC_FLORAL_2       | PAYMENT | 1500.00 | [全宮共用收款中心合併收款 PT-115-000001]
+(2 rows)
+
+=== 驗證③：ManualReceivable 已收清 ===
+  id  |  title   | amountPaid | status 
+------+----------+------------+--------
+ MR_1 | 臨時捐獻 |     600.00 | PAID
+(1 row)
+
+=== 驗證④：financeSourceKey 三筆皆不同，且欄位有 unique 限制（防重複入帳預留機制）===
+           financeSourceKey            
+---------------------------------------
+ OFFERING_CLAIM:OC_SMALL_TURTLE_2:PT_1
+ OFFERING_CLAIM:OC_FLORAL_2:PT_1
+ MANUAL:MR_1:PT_1
+(3 rows)
+
+=== 場景F：整筆收款登錄錯誤——作廢整筆交易（需求「退款/轉款」第四選項），沖銷所有分配 ===
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+UPDATE 1
+UPDATE 1
+INSERT 0 3
+UPDATE 1
+=== 驗證⑤：作廢後——原始 PAYMENT 分錄仍保留（不得刪除），只是新增 REFUND 分錄沖銷；三筆來源金額都回到 0 ===
+        id        |  offeringClaimId  |  kind   | amount  
+------------------+-------------------+---------+---------
+ OP_FLORAL_MERGED | OC_FLORAL_2       | PAYMENT | 1500.00
+ OP_FLORAL_VOID   | OC_FLORAL_2       | REFUND  | 1500.00
+ OP_TURTLE_MERGED | OC_SMALL_TURTLE_2 | PAYMENT | 3000.00
+ OP_TURTLE_VOID   | OC_SMALL_TURTLE_2 | REFUND  | 3000.00
+(4 rows)
+
+        id         | amountPaid | paymentStatus 
+-------------------+------------+---------------
+ OC_SMALL_TURTLE_2 |       0.00 | UNPAID
+ OC_FLORAL_2       |       0.00 | UNPAID
+(2 rows)
+
+  id  | amountPaid | status 
+------+------------+--------
+ MR_1 |       0.00 | UNPAID
+(1 row)
+
+ status |         voidReason         
+--------+----------------------------
+ VOIDED | 登錄錯誤，信眾實際尚未付款
+(1 row)
+
+ adjustment_count 
+------------------
+                3
+(1 row)
+
+=== 場景G：代收與代收對帳 ===
+INSERT 0 1
+--- 代收人「王委員」目前待繳回總額 ---
+ agentName | expected_amount 
+-----------+-----------------
+ 王委員    |         2000.00
+(1 row)
+
+--- 對帳：實際繳回1900元，與應繳回2000元有差異，必須填寫差異原因 ---
+INSERT 0 1
+UPDATE 1
+ agentName | periodLabel | expectedAmount | actualAmount | differenceAmount |       differenceReason        
+-----------+-------------+----------------+--------------+------------------+-------------------------------
+ 王委員    | 115年7月    |        2000.00 |      1900.00 |          -100.00 | 路途遺失100元，已口頭告知住持
+(1 row)
+
+ transactionNo | agentRemittanceStatus 
+---------------+-----------------------
+ PT-115-000002 | RECONCILED
+(1 row)
+
+=== 場景H：月結報表彙總資料來源查詢（模擬 getMonthlyCollectionReport 的彙總邏輯）===
+  status   | count |   sum   
+-----------+-------+---------
+ COMPLETED |     1 | 2000.00
+ VOIDED    |     1 | 5100.00
+(2 rows)
+

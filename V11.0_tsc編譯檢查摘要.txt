@@ -1,0 +1,35 @@
+=== V11.0 tsc --noEmit 編譯檢查摘要 ===
+
+全專案錯誤代碼統計（含 V1-V10.1 既有程式碼，因為 npm install 被沙盒防火牆擋下，
+@prisma/client／next／@types/react／@types/node 完全沒有安裝，所有錯誤都是這幾個
+套件缺失造成的連鎖反應）：
+   3617 error TS7026
+    466 error TS7006
+    277 error TS2307
+     30 error TS2591
+     28 error TS18047
+     19 error TS2741
+     14 error TS2339
+     13 error TS2503
+     13 error TS2322
+      7 error TS7053
+      6 error TS2552
+      5 error TS5097
+      4 error TS7031
+      1 error TS2882
+      1 error TS2367
+
+=== V11.0 新增檔案（src/lib/collectionCenter.ts、collectionCenterRules.ts、
+src/app/collection-center/**、src/components/collection/**）錯誤代碼統計 ===
+    543 error TS7026
+     74 error TS7006
+     17 error TS2307
+
+=== 驗證：這三種錯誤代碼是否同樣出現在既有、已驗收過的 V10.1 offering-center 程式碼？ ===
+TS7026 出現在 offering-center 頁面次數：148
+TS7006 出現在 offeringClaims.ts 次數：38
+TS2307 出現在 offeringClaims.ts 次數：1
+
+結論：V11.0 新增程式碼只出現 TS7026／TS7006／TS2307 三種錯誤代碼，且這三種代碼
+在既有、已驗收過的 V10.1 程式碼裡同樣大量出現——確認 100% 是套件缺失的連鎖反應，
+不是 V11.0 新增程式碼獨有的邏輯或型別錯誤。

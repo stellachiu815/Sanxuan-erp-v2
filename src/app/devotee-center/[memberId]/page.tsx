@@ -1,0 +1,759 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState, use as usePromise } from "react";
+import { OperatorProvider, useOperator } from "@/lib/operatorClient";
+import { canDevotee } from "@/lib/permissions";
+import OperatorBar from "@/components/system/OperatorBar";
+import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
+import { DEVOTEE_INTERACTION_TYPE_LABEL } from "@/components/devotee/labels";
+
+type Overview = {
+  basic: {
+    memberId: string;
+    name: string;
+    gender: string | null;
+    role: string;
+    solarBirthDate: string | null;
+    lunarBirthDisplay: string | null;
+    zodiac: string | null;
+    isDeceased: boolean;
+    deceasedAt: string | null;
+    isDisabled: boolean;
+    mobile: string | null;
+    lineId: string | null;
+    email: string | null;
+    companyName: string | null;
+    personalNote: string | null;
+    careFlag: boolean;
+    householdName: string;
+    householdPhone: string | null;
+    householdAddress: string | null;
+  };
+  household: {
+    id: string;
+    name: string;
+    contactName: string | null;
+    phone: string | null;
+    address: string | null;
+    members: { memberId: string; name: string; role: string; isPrimaryContact: boolean; isDeceased: boolean }[];
+  };
+  tags: { assignmentId: string; tagId: string; name: string; isActive: boolean }[];
+  rituals: { ritualRecordId: string; activityName: string; year: number; amount: number; paymentStatus: string; receiptNumbers: string[] }[];
+  purifications: { entryId: string; year: number; amount: number; paymentStatus: string; receiptNumbers: string[] }[];
+  offerings: { claimId: string; year: number; offeringName: string; amount: number; paymentStatus: string; receiptNumbers: string[]; isCollected: string }[];
+  payments: { transactionId: string; transactionNo: string; paidOn: string; items: string; totalAmount: number; status: string }[];
+  receipts: { receiptId: string; receiptNumber: string | null; issuedDate: string; amount: number; status: string }[];
+  donationStats: {
+    thisYearTotal: { received: number; due: number; unpaid: number };
+    allTimeTotal: { received: number; due: number; unpaid: number };
+    byCategory: Record<string, { thisYear: { received: number; due: number; unpaid: number }; allTime: { received: number; due: number; unpaid: number }; hasData: boolean }>;
+    note: string;
+  };
+  activityStats: { firstActivityAt: string | null; lastActivityAt: string | null; totalCount: number; last1YearCount: number; inactiveOver1Year: boolean };
+  timeline: { date: string; type: string; description: string }[];
+  interactions: { id: string; interactionType: string; occurredAt: string; content: string; followUp: string | null; nextContactDate: string | null; createdByName: string | null }[];
+};
+
+const TABS = ["總覽", "時間軸", "活動", "收款", "收據", "供品", "祭祀與祭改", "家戶成員", "互動紀錄"] as const;
+
+function DevoteeDetailInner({ memberId }: { memberId: string }) {
+  const { operatorUserId, operatorUser } = useOperator();
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<(typeof TABS)[number]>("總覽");
+  const [reloadTick, setReloadTick] = useState(0);
+
+  useEffect(() => {
+    if (!operatorUserId) return;
+    fetch(`/api/devotee-center/${memberId}?operatorUserId=${encodeURIComponent(operatorUserId)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "載入失敗");
+        return res.json();
+      })
+      .then((d) => {
+        setOverview(d.overview);
+        setError(null);
+      })
+      .catch((e) => setError(e.message));
+  }, [operatorUserId, memberId, reloadTick]);
+
+  if (error) return <div className="rounded-3xl bg-blossom-100 p-6 text-sm text-ink">{error}</div>;
+  if (!overview) return <p className="text-sm text-ink-faint">載入中…</p>;
+
+  const b = overview.basic;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg text-ink">
+              {b.name}
+              {b.isDeceased && <span className="ml-2 rounded-full bg-cream-300 px-2 py-0.5 text-xs">已往生</span>}
+              {b.isDisabled && <span className="ml-2 rounded-full bg-blossom-200 px-2 py-0.5 text-xs">停用</span>}
+              {b.careFlag && <span className="ml-2 rounded-full bg-blossom-100 px-2 py-0.5 text-xs">需要關懷</span>}
+            </h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              {b.householdName}・{b.mobile || b.householdPhone || "無電話"}・{b.householdAddress || "無地址"}
+            </p>
+            <p className="mt-1 text-xs text-ink-faint">
+              {b.solarBirthDate || b.lunarBirthDisplay || "無生日資料"}
+              {b.zodiac ? `・生肖 ${b.zodiac}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {overview.tags.map((t) => (
+              <TagChip
+                key={t.assignmentId}
+                name={t.name}
+                isActive={t.isActive}
+                tagId={t.tagId}
+                memberId={memberId}
+                operatorUserId={operatorUserId}
+                canManage={operatorUser?.role ? canDevotee(operatorUser.role, "applyTag") : false}
+                onChanged={() => setReloadTick((tk) => tk + 1)}
+              />
+            ))}
+          </div>
+        </div>
+        {operatorUser?.role && canDevotee(operatorUser.role, "applyTag") && (
+          <TagPicker memberId={memberId} operatorUserId={operatorUserId} existingTagIds={overview.tags.map((t) => t.tagId)} onChanged={() => setReloadTick((tk) => tk + 1)} />
+        )}
+      </section>
+
+      <div className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`rounded-full px-4 py-1.5 text-sm transition ${tab === t ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft hover:bg-cream-200"}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+        {tab === "總覽" && (
+          <OverviewTab
+            overview={overview}
+            operatorRole={operatorUser?.role}
+            memberId={memberId}
+            operatorUserId={operatorUserId}
+            onChanged={() => setReloadTick((t) => t + 1)}
+          />
+        )}
+        {tab === "時間軸" && <TimelineTab items={overview.timeline} />}
+        {tab === "活動" && <ActivitiesTab rituals={overview.rituals} stats={overview.activityStats} />}
+        {tab === "收款" && <PaymentsTab payments={overview.payments} />}
+        {tab === "收據" && <ReceiptsTab receipts={overview.receipts} />}
+        {tab === "供品" && <OfferingsTab offerings={overview.offerings} />}
+        {tab === "祭祀與祭改" && <PurificationsTab purifications={overview.purifications} />}
+        {tab === "家戶成員" && <HouseholdTab household={overview.household} />}
+        {tab === "互動紀錄" && (
+          <InteractionsTab
+            memberId={memberId}
+            interactions={overview.interactions}
+            operatorUserId={operatorUserId}
+            onChanged={() => setReloadTick((t) => t + 1)}
+          />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Money({ n }: { n: number }) {
+  return <>{n.toLocaleString("zh-Hant")}</>;
+}
+
+/** 已套用的單一標籤，可管理者可移除套用（對應指令「八」，applyTag）。 */
+function TagChip({
+  name,
+  isActive,
+  tagId,
+  memberId,
+  operatorUserId,
+  canManage,
+  onChanged,
+}: {
+  name: string;
+  isActive: boolean;
+  tagId: string;
+  memberId: string;
+  operatorUserId: string | null;
+  canManage: boolean;
+  onChanged: () => void;
+}) {
+  async function remove() {
+    if (!operatorUserId) return;
+    await fetch(`/api/devotee-center/${memberId}/tags/${tagId}?operatorUserId=${encodeURIComponent(operatorUserId)}`, { method: "DELETE" });
+    onChanged();
+  }
+
+  return (
+    <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${isActive ? "bg-yolk-100 text-ink-soft" : "bg-cream-200 text-ink-faint line-through"}`}>
+      {name}
+      {canManage && (
+        <button onClick={remove} className="text-ink-faint hover:text-ink" title="移除標籤">
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** 套用既有標籤到這位信眾（下拉選單挑選尚未套用的標籤）。 */
+function TagPicker({
+  memberId,
+  operatorUserId,
+  existingTagIds,
+  onChanged,
+}: {
+  memberId: string;
+  operatorUserId: string | null;
+  existingTagIds: string[];
+  onChanged: () => void;
+}) {
+  const [allTags, setAllTags] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
+  const [selected, setSelected] = useState("");
+
+  useEffect(() => {
+    if (!operatorUserId) return;
+    fetch(`/api/devotee-center/tags?operatorUserId=${encodeURIComponent(operatorUserId)}&includeInactive=0`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => setAllTags(d?.tags ?? []))
+      .catch(() => setAllTags([]));
+  }, [operatorUserId]);
+
+  const options = allTags.filter((t) => !existingTagIds.includes(t.id));
+
+  async function apply() {
+    if (!operatorUserId || !selected) return;
+    await fetch(`/api/devotee-center/${memberId}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operatorUserId, tagId: selected }),
+    });
+    setSelected("");
+    onChanged();
+  }
+
+  if (options.length === 0) return null;
+
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <select value={selected} onChange={(e) => setSelected(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1 text-xs">
+        <option value="">套用標籤…</option>
+        {options.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
+      <button disabled={!selected} onClick={apply} className="rounded-full bg-sage-200 px-3 py-1 text-xs text-ink disabled:opacity-40">
+        套用
+      </button>
+    </div>
+  );
+}
+
+function OverviewTab({
+  overview,
+  operatorRole,
+  memberId,
+  operatorUserId,
+  onChanged,
+}: {
+  overview: Overview;
+  operatorRole?: string;
+  memberId: string;
+  operatorUserId: string | null;
+  onChanged: () => void;
+}) {
+  const canSeeFullStats = operatorRole === "SUPER_ADMIN";
+  const canEdit = operatorRole === "SUPER_ADMIN" || operatorRole === "ADMIN";
+  const ds = overview.donationStats;
+  return (
+    <div className="flex flex-col gap-4">
+      {canEdit && (
+        <ProfileEditForm memberId={memberId} operatorUserId={operatorUserId} basic={overview.basic} onChanged={onChanged} />
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl bg-yolk-100 p-4">
+          <p className="text-xs text-ink-faint">本年度實收</p>
+          <p className="mt-1 text-lg text-ink"><Money n={ds.thisYearTotal.received} /></p>
+        </div>
+        <div className="rounded-2xl bg-sage-100 p-4">
+          <p className="text-xs text-ink-faint">本年度應收</p>
+          <p className="mt-1 text-lg text-ink"><Money n={ds.thisYearTotal.due} /></p>
+        </div>
+        <div className="rounded-2xl bg-blossom-100 p-4">
+          <p className="text-xs text-ink-faint">本年度未收</p>
+          <p className="mt-1 text-lg text-ink"><Money n={ds.thisYearTotal.unpaid} /></p>
+        </div>
+      </div>
+      {canSeeFullStats ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px] text-left text-sm">
+            <thead>
+              <tr className="text-xs text-ink-faint">
+                <th className="px-3 py-2">類別</th>
+                <th className="px-3 py-2">本年度實收</th>
+                <th className="px-3 py-2">累計實收</th>
+                <th className="px-3 py-2">是否有資料</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(ds.byCategory).map(([k, v]) => (
+                <tr key={k} className="border-t border-cream-200">
+                  <td className="px-3 py-2 text-ink">{k}</td>
+                  <td className="px-3 py-2 text-ink-soft"><Money n={v.thisYear.received} /></td>
+                  <td className="px-3 py-2 text-ink-soft"><Money n={v.allTime.received} /></td>
+                  <td className="px-3 py-2 text-xs text-ink-faint">{v.hasData ? "有" : "無登記資料"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-ink-faint">{ds.note}</p>
+        </div>
+      ) : (
+        <p className="text-xs text-ink-faint">完整逐類別捐款統計僅開放最高管理員查看。</p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-2xl bg-mist-100 p-4">
+          <p className="text-xs text-ink-faint">累計活動次數</p>
+          <p className="mt-1 text-lg text-ink">{overview.activityStats.totalCount}</p>
+        </div>
+        <div className="rounded-2xl bg-cream-200 p-4">
+          <p className="text-xs text-ink-faint">最近一次活動</p>
+          <p className="mt-1 text-sm text-ink">{overview.activityStats.lastActivityAt ?? "無紀錄"}</p>
+        </div>
+        <div className="rounded-2xl bg-yolk-100 p-4">
+          <p className="text-xs text-ink-faint">一年內活動次數</p>
+          <p className="mt-1 text-lg text-ink">{overview.activityStats.last1YearCount}</p>
+        </div>
+        <div className="rounded-2xl bg-sage-100 p-4">
+          <p className="text-xs text-ink-faint">是否超過一年未參加</p>
+          <p className="mt-1 text-sm text-ink">{overview.activityStats.inactiveOver1Year ? "是" : "否"}</p>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+/**
+ * 信眾延伸資料編輯表單（對應指令「七」）。SUPER_ADMIN／ADMIN 皆可呼叫
+ * PATCH /api/devotee-center/[memberId]/profile——本輪沒有把任何延伸資料
+ * 欄位另外標記為「僅 SUPER_ADMIN 專屬」，見 src/lib/permissions.ts 說明。
+ */
+function ProfileEditForm({
+  memberId,
+  operatorUserId,
+  basic,
+  onChanged,
+}: {
+  memberId: string;
+  operatorUserId: string | null;
+  basic: Overview["basic"];
+  onChanged: () => void;
+}) {
+  const [mobile, setMobile] = useState(basic.mobile ?? "");
+  const [lineId, setLineId] = useState(basic.lineId ?? "");
+  const [email, setEmail] = useState(basic.email ?? "");
+  const [companyName, setCompanyName] = useState(basic.companyName ?? "");
+  const [personalNote, setPersonalNote] = useState(basic.personalNote ?? "");
+  const [isDisabled, setIsDisabled] = useState(basic.isDisabled);
+  const [disabledReason, setDisabledReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    if (!operatorUserId) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await fetch(`/api/devotee-center/${memberId}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operatorUserId,
+          mobile: mobile || null,
+          lineId: lineId || null,
+          email: email || null,
+          companyName: companyName || null,
+          personalNote: personalNote || null,
+          isDisabled,
+          disabledReason: isDisabled ? disabledReason || null : null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "儲存失敗");
+      setSaved(true);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl bg-cream-100 p-4">
+      <h3 className="text-sm font-medium text-ink">信眾延伸資料</h3>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="手機" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={lineId} onChange={(e) => setLineId(e.target.value)} placeholder="LINE ID" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="公司名稱" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+      </div>
+      <textarea
+        value={personalNote}
+        onChange={(e) => setPersonalNote(e.target.value)}
+        placeholder="個人備註"
+        rows={2}
+        className="mt-3 w-full rounded-2xl border border-cream-200 bg-cream-50 px-3 py-2 text-sm"
+      />
+      <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+        <input type="checkbox" checked={isDisabled} onChange={(e) => setIsDisabled(e.target.checked)} />
+        停用此信眾（不影響歷史資料）
+      </label>
+      {isDisabled && (
+        <input
+          value={disabledReason}
+          onChange={(e) => setDisabledReason(e.target.value)}
+          placeholder="停用原因"
+          className="mt-2 w-full rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+        />
+      )}
+      <div className="mt-3 flex items-center gap-3">
+        <button disabled={saving} onClick={save} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+          {saving ? "儲存中…" : "儲存"}
+        </button>
+        {saved && <span className="text-xs text-ink-faint">已儲存</span>}
+        {error && <span className="text-xs text-blossom-300">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return <p className="text-sm text-ink-faint">（目前沒有資料）</p>;
+}
+
+function TimelineTab({ items }: { items: Overview["timeline"] }) {
+  if (!items.length) return <EmptyState />;
+  return (
+    <ul className="flex flex-col gap-3">
+      {items.map((it, idx) => (
+        <li key={idx} className="flex gap-4 border-l-2 border-sage-200 pl-4">
+          <span className="w-24 shrink-0 text-xs text-ink-faint">{it.date}</span>
+          <span className="w-20 shrink-0 rounded-full bg-cream-100 px-2 py-0.5 text-center text-xs text-ink-soft">{it.type}</span>
+          <span className="text-sm text-ink">{it.description}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivitiesTab({ rituals, stats }: { rituals: Overview["rituals"]; stats: Overview["activityStats"] }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-xs text-ink-faint">
+        首次參加：{stats.firstActivityAt ?? "無"}・最近參加：{stats.lastActivityAt ?? "無"}
+      </p>
+      {rituals.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-xs text-ink-faint">
+              <th className="px-3 py-2">活動</th>
+              <th className="px-3 py-2">年度</th>
+              <th className="px-3 py-2">金額</th>
+              <th className="px-3 py-2">收款狀態</th>
+              <th className="px-3 py-2">收據號碼</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rituals.map((r) => (
+              <tr key={r.ritualRecordId} className="border-t border-cream-200">
+                <td className="px-3 py-2 text-ink">{r.activityName}</td>
+                <td className="px-3 py-2 text-ink-soft">{r.year}</td>
+                <td className="px-3 py-2 text-ink-soft"><Money n={r.amount} /></td>
+                <td className="px-3 py-2 text-ink-soft">{r.paymentStatus}</td>
+                <td className="px-3 py-2 text-ink-faint">{r.receiptNumbers.join("、") || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function PaymentsTab({ payments }: { payments: Overview["payments"] }) {
+  if (!payments.length) return <EmptyState />;
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="text-xs text-ink-faint">
+          <th className="px-3 py-2">收款序號</th>
+          <th className="px-3 py-2">日期</th>
+          <th className="px-3 py-2">項目</th>
+          <th className="px-3 py-2">金額</th>
+          <th className="px-3 py-2">狀態</th>
+        </tr>
+      </thead>
+      <tbody>
+        {payments.map((p) => (
+          <tr key={p.transactionId} className="border-t border-cream-200">
+            <td className="px-3 py-2 text-ink">
+              <Link href={`/collection-center/payments/${p.transactionId}`} className="underline-offset-4 hover:underline">
+                {p.transactionNo}
+              </Link>
+            </td>
+            <td className="px-3 py-2 text-ink-soft">{p.paidOn}</td>
+            <td className="px-3 py-2 text-ink-soft">{p.items}</td>
+            <td className="px-3 py-2 text-ink-soft"><Money n={p.totalAmount} /></td>
+            <td className="px-3 py-2 text-ink-faint">{p.status}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ReceiptsTab({ receipts }: { receipts: Overview["receipts"] }) {
+  if (!receipts.length) return <EmptyState />;
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="text-xs text-ink-faint">
+          <th className="px-3 py-2">收據號碼</th>
+          <th className="px-3 py-2">開立日期</th>
+          <th className="px-3 py-2">金額</th>
+          <th className="px-3 py-2">狀態</th>
+        </tr>
+      </thead>
+      <tbody>
+        {receipts.map((r) => (
+          <tr key={r.receiptId} className="border-t border-cream-200">
+            <td className="px-3 py-2 text-ink">
+              <Link href={`/receipt-center/receipts/${r.receiptId}`} className="underline-offset-4 hover:underline">
+                {r.receiptNumber ?? "（尚未編號）"}
+              </Link>
+            </td>
+            <td className="px-3 py-2 text-ink-soft">{r.issuedDate}</td>
+            <td className="px-3 py-2 text-ink-soft"><Money n={r.amount} /></td>
+            <td className="px-3 py-2 text-ink-faint">{r.status}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function OfferingsTab({ offerings }: { offerings: Overview["offerings"] }) {
+  if (!offerings.length) return <EmptyState />;
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="text-xs text-ink-faint">
+          <th className="px-3 py-2">供品</th>
+          <th className="px-3 py-2">年度</th>
+          <th className="px-3 py-2">金額</th>
+          <th className="px-3 py-2">收款狀態</th>
+          <th className="px-3 py-2">是否領取</th>
+        </tr>
+      </thead>
+      <tbody>
+        {offerings.map((o) => (
+          <tr key={o.claimId} className="border-t border-cream-200">
+            <td className="px-3 py-2 text-ink">{o.offeringName}</td>
+            <td className="px-3 py-2 text-ink-soft">{o.year}</td>
+            <td className="px-3 py-2 text-ink-soft"><Money n={o.amount} /></td>
+            <td className="px-3 py-2 text-ink-soft">{o.paymentStatus}</td>
+            <td className="px-3 py-2 text-ink-faint">{o.isCollected}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function PurificationsTab({ purifications }: { purifications: Overview["purifications"] }) {
+  if (!purifications.length) return <EmptyState />;
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="text-xs text-ink-faint">
+          <th className="px-3 py-2">年度</th>
+          <th className="px-3 py-2">金額</th>
+          <th className="px-3 py-2">收款狀態</th>
+          <th className="px-3 py-2">收據號碼</th>
+        </tr>
+      </thead>
+      <tbody>
+        {purifications.map((p) => (
+          <tr key={p.entryId} className="border-t border-cream-200">
+            <td className="px-3 py-2 text-ink">{p.year}</td>
+            <td className="px-3 py-2 text-ink-soft"><Money n={p.amount} /></td>
+            <td className="px-3 py-2 text-ink-soft">{p.paymentStatus}</td>
+            <td className="px-3 py-2 text-ink-faint">{p.receiptNumbers.join("、") || "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function HouseholdTab({ household }: { household: Overview["household"] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-ink-soft">
+        {household.name}（{household.id}）・{household.phone || "無電話"}・{household.address || "無地址"}
+      </p>
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="text-xs text-ink-faint">
+            <th className="px-3 py-2">姓名</th>
+            <th className="px-3 py-2">身份</th>
+            <th className="px-3 py-2">主要聯絡人</th>
+            <th className="px-3 py-2">狀態</th>
+          </tr>
+        </thead>
+        <tbody>
+          {household.members.map((m) => (
+            <tr key={m.memberId} className="border-t border-cream-200">
+              <td className="px-3 py-2 text-ink">
+                <Link href={`/devotee-center/${m.memberId}`} className="underline-offset-4 hover:underline">
+                  {m.name}
+                </Link>
+              </td>
+              <td className="px-3 py-2 text-ink-soft">{m.role}</td>
+              <td className="px-3 py-2 text-ink-soft">{m.isPrimaryContact ? "是" : ""}</td>
+              <td className="px-3 py-2 text-ink-faint">{m.isDeceased ? "已往生" : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function InteractionsTab({
+  memberId,
+  interactions,
+  operatorUserId,
+  onChanged,
+}: {
+  memberId: string;
+  interactions: Overview["interactions"];
+  operatorUserId: string | null;
+  onChanged: () => void;
+}) {
+  const [content, setContent] = useState("");
+  const [type, setType] = useState("PHONE_CALL");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function submit() {
+    if (!operatorUserId || !content.trim()) return;
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const res = await fetch(`/api/devotee-center/${memberId}/interactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId, interactionType: type, occurredAt: new Date().toISOString(), content }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "新增失敗");
+      setContent("");
+      onChanged();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "新增失敗");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl bg-cream-100 p-4">
+        <div className="flex flex-wrap gap-2">
+          <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm">
+            {Object.entries(DEVOTEE_INTERACTION_TYPE_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <input
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="互動內容"
+            className="min-w-[200px] flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+          />
+          <button
+            disabled={submitting || !content.trim()}
+            onClick={submit}
+            className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40"
+          >
+            新增互動紀錄
+          </button>
+        </div>
+        {formError && <p className="mt-2 text-xs text-blossom-300">{formError}</p>}
+      </div>
+
+      {interactions.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {interactions.map((i) => (
+            <li key={i.id} className="rounded-2xl bg-cream-50 p-4 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="rounded-full bg-mist-100 px-2 py-0.5 text-xs text-ink-soft">
+                  {DEVOTEE_INTERACTION_TYPE_LABEL[i.interactionType] ?? i.interactionType}
+                </span>
+                <span className="text-xs text-ink-faint">{i.occurredAt.slice(0, 10)}・{i.createdByName ?? "（未填）"}</span>
+              </div>
+              <p className="mt-2 text-ink">{i.content}</p>
+              {i.nextContactDate && <p className="mt-1 text-xs text-ink-faint">下次聯絡：{i.nextContactDate.slice(0, 10)}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export default function DevoteeDetailPage({ params }: { params: Promise<{ memberId: string }> }) {
+  const { memberId } = usePromise(params);
+
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
+          <Link href="/devotee-center/list" className="text-sm text-ink-soft hover:underline">
+            ← 信眾名單
+          </Link>
+          <h1 className="text-sm text-ink-soft">360°信眾總覽</h1>
+        </div>
+      </header>
+
+      <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
+        <OperatorProvider>
+          <OperatorBar />
+          <DevoteeCenterGate>
+            <DevoteeDetailInner memberId={memberId} />
+          </DevoteeCenterGate>
+        </OperatorProvider>
+      </main>
+    </div>
+  );
+}

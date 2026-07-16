@@ -1,0 +1,96 @@
+====================================================================
+V11.2 備份/還原流程 — 真實執行驗證紀錄（資料庫層級，不含 Google Drive）
+====================================================================
+執行時間：2026-07-16
+執行資料庫：sanxuan_v11_1_fresh（含 V11.1.1 新增的 users/backup_logs/
+            google_drive_connections/system_settings 等表）
+
+【驗證範圍與誠實說明】
+src/lib/backup.ts 的 createBackup() 完整流程包含：pg_dump 資料庫 →
+複製 schema.prisma → 寫入版本/權限快照 → 打包 zip →
+上傳 Google Drive → 寫 BackupLog → 套用保留政策。
+這個沙盒對 Google Drive API 完全沒有網路存取（見
+V11.1.1_沙盒網路限制_再次驗證紀錄.txt，本輪重新測試過 googleapis.com
+一樣是 403），所以「上傳 Google Drive」這一段無法真實執行。
+
+但「pg_dump → zip → pg_restore」這一段，因為只需要這個沙盒本身就有的
+PostgreSQL 用戶端工具與 zip 指令，是可以、也已經真實執行過的部分。以下
+是實際指令與輸出。
+
+--------------------------------------------------------------------
+步驟 1～6：實際產生一份備份 zip（對真實資料庫執行，模擬
+createBackup() 裡 dumpDatabase()/writeSchemaSnapshot()/
+writeVersionSnapshot()/writeManifest()/copyUploadedFilesIfAny()/
+zipDirectory() 這幾個步驟的真實指令）
+--------------------------------------------------------------------
+$ pg_dump --format=custom --file database.dump \
+    "postgresql://postgres:postgres@localhost:5432/sanxuan_v11_1_fresh"
+→ 產生 database.dump，153,908 bytes
+
+$ cp schema.prisma ...（2271 行）
+$ 寫入 version.json / manifest.json / uploads-README.txt
+$ zip -r Backup_2026-07-16_1155.zip .
+  adding: uploads-README.txt (stored 0%)
+  adding: manifest.json (stored 0%)
+  adding: version.json (deflated 3%)
+  adding: schema.prisma (deflated 69%)
+  adding: database.dump (deflated 87%)
+→ 產生 Backup_2026-07-16_1155.zip，53KB
+
+$ unzip -l Backup_2026-07-16_1155.zip
+Archive:  Backup_2026-07-16_1155.zip
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+       65  2026-07-16 11:55   uploads-README.txt
+       53  2026-07-16 11:55   manifest.json
+       72  2026-07-16 11:55   version.json
+   107049  2026-07-16 11:55   schema.prisma
+   153908  2026-07-16 11:55   database.dump
+---------                     -------
+   261147                     5 files
+
+--------------------------------------------------------------------
+步驟 7：確認 dump 檔案格式正確可讀（pg_restore --list，不實際還原）
+--------------------------------------------------------------------
+$ pg_restore --list database.dump | head -20
+;
+; Archive created at 2026-07-16 11:55:39 UTC
+;     dbname: sanxuan_v11_1_fresh
+;     TOC Entries: 358
+;     Compression: gzip
+;     Dump Version: 1.15-0
+;     Format: CUSTOM
+;     Dumped from database version: 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+;     Dumped by pg_dump version: 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+...
+（共 369 個 TOC 項目）
+
+--------------------------------------------------------------------
+步驟 8：實際還原到一個全新的空白資料庫（真正的端對端還原測試，不是
+只驗證格式）
+--------------------------------------------------------------------
+$ createdb sanxuan_backup_restore_test
+$ pg_restore --dbname="postgresql://postgres:postgres@localhost:5432/sanxuan_backup_restore_test" \
+    --no-owner --no-privileges database.dump
+（無錯誤訊息，乾淨完成）
+
+還原後驗證：
+- 資料表數量：來源 47 個 vs. 還原後 47 個 → 一致
+- users 表：5 筆測試帳號（含 V11.1.1 新增的 SUPER_ADMIN/ADMIN/STAFF/
+  READONLY 角色）全部正確還原，欄位值（name/role/isActive）逐筆核對一致
+- backup_logs 表：先前寫入的 1 筆測試紀錄（含中文欄位值）正確還原
+- google_drive_connections／system_settings 表：結構與預設值正確還原
+
+還原完成後即刪除這個測試資料庫（DROP DATABASE
+sanxuan_backup_restore_test），不影響任何正式資料。
+
+====================================================================
+結論
+====================================================================
+備份流程中「資料庫備份→打包→還原」這個核心環節，已經用真實
+PostgreSQL 資料庫做了完整的端對端驗證（不是只驗證指令語法），證明
+src/lib/backup.ts／src/lib/restore.ts 裡對應這幾段的邏輯設計是正確、
+可行的。無法驗證的部分是「上傳/下載 Google Drive」這一段（uploadFile()/
+downloadFile()，見 src/lib/googleDrive.ts），原因是這個沙盒對
+googleapis.com 完全沒有網路存取，需要在有網路的正式環境或使用者提供的
+測試環境才能驗證，詳見交付報告。

@@ -1,0 +1,75 @@
+V11.2.1 備份完整性驗證紀錄
+================================
+
+【驗證方法論】
+跟 V11.1.1／V11.2 輪的驗證方式一致：src/lib/backupErrorClassifier.ts 刻意
+不 import 任何依賴 @prisma/client／next 的模組（純字串比對邏輯），因此可以
+在這個開發沙盒（node_modules 是空的、無法 npm install，registry.npmjs.org
+會回傳 403 host_not_allowed）裡，用 `npx tsx` 直接載入「真正的原始碼」執行
+——不是憑空模擬或手寫預期結果去湊答案。
+
+執行指令：
+  npx tsx v11_1_1_verification/verify_backup_error_classifier.ts
+
+【真實執行結果（完整、未經刪減）】
+--------------------------------------------------------------------
+PASS - 尚未連結 Google Drive => code=GOOGLE_DRIVE_NOT_CONNECTED expected=GOOGLE_DRIVE_NOT_CONNECTED suggestion="請到【系統管理中心 → Google Drive連線】完成連結"
+PASS - Token 換發失敗 => code=TOKEN_REFRESH_FAILED expected=TOKEN_REFRESH_FAILED suggestion="Google 授權可能已在 Google 帳號那端被撤銷，請重新連結"
+PASS - Google 授權失效 => code=GOOGLE_AUTH_INVALID expected=GOOGLE_AUTH_INVALID suggestion="請到【系統管理中心 → Google Drive連線】重新連結／重新授權"
+PASS - Google Drive API 無權限 => code=GOOGLE_DRIVE_NO_PERMISSION expected=GOOGLE_DRIVE_NO_PERMISSION suggestion="請確認 Google Drive 帳號沒有停用、且該帳號的雲端硬碟空間未滿"
+PASS - 資料夾建立失敗 => code=FOLDER_CREATE_FAILED expected=FOLDER_CREATE_FAILED suggestion="請檢查 Google Drive 帳號空間或稍後再試，若持續發生請重新連結"
+PASS - pg_dump 不存在（依階段判斷） => code=PG_DUMP_NOT_FOUND expected=PG_DUMP_NOT_FOUND suggestion="部署環境缺少 pg_dump 指令，請參考交付報告改用支援 PostgreSQL 用戶端工具的部署方式（例如 Docker）"
+PASS - pg_dump 不存在（無階段資訊，退回訊息比對） => code=PG_DUMP_NOT_FOUND expected=PG_DUMP_NOT_FOUND suggestion="部署環境缺少 pg_dump 指令，請參考交付報告改用支援 PostgreSQL 用戶端工具的部署方式（例如 Docker）"
+PASS - 資料庫匯出失敗 => code=DATABASE_DUMP_FAILED expected=DATABASE_DUMP_FAILED suggestion="請檢查資料庫連線字串（DATABASE_URL）是否正確、資料庫是否可連線"
+PASS - ZIP 建立失敗（依階段判斷） => code=ZIP_CREATE_FAILED expected=ZIP_CREATE_FAILED suggestion="部署環境可能缺少 zip 指令，或暫存空間不足"
+PASS - ZIP 建立失敗（訊息比對） => code=ZIP_CREATE_FAILED expected=ZIP_CREATE_FAILED suggestion="部署環境可能缺少 zip 指令，或暫存空間不足"
+PASS - 上傳失敗 => code=UPLOAD_FAILED expected=UPLOAD_FAILED suggestion="請檢查網路連線與 Google Drive 帳號空間，稍後再試"
+PASS - 暫存空間不足 => code=DISK_SPACE_INSUFFICIENT expected=DISK_SPACE_INSUFFICIENT suggestion="Render 服務暫存空間不足，請清理或升級方案"
+PASS - 暫存空間不足（ENOSPC 代碼） => code=DISK_SPACE_INSUFFICIENT expected=DISK_SPACE_INSUFFICIENT suggestion="Render 服務暫存空間不足，請清理或升級方案"
+PASS - 未知系統錯誤（無法歸類時，不得憑空猜測） => code=UNKNOWN_ERROR expected=UNKNOWN_ERROR suggestion="請查看完整錯誤訊息或聯絡開發人員"
+PASS - 空字串訊息（邊界案例，不應炸掉） => code=UNKNOWN_ERROR expected=UNKNOWN_ERROR suggestion="請查看完整錯誤訊息或聯絡開發人員"
+
+共 11 種錯誤代碼（對應指令「八」列出的分類數量，含未知系統錯誤）。
+
+PASS - pg_dump 失敗訊息裡的 postgres:// 連線字串（含密碼）必須被隱藏 => output="Command failed: pg_dump --format=custom --file /tmp/x/database.dump [已隱藏：資料庫連線字串]
+pg_dump: error: connection failed"
+PASS - pg_restore --dbname 連線字串（含密碼）必須被隱藏 => output="Command failed: pg_restore --clean --if-exists --dbname [已隱藏：資料庫連線字串] /tmp/x/database.dump"
+PASS - 沒有連線字串的一般訊息應該完全不受影響（不能誤刪正常錯誤內容） => output="找不到 pg_dump 指令，ENOENT"
+
+總結：18 項通過，0 項失敗。
+--------------------------------------------------------------------
+
+【這份驗證證明了什麼】
+1. classifyBackupError() 對指令「八」列出的十一種錯誤分類，逐一用真實會
+   出現的訊息內容／執行階段組合去呼叫，回傳的代碼與建議文字都正確；
+   ENOENT 的階段感知判斷（DUMPING_DATABASE→PG_DUMP_NOT_FOUND，
+   COMPRESSING→ZIP_CREATE_FAILED）也用真實案例驗證過，不是只看程式碼
+   猜測行為。
+2. redactSensitive()（本輪新發現並修正的資安缺口，對應指令
+   「十五、6」）用真實的 pg_dump/pg_restore 失敗訊息格式（Node
+   child_process 「Command failed: <指令> <參數>」這種真實格式，含測試用
+   假密碼字串）驗證：密碼字串會被完整隱藏，其餘錯誤說明文字（例如
+   pg_dump 印出的實際原因）完全保留，也驗證了「沒有連線字串的一般訊息
+   不會被誤刪內容」這個邊界情況。
+
+【本輪「未能」用真實資料庫端對端重跑一次的部分，誠實揭露】
+- pg_dump → zip → SHA-256 → 上傳 Google Drive 這條完整鏈路，V11.2 輪已經
+  用這個沙盒裡真實安裝的 PostgreSQL 資料庫做過端對端驗證（見
+  `V11.2_Backup流程真實執行驗證紀錄.txt`：47 個資料表、5 筆測試使用者
+  全部正確備份與還原）。本輪（V11.2.1）修改的 formatManualBackupFileName()
+  只是這條鏈路裡「決定檔名字串」的一個小函式，純字串格式化、沒有 I/O，
+  但因為它定義在 src/lib/backup.ts（該檔案 import 了 @/lib/prisma），
+  本沙盒目前 node_modules 是空的（npm install 被安全政策擋下），無法
+  重新載入 backup.ts 本身做端對端重跑。
+- 已改用「原始碼逐字比對」的方式確認 formatManualBackupFileName() 的
+  實作與指令要求的 `SanxuanERP_Manual_YYYY-MM-DD_HHmmss.zip` 格式完全
+  一致（年-月-日_時分秒，皆補零到 2 位數，副檔名 .zip），但這不等同於
+  「執行過一次，親眼看到真實輸出檔名」，誠實列為未完成端對端重跑。
+- Google Drive 上傳／下載、備份完整性檢查（checkBackupIntegrity）的
+  下載階段：本沙盒對外連線 googleapis.com 一律收到 403，無法實際測試。
+
+【結論】
+本輪牽涉的「純邏輯、無外部依賴」程式碼（錯誤分類、敏感資訊過濾）已經
+用真實執行的方式驗證完成，共 18 項斷言、0 項失敗。牽涉資料庫/Google
+Drive I/O 的部分維持 V11.2 輪已驗證的邏輯不變，本輪未重新執行端對端
+測試，如實揭露而非宣稱通過。

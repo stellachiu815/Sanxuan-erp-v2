@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: sanxuan-erp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sanxuan
+      POSTGRES_PASSWORD: sanxuan
+      POSTGRES_DB: sanxuan_erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - sanxuan_erp_pgdata:/var/lib/postgresql/data
+
+volumes:
+  sanxuan_erp_pgdata:

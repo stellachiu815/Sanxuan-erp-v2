@@ -1,0 +1,2505 @@
+// 台北三玄宮行政系統 — 資料模型
+// 這份 schema 是「整體架構」，第一階段功能只會用到 Household / Member。
+// WorshipRecord / Activity 先建好結構，之後的模組會陸續接上。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 家戶
+model Household {
+  id          String   @id @db.VarChar(10) // 家戶編號，例如 F00009
+  name        String   // 家戶名稱，例如「王家」
+  contactName String?  // 主要聯絡人
+  phone       String?
+  address     String?
+  companyName String?  // 公司名稱（預留欄位，供搜尋使用）
+  notes       String?  @db.Text // 備註
+
+  members        Member[]
+  worshipRecords WorshipRecord[]
+  activities     Activity[]
+  ritualRecords  RitualRecord[]
+  additionalPrintItems AdditionalPrintItem[] // V9.1「附加列印項目（寶袋等）」
+  offeringClaims OfferingClaim[] // V10.1「供品認捐中心」：本戶的認捐紀錄
+  stoveMasterRegistrations StoveMasterRegistration[] // V10.1：本戶的爐主/副爐主登錄
+  paymentTransactions PaymentTransaction[] // V11.0「全宮共用收款中心」：以本戶為付款人的收款主紀錄
+  manualReceivables ManualReceivable[] // V11.0：以本戶為應收對象的臨時應收項目
+  receipts Receipt[] // V11.1「全宮共用收據中心」：以本戶為付款人的收據
+
+  // V8.0「刪除保護」：軟刪除欄位，不會被直接永久刪除，先移到回收區。
+  // deletedAt 有值＝目前在回收區；deletedByName 是操作人自行填寫的姓名
+  // （系統目前沒有登入/session 機制，暫時無法自動記錄真正的操作者身份，
+  // 見 docs/BACKUP_VERSION_CONTROL.md 已知限制）。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deletedAt])
+  @@map("households")
+}
+
+/// 家戶成員
+model Member {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  name   String
+  gender String? // 男 / 女 / 未填寫
+
+  role             MemberRole @default(OTHER) // 身份：戶長/配偶/兒子/女兒/父親/母親/祖父/祖母/其他
+  isPrimaryContact Boolean    @default(false) // 是否為主要聯絡人
+
+  // 生日只需登記國曆或農曆其中一種，另一種由系統自動換算
+  solarBirthDate   DateTime? @db.Date // 國曆生日
+  lunarBirthYear   Int? // 農曆年（西元）
+  lunarBirthMonth  Int? // 農曆月
+  lunarBirthDay    Int? // 農曆日
+  lunarIsLeapMonth Boolean   @default(false) // 是否閏月
+
+  // 離世相關
+  isDeceased    Boolean   @default(false)
+  deceasedAt    DateTime? @db.Date
+  yangshangName String? // 陽上姓名（標記離世時填寫）
+
+  notes String? @db.Text
+
+  worshipRecords WorshipRecord[]
+  ritualRecords  RitualRecord[]
+  purificationEntries PurificationEntry[] // V8.1 起：祭改報名項目已併入通用 RitualRecord 架構，見下方 PurificationEntry
+  additionalPrintItems AdditionalPrintItem[] // V9.1「附加列印項目（寶袋等）」，可為空（memberId 選填）
+  offeringClaims OfferingClaim[] // V10.1「供品認捐中心」：本人的認捐紀錄
+  stoveMasterRegistrations StoveMasterRegistration[] // V10.1：本人的爐主/副爐主登錄
+  paymentTransactions PaymentTransaction[] // V11.0「全宮共用收款中心」：以本人為付款人的收款主紀錄
+  manualReceivables ManualReceivable[] // V11.0：以本人為應收對象的臨時應收項目
+  receipts Receipt[] // V11.1「全宮共用收據中心」：以本人為付款人的收據
+  devoteeProfile DevoteeProfile? // V12.0「信眾關係中心」：本人的信眾延伸資料（1 對 1，延遲建立，見該 model 註解）
+
+  // V8.0「刪除保護」：同 Household，見上方註解。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([householdId])
+  @@index([deletedAt])
+  @@map("members")
+}
+
+/// 祭祀資料（歷代祖先 / 個人往生者）
+model WorshipRecord {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  type WorshipType
+
+  displayName   String // 「某姓歷代祖先」或「姓名 乙位正魂」
+  location      String? // 安奉地 / 地址
+  yangshangName String? // 陽上姓名
+
+  memberId String? // 若由「標記離世」流程自動建立，關聯回原成員
+  member   Member? @relation(fields: [memberId], references: [id])
+
+  notes String? @db.Text
+
+  universalSalvationEntries UniversalSalvationEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([householdId])
+  @@map("worship_records")
+}
+
+enum WorshipType {
+  ANCESTOR_LINE // 歷代祖先
+  INDIVIDUAL // 個人往生者
+}
+
+enum MemberRole {
+  HOUSEHOLD_HEAD // 戶長
+  SPOUSE // 配偶
+  SON // 兒子
+  DAUGHTER // 女兒
+  FATHER // 父親
+  MOTHER // 母親
+  GRANDFATHER // 祖父
+  GRANDMOTHER // 祖母
+  OTHER // 其他
+}
+
+/// ⚠️ LEGACY / 已停用（2026-07-15 起）：這張表是 V1 時代預留給「年度燈/普渡/
+/// 宮慶」用的舊架構，但從來沒有任何畫面或 API 寫入過它。V2.0 起，這幾個祭典
+/// 模組唯一的正式主檔是下面的 RitualRecord，不會再有任何新功能寫入 Activity。
+/// 這張表本身先保留、不刪除（避免影響既有的 schema/migration 歷史），但請視為
+/// 停用狀態，之後也不要在這張表上擴充欄位或接新功能。
+model Activity {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  type ActivityType
+  year Int? // 適用年度（例如年度燈的年份）
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([householdId])
+  @@map("activities")
+}
+
+enum ActivityType {
+  ANNUAL_LANTERN // 年度燈（V1 舊欄位，已停用，保留避免影響既有資料）
+  UNIVERSAL_SALVATION // 中元普渡
+  TEMPLE_CELEBRATION // 宮慶
+  REPRINT // 補印
+  // ↓ V8.1「宮務活動中心」新增：讓所有宮務活動共用同一套
+  // TempleEvent / RitualRecord 架構，不再各自重新開發一套資料表。
+  PURIFICATION // 祭改（V9.0 原本用獨立的 PurificationYear/Registration，
+  // V8.1 起改為這裡的 PURIFICATION 活動類型 + PurificationEntry，
+  // 詳見下方「V8.1 宮務活動中心」段落的說明）
+  GUANGMING_LANTERN // 光明燈
+  TAISUI_LANTERN // 太歲燈
+  FAMILY_LANTERN // 全家燈
+  STORAGE_REPAYMENT // 補庫
+  OTHER // 其他（活動精靈 Step1「其他」，走最通用的名單+備註流程）
+
+  // ↓ V10.1「供品認捐中心」新增：四位主祀神明聖誕，各自獨立的 ActivityType。
+  // ⚠️ 設計取捨（誠實說明，見交付說明）：TempleEvent 現有的
+  // @@unique([activityType, year]) 限制「同一年度、同一活動類型只能一筆」，
+  // 這是 V8.1 就定案、目前所有活動類型都依賴的核心唯一鍵，這次不去動它
+  // （改成更彈性的「單一 DEITY_BIRTHDAY 類型 + 神明名稱欄位」設計，需要
+  // 同時調整這把唯一鍵並補資料遷移，風險較高，不屬於這次應該做的變更）。
+  // 因此改用「每位神明一個獨立 enum 值」的最小風險做法，讓四位主祀神明
+  // 聖誕可以在同一年度內各自建立活動、各自掛供品設定。未來如果要新增其他
+  // 神明聖誕，需要再新增對應的 enum 值。
+  GUANDI_BIRTHDAY // 關聖帝君聖誕
+  XUANTIAN_BIRTHDAY // 玄天上帝聖誕
+  YAOCHI_BIRTHDAY // 瑤池金母聖誕
+  ZHONGTAN_BIRTHDAY // 中壇元帥聖誕
+}
+
+// ============================================================
+// V2.0「祭祀資料核心」：以下是普渡 / 年度燈 / 宮慶未來會共用的祭祀紀錄架構。
+//
+// 純粹附加（additive），不影響上面 Household / Member / WorshipRecord /
+// Activity，也不影響下面財務、Excel 匯入既有的資料模型與關聯。
+//
+// 註：上面既有的 Activity 資料表，原本就是預留給「年度燈/普渡/宮慶」用的，
+// 但目前完全沒有任何畫面或 API 在寫入它（household.ts 只有讀出來顯示），
+// 所以這裡不去動它、也不會跟它衝突，先保留原樣。RitualRecord 才是這幾個
+// 祭典模組實際會使用的正式主檔，之後如果要整合，會再另外跟您確認。
+//
+// 設計重點：
+// 1. RitualRecord 是「一戶、一年、一種祭典類型」的主檔（例如「F00009 王家
+//    115 年 普渡」），普渡/年度燈/宮慶之後都共用同一張主檔表，各自的明細另外
+//    掛表。本次只實作「普渡」的明細（UniversalSalvationDetail / Entry）。
+// 2. 用 @@unique([householdId, year, activityType]) 保證同一戶、同一年、
+//    同一種祭典類型只會有一筆主檔，避免重複建立；不同年度彼此是獨立的一筆
+//    資料，不會互相覆蓋。
+// 3.「複製去年資料」是把來源年度那筆 RitualRecord + 明細 + 登記項目整組複製
+//    成新的一年，來源那筆完全不受影響（見 src/lib/ritual.ts）。
+// ============================================================
+
+/// 祭祀紀錄狀態（本次先給預設值，欄位存在、值可之後再依實際行政流程調整）
+enum RitualRecordStatus {
+  DRAFT // 草稿（資料還在整理中，尚未確認）
+  CONFIRMED // 已確認（正式登記完成）
+  CANCELLED // 已取消
+}
+
+/// 祭祀紀錄主檔：一戶、一年、一種祭典類型，一筆。
+/// 普渡 / 年度燈 / 宮慶（活動類型見 ActivityType）都共用這張主檔。
+model RitualRecord {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  memberId String? // 信眾ID（可為空；若這筆祭祀是針對特定成員才會填）
+  member   Member? @relation(fields: [memberId], references: [id])
+
+  year         Int // 年度（民國年，例如 115）
+  activityType ActivityType // 活動類型：普渡 / 祭改 / 光明燈 / 太歲燈 / 全家燈 / 補庫 / 宮慶 / 其他
+
+  // V8.1「宮務活動中心」新增：指回這一年、這個活動類型的活動主檔
+  // （TempleEvent，見下方段落）。可為空是為了不影響 V2.0～V8.0 既有的
+  // 普渡資料（那時候還沒有 TempleEvent 這張表）；活動精靈建立的新資料
+  // 一律會填這個欄位。
+  templeEventId String?
+  templeEvent   TempleEvent? @relation(fields: [templeEventId], references: [id])
+
+  status RitualRecordStatus @default(DRAFT)
+  notes  String?            @db.Text
+
+  universalSalvation UniversalSalvationDetail?
+  purificationEntries PurificationEntry[] // V8.1：祭改報名項目（activityType = PURIFICATION 時使用）
+  additionalPrintItems AdditionalPrintItem[] // V9.1：附加列印項目（寶袋等），目前只有普渡（UNIVERSAL_SALVATION）在使用
+
+  // V8.0「刪除保護」：同 Household，見上方註解。軟刪除後 @@unique 仍會
+  // 佔用同一個 (householdId, year, activityType) 組合鍵，本次不改動這個
+  // 從 V2.0 就定案的唯一鍵架構——如果要在同一年度重新建立資料，行政人員
+  // 需要先從回收區還原，而不是直接新建一筆，見 src/lib/ritual.ts 的
+  // 建立函式已補上對應的提示錯誤訊息。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([householdId, year, activityType])
+  @@index([householdId])
+  @@index([year, activityType])
+  @@index([deletedAt])
+  @@index([templeEventId])
+  @@map("ritual_records")
+}
+
+/// 普渡登記明細：RitualRecord.activityType = UNIVERSAL_SALVATION 時，
+/// 會有一筆對應的明細（1 對 1）。
+model UniversalSalvationDetail {
+  id             String       @id @default(cuid())
+  ritualRecordId String       @unique
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+
+  isRegistered Boolean @default(false) // 是否報名普渡
+
+  yangshangName        String? // 陽上姓名（整體登記代表人）
+  enshrinementLocation String? // 安奉位置
+
+  // 贊普
+  isSponsor        Boolean         @default(false) // 是否贊普
+  sponsorQuantity  Int? // 贊普數量（可為空）
+  sponsorUnitPrice Decimal?        @db.Decimal(12, 2) // 贊普單價（可為空）
+  sponsorAmount    Decimal?        @db.Decimal(12, 2) // 贊普金額（可為空，維持原欄位不變，仍是登記當下輸入的金額）
+  sponsorNotes     String? // 贊普備註（可為空）
+
+  // V11.0.1「全宮共用收款中心」整合：贊普正式接上收款分錄，不再只是一個
+  // 靜態金額欄位。isSponsor=true 時，amountDue 一律等於 sponsorAmount
+  // （由 src/lib/universalSalvationPayment.ts 在建立/修改贊普資料時同步）；
+  // isSponsor=false 時 amountDue/amountPaid/amountUnpaid 固定為 0。
+  // 真正的收款分錄在下方 UniversalSalvationPayment（比照 OfferingPayment
+  // 慣例，同一份贊普可以有多筆收款/退款/轉款紀錄，不是單一欄位覆蓋）。
+  amountDue    Decimal @default(0) @db.Decimal(12, 2)
+  amountPaid   Decimal @default(0) @db.Decimal(12, 2) // 由 UniversalSalvationPayment 加總維護，不是使用者直接填寫
+  amountUnpaid Decimal @default(0) @db.Decimal(12, 2)
+
+  tableNumber String? // 普渡桌（桌號/區域）
+
+  notes String? @db.Text
+
+  entries  UniversalSalvationEntry[]
+  payments UniversalSalvationPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("universal_salvation_details")
+}
+
+/// V11.0.1 新增：贊普收款分錄，比照 V10.1 OfferingPayment 的既有慣例
+/// （同一個模式，方便日後閱讀程式碼的人不用學兩套設計）。真正的收款/退款/
+/// 轉款分錄只會寫在這裡，UniversalSalvationDetail.amountPaid/amountUnpaid
+/// 是這裡加總後的結果，不是另一套獨立維護的數字。
+model UniversalSalvationPayment {
+  id String @id @default(cuid())
+
+  universalSalvationDetailId String
+  universalSalvationDetail   UniversalSalvationDetail @relation(fields: [universalSalvationDetailId], references: [id], onDelete: Cascade)
+
+  kind   OfferingPaymentKind @default(PAYMENT) // 沿用既有 enum（PAYMENT/REFUND/TRANSFER_OUT/TRANSFER_IN），不重複定義一份意義相同的 enum
+  amount Decimal             @db.Decimal(12, 2)
+  paidOn DateTime            @db.Date
+
+  method          String?
+  collectedByName String?
+
+  receiptNumber String?
+  reprintCount  Int       @default(0)
+  lastReprintAt DateTime?
+
+  reason            String? @db.Text
+  relatedDetailId   String? // 轉款對應到的另一筆贊普 id（選填，比照 OfferingPayment.relatedClaimId 慣例，不建 FK）
+
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([universalSalvationDetailId])
+  @@index([kind])
+  @@map("universal_salvation_payments")
+}
+
+/// 普渡登記項目的類別：歷代祖先 / 個人乙位正魂 / 冤親債主 / 無緣子女
+enum UniversalSalvationEntryCategory {
+  ANCESTOR_LINE // 歷代祖先
+  INDIVIDUAL_SOUL // 個人乙位正魂
+  DEBT_CREDITOR // 冤親債主
+  UNBORN_CHILD // 無緣子女
+}
+
+/// 普渡登記項目：歷代祖先 / 個人乙位正魂 / 冤親債主 / 無緣子女，每一類都可以多筆。
+/// 四個類別共用同一張表（用 category 區分），方便維護與之後的列印格式輸出。
+model UniversalSalvationEntry {
+  id                   String                   @id @default(cuid())
+  universalSalvationId String
+  universalSalvation   UniversalSalvationDetail @relation(fields: [universalSalvationId], references: [id], onDelete: Cascade)
+
+  category      UniversalSalvationEntryCategory
+  displayName   String // 顯示名稱，例如「王姓歷代祖先」「王小明 乙位正魂」
+  yangshangName String? // 陽上姓名（此項目專屬，個人乙位正魂通常會填）
+
+  worshipRecordId String? // 可選：關聯回既有的 WorshipRecord（歷代祖先/個人往生者牌位登記）
+  worshipRecord   WorshipRecord? @relation(fields: [worshipRecordId], references: [id])
+
+  sortOrder Int     @default(0) // 列印排序用
+  notes     String? @db.Text
+
+  // V8.0「刪除保護」：同 Household，見上方註解。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([universalSalvationId])
+  @@index([category])
+  @@index([deletedAt])
+  @@map("universal_salvation_entries")
+}
+
+// ============================================================
+// 以下是「財務流水帳」模組的架構預留（本次只建立資料模型與權限定義，
+// 不開發任何畫面或 API，也不影響上面家戶管理相關的 Household / Member /
+// WorshipRecord / Activity）。
+//
+// 因為系統目前還沒有登入功能，這裡先把「使用者與角色」的資料模型建起來，
+// 財務模組實際開發時，才需要真正接上登入/session，並在每一支財務 API
+// route 呼叫 src/lib/permissions.ts 的 canFinance() 做後端權限檢查。
+// ============================================================
+
+/// 系統角色。
+/// V11.1.1 新增 ADMIN／READONLY 兩個值（純附加，既有 SUPER_ADMIN／STAFF／
+/// FINANCE_CLERK 語意不變），對應「全專案建置、權限與正式封版指令」要求
+/// 至少要能辨識的四級操作人員：最高管理員（SUPER_ADMIN）／管理員
+/// （ADMIN，新增）／一般工作人員（STAFF）／唯讀人員（READONLY，新增）。
+/// FINANCE_CLERK 維持原本語意（財務模組預留角色，尚未開放給任何使用者）。
+enum Role {
+  SUPER_ADMIN // 最高管理員：所有模組的查看/新增/修改/作廢/匯出/設定都開放
+  ADMIN // 管理員（V11.1.1 新增）：授權管理人員，可執行需要核准的操作（例如收據作廢/換開/標記不需開立），但不能修改最敏感的規則類設定（例如收據號碼規則，僅 SUPER_ADMIN）
+  STAFF // 一般行政人員：日常操作，不能執行需要核准的高風險操作
+  READONLY // 唯讀人員（V11.1.1 新增）：只能查看與匯出，不能執行任何會改變資料的操作
+  FINANCE_CLERK // 財務人員（預留，尚未開放）：只能新增財務草稿
+}
+
+/// 使用者帳號。
+/// V11.1.1 之前這個 model 雖然存在，但從未真正被查詢使用
+/// （getCurrentUser() 固定回傳 null）。V11.1.1 開始，收據中心的 API 會
+/// 真的查詢這張表來源決定操作人的角色與權限（見 src/lib/operator.ts），
+/// 不再只是預留的資料結構。
+model User {
+  id       String  @id @default(cuid())
+  name     String
+  email    String? @unique
+  role     Role    @default(STAFF)
+  isActive Boolean @default(true)
+
+  createdFinanceRecords FinanceRecord[] @relation("FinanceRecordCreatedBy")
+  voidedFinanceRecords  FinanceRecord[] @relation("FinanceRecordVoidedBy")
+  auditLogs             AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum FinanceRecordType {
+  INCOME // 收入（例如：香油錢、法會功德金）
+  EXPENSE // 支出
+}
+
+/// 財務資料只能作廢（VOID），不可永久刪除；狀態流轉：DRAFT → CONFIRMED → VOID
+enum FinanceRecordStatus {
+  DRAFT // 草稿（FINANCE_CLERK 未來只能建立到這個狀態）
+  CONFIRMED // 已確認
+  VOID // 已作廢（不可再修改，資料仍保留）
+}
+
+/// 財務流水帳（架構預留，尚未開發畫面與 API）
+model FinanceRecord {
+  id          String              @id @default(cuid())
+  type        FinanceRecordType
+  category    String? // 項目分類，例如「香油錢」「法會收入」「雜支」
+  amount      Decimal             @db.Decimal(12, 2)
+  occurredOn  DateTime            @db.Date // 帳務發生日期
+  description String?             @db.Text
+  status      FinanceRecordStatus @default(DRAFT)
+
+  createdById String
+  createdBy   User   @relation("FinanceRecordCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("FinanceRecordVoidedBy", fields: [voidedById], references: [id])
+  voidedAt   DateTime?
+  voidReason String?   @db.Text // 作廢原因（依需求，作廢必須說明原因並寫入 Audit Log）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("finance_records")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  VOID
+}
+
+/// 稽核紀錄：財務資料的新增/修改/作廢都必須留下這筆紀錄
+/// （entityType/entityId 設計成通用格式，之後其他模組要留稽核紀錄也能共用）
+model AuditLog {
+  id         String      @id @default(cuid())
+  entityType String // 例如 "FinanceRecord"
+  entityId   String
+  action     AuditAction
+
+  operatorId String
+  operator   User   @relation(fields: [operatorId], references: [id])
+
+  beforeData Json? // 修改前內容
+  afterData  Json? // 修改後內容
+  reason     String? @db.Text // 操作原因（作廢時必填，由 API 層驗證）
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// V8.0「資料版本紀錄與刪除保護」：以下是「備份、還原與版本管理系統」第一個
+// 子模組的資料模型，純粹附加，不影響上面任何既有資料表的欄位與關聯。
+//
+// 跟上面的 AuditLog 刻意分開、不共用同一張表：
+// 1. AuditLog 是財務模組專用的稽核紀錄，`operatorId` 是必填的 User 外鍵，
+//    財務模組正式開發、系統有了登入/session 機制後才會真正寫入資料；
+// 2. RecordVersion 是「一般資料」（家戶/成員/普渡登記等）的修改歷史，
+//    現在就要能運作，但系統目前沒有登入功能，沒有辦法保證「操作人」的
+//    真實性，所以 `operatorName` 故意設計成自由文字欄位（不是 User 外鍵），
+//    等之後系統做出登入/session 機制，才升級成真正關聯 User 的欄位
+//    （見 docs/BACKUP_VERSION_CONTROL.md 已知限制與風險事項）。
+// ============================================================
+
+enum RecordVersionAction {
+  CREATE // 新增
+  UPDATE // 修改
+  DELETE // 移入回收區（軟刪除）
+  RESTORE // 從回收區還原，或回復到指定的歷史版本
+  PURGE // 從回收區永久刪除（此時原始資料列已經不存在，只留下這筆紀錄本身）
+  // V11.1「全宮共用收據中心」新增（純附加列舉值，不影響既有任何一列既有
+  // 紀錄，既有的 CREATE/UPDATE/DELETE/RESTORE/PURGE 語意完全不變）：
+  PRINT // 收據列印（含正式列印與補印，兩者用 changeNote／afterData 裡的
+  // printKind 區分，不拆成兩個獨立列舉值，因為兩者都只是「讀取並輸出既有
+  // 收據內容」，差別只在於是第幾次）
+  VOID // 收據作廢
+  REISSUE // 收據換開（含「作廢原收據」與「建立新收據」這一組操作的紀錄）
+}
+
+/// 資料版本紀錄：信眾/家戶/普渡登記等重要資料的每一次修改都留一筆。
+/// entityType/entityId 是通用格式（不是外鍵，允許原始資料列已經被永久刪除
+/// 後，這筆歷史紀錄依然保留），方便之後其他模組（年度燈/收款/支出等）
+/// 上線時直接沿用同一套版本紀錄機制，不需要各自另外設計資料表。
+model RecordVersion {
+  id         String              @id @default(cuid())
+  entityType String // 例如 "Household" / "Member" / "RitualRecord" / "UniversalSalvationDetail" / "UniversalSalvationEntry"
+  entityId   String
+  action     RecordVersionAction
+
+  beforeData Json? // 修改前內容快照（CREATE 時為 null）
+  afterData  Json? // 修改後內容快照（PURGE 時為 null，原始資料已不存在）
+
+  // ⚠️ 自由文字欄位，不是 User 外鍵：系統目前沒有登入/session 機制，
+  // 無法驗證操作人身份的真實性，暫時由操作人自行輸入姓名。
+  operatorName String?
+  changeNote   String? @db.Text // 選填的修改說明／備註
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([entityType, entityId, createdAt])
+  @@map("record_versions")
+}
+
+// ============================================================
+// 以下是「Excel 批次匯入」功能的資料模型。
+//
+// 純粹附加（additive），不影響上面 Household / Member / WorshipRecord /
+// Activity 既有的欄位與關聯，也不影響財務模組的預留架構。
+//
+// 設計重點（對應需求）：
+// 1. 上傳 Excel 後「先驗證、不寫入」（Preview），把每一列的檢查結果存成
+//    ImportRow，狀態是 OK / ERROR / DUPLICATE_PENDING，讓畫面可以顯示完整的
+//    錯誤清單，也讓「確認匯入」時不用重新上傳、重新解析檔案。
+// 2. 家戶編號如果已經存在資料庫，「不會覆蓋」，該戶所有列會被標記成
+//    DUPLICATE_PENDING（待確認），只有真正「全新」的家戶才會在確認匯入時
+//    真正寫進 Household / Member / WorshipRecord。
+// ============================================================
+
+enum ImportBatchStatus {
+  PREVIEWED // 已驗證，尚未寫入正式資料
+  COMMITTED // 已確認匯入（OK 的列已經寫入）
+}
+
+enum ImportRowStatus {
+  OK // 通過驗證，且家戶編號是全新的，確認匯入時會真正寫入
+  ERROR // 未通過驗證，永遠不會被匯入，需修正 Excel 後重新上傳
+  DUPLICATE_PENDING // 家戶編號已存在資料庫，不覆蓋、列為待確認，需要人工檢視
+  IMPORTED // 已經確認匯入、寫入正式資料
+}
+
+/// 一次 Excel 上傳 = 一個批次
+model ImportBatch {
+  id       String            @id @default(cuid())
+  fileName String
+  status   ImportBatchStatus @default(PREVIEWED)
+
+  // V8.1「宮務活動中心」新增：這批匯入是哪一種資料（"HOUSEHOLD" 是既有的
+  // 家戶資料批次匯入，預設值就是它，既有資料/既有 API 完全不用改）；
+  // 活動精靈 Step3③ 的 Excel/CSV 匯入會用其他值，例如 "PURIFICATION"。
+  importKind String @default("HOUSEHOLD")
+
+  // 若這批匯入是某個宮務活動精靈建立的，指回該活動（選填，家戶匯入不會用到）。
+  templeEventId String?
+
+  totalRows        Int @default(0)
+  okCount          Int @default(0)
+  errorCount       Int @default(0)
+  duplicateCount   Int @default(0)
+  importedRowCount Int @default(0) // 確認匯入後，實際寫入的列數
+
+  rows ImportRow[]
+
+  createdAt   DateTime  @default(now())
+  committedAt DateTime?
+
+  @@index([importKind])
+  @@map("import_batches")
+}
+
+/// Excel 裡的每一列（每一列＝一位家戶成員），驗證結果與原始內容都存下來，
+/// 方便「確認匯入」時直接使用，也方便之後追查匯入紀錄。
+model ImportRow {
+  id      String      @id @default(cuid())
+  batchId String
+  batch   ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  rowNumber   Int // Excel 裡的列號（從 2 開始，1 是標題列）
+  householdId String // 家戶編號（就算驗證失敗也盡量記錄，方便顯示錯誤清單）
+  memberName  String?
+
+  rawData Json // 這一列原始欄位內容（未經轉換），方便對照原始 Excel
+
+  status   ImportRowStatus
+  errors   Json? // string[]，ERROR 時的錯誤訊息
+  warnings Json? // string[]，OK 但有可疑之處時的提醒（例如生肖與系統換算不符）
+
+  createdAt DateTime @default(now())
+
+  @@index([batchId])
+  @@index([householdId])
+  @@map("import_rows")
+}
+
+// ============================================================
+// V8.1「宮務活動中心」：以下是所有宮務活動（普渡、祭改、光明燈、太歲燈、
+// 全家燈、補庫、宮慶、其他）共用的活動層級架構，純粹附加，不影響上面
+// Household / Member / WorshipRecord 既有欄位與關聯。
+//
+// 設計重點：
+// 1. TempleEvent 是「一個年度、一種活動類型」的活動主檔（例如「民國
+//    一一五年度祭改」「115年度光明燈」），取代 V9.0 原本祭改專用的
+//    PurificationYear——同一個概念，現在所有活動類型共用同一張表，
+//    不再各自重新開發一套「年度活動」資料表。
+// 2. RitualRecord（V2.0 就有的「一戶、一年、一種活動類型」主檔，普渡
+//    原本就在用）新增 templeEventId，指回這個活動年度；祭改也改成走
+//    RitualRecord + PurificationEntry（見下方），不再使用獨立的
+//    PurificationRegistration。光明燈/太歲燈/全家燈/補庫/宮慶/其他
+//    這幾個新活動類型，本輪只有通用的名單+備註可用（沒有專屬的明細表，
+//    因為這幾個活動目前還沒有像祭改那樣完整的十六節規格），之後要幫
+//    哪個活動類型加專屬明細（像 UniversalSalvationDetail / PurificationEntry
+//    那樣），都直接掛在 RitualRecord 底下，不需要重新設計活動層級架構。
+// 3. 「祭改遷移」是這一輪應你的要求做的重大異動：V9.0 剛交付、還沒有
+//    正式資料庫資料，所以直接把 PurificationYear/PurificationRegistration/
+//    PurificationPrintBatch 換成 TempleEvent/RitualRecord+PurificationEntry/
+//    TempleEventPrintBatch，不是新增一套平行系統，也不是保留兩套並存。
+//    禁用編號清單（PurificationBannedNumber）維持原樣不變——它本來就是
+//    跨年度的全域清單，不屬於任何一個年度。
+// ============================================================
+
+/// 活動狀態（Step2「活動狀態」欄位）。
+enum TempleEventStatus {
+  PREPARING // 籌備中
+  ONGOING // 活動進行中
+  CLOSED // 已結案
+  CANCELLED // 已取消
+}
+
+/// 活動主檔：一個年度、一種活動類型，一筆。
+/// 普渡 / 祭改 / 光明燈 / 太歲燈 / 全家燈 / 補庫 / 宮慶 / 其他 都共用這張表。
+model TempleEvent {
+  id           String       @id @default(cuid())
+  activityType ActivityType
+  year         Int // 年度（民國年，例如 115）
+  name         String // 顯示名稱，例如「民國一一五年度祭改」（逐字讀法自動組字，也可手動覆蓋）
+
+  // 農曆／國曆日期（Step2「農曆日期」「國曆日期」欄位），兩者皆選填，
+  // 沿用 Member 生日欄位同一套命名慣例。
+  lunarDateYear     Int?
+  lunarDateMonth    Int?
+  lunarDateDay      Int?
+  lunarDateIsLeap   Boolean   @default(false)
+  solarDate         DateTime? @db.Date
+
+  status TempleEventStatus @default(PREPARING)
+  note   String?           @db.Text
+
+  // 祭改專用：編號是否已鎖定。任何一筆資料開始列印（建立第一個
+  // TempleEventPrintBatch）之後自動設為 true。其他活動類型不使用這個欄位
+  // （維持預設值 false），不影響它們的資料。
+  numberingLocked Boolean @default(false)
+
+  // 若是用「複製去年活動」（Step3②）建立，記錄來源活動 id，供畫面顯示
+  // 「本年度資料沿用自 XXX」與差異比對使用。刻意跟原本 PurificationYear.
+  // copiedFromYearId 一樣不建 FK 關聯，只存純文字 id，避免自我關聯的複雜度。
+  copiedFromEventId String?
+
+  // V10.1「供品認捐中心」新增（需求「六」）。
+  // ⚠️ 2026-07-16 驗收修正：這欄位原本設計成「管理者可依活動個別關閉」的
+  // 開關，經確認**不符合三玄宮已確認的固定宮務規則**——同一位信眾在同一場
+  // 活動只能得到一隻福壽龜（大福壽龜／小福壽龜合併計算），這是不能關閉的
+  // 硬性規則。應用邏輯（src/lib/offeringRules.ts 的
+  // checkTurtleExclusiveConflict()）已改為一律強制套用、不再讀取這個欄位。
+  // 這個欄位保留在資料庫只是為了系統彈性（例如未來真的有特殊情況需要處理），
+  // 目前整個專案沒有任何 API／畫面會讀寫這個欄位；如果之後真的需要例外，
+  // 必須由最高管理權限另外寫專用的一次性程式處理，不能透過一般活動管理
+  // 畫面開放修改。只對 OfferingType.behaviorKind = TURTLE 的供品種類有關。
+  offeringTurtleExclusiveRule Boolean @default(true)
+
+  records       RitualRecord[]
+  bannedNumbers TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）
+  printBatches  TempleEventPrintBatch[]
+  checklist     TempleEventChecklistItem[]
+  expenses      TempleEventExpense[]
+  additionalPrintItems AdditionalPrintItem[] // V9.1：普渡附加列印項目（寶袋等），只有透過活動精靈建立/沿用去年的普渡活動才會有值
+  activityOfferings ActivityOffering[] // V10.1：本活動掛的供品設定
+  floralOfferingSlots FloralOfferingSlot[] // V10.1：本活動年度的花果供品排程（冗餘關聯，方便查詢）
+  offeringClaims OfferingClaim[] // V10.1：本活動的供品認捐紀錄
+  stoveMasterRegistrations StoveMasterRegistration[] // V10.1：本活動（通常是宮慶）的爐主/副爐主登錄
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([activityType, year])
+  @@index([activityType, year])
+  @@map("temple_events")
+}
+
+/// 活動額外禁用號碼：目前只有「祭改」會用到（見 src/lib/purificationNumbering.ts
+/// 的固定「連續44」規則之外，管理者額外新增的禁用號碼）。刻意掛在 TempleEvent
+/// 底下而不是像舊版 PurificationBannedNumber 那樣是全域表——這裡改成「這個活動
+/// 年度」額外禁用，若要維持「所有年度都禁用」的效果，複製去年活動時會一併帶過來
+/// （見 src/lib/templeEvents.ts 的複製邏輯），需要調整時管理者也可以針對單一年度
+/// 個別增減，彈性更大。
+model TempleEventBannedNumber {
+  id            String      @id @default(cuid())
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  number    Int
+  reason    String? // 禁用原因（選填）
+  createdAt DateTime @default(now())
+
+  @@unique([templeEventId, number])
+  @@index([templeEventId])
+  @@map("temple_event_banned_numbers")
+}
+
+/// 活動列印批次：每次執行「列印」（全部/範圍/補印…）都會建立一筆。目前只有
+/// 祭改的小人頭貼紙列印會用到（entries 關聯到 PurificationEntry），但刻意
+/// 命名成通用的 TempleEventPrintBatch，方便之後光明燈/太歲燈燈牌列印上線時
+/// 直接沿用同一張表，不需要重新設計。
+model TempleEventPrintBatch {
+  id            String       @id @default(cuid())
+  // V9.1「附加列印項目」新增：改為可為空。祭改一律會有 templeEventId（見
+  // PurificationEntry），但普渡（UniversalSalvationEntry 底下的附加列印
+  // 項目／寶袋）不是每一筆都掛在 TempleEvent 精靈建立的活動底下——很多是
+  // V10.0 之前就存在、從沒進過活動精靈的既有普渡登記資料，這種情況下
+  // templeEventId 允許是空的，列印批次照樣可以建立，只是不會出現在某個
+  // 活動的統計數字裡（見 src/lib/additionalPrintItems.ts 的說明）。
+  templeEventId String?
+  templeEvent   TempleEvent? @relation(fields: [templeEventId], references: [id], onDelete: SetNull)
+
+  entries PurificationEntry[]
+  additionalPrintItems AdditionalPrintItem[] // V9.1：普渡附加列印項目（寶袋等）的列印批次
+
+  registrationCount Int
+  printedByName     String?
+  note              String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([templeEventId])
+  @@map("temple_event_print_batches")
+}
+
+/// 活動待辦清單（規格第十一節「活動 Checklist」）：建立活動完成後自動產生，
+/// 由 src/lib/templeEvents.ts 依活動類型 seed 預設項目。
+model TempleEventChecklistItem {
+  id            String      @id @default(cuid())
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  label           String
+  isDone          Boolean   @default(false)
+  sortOrder       Int       @default(0)
+  completedAt     DateTime?
+  completedByName String?
+
+  createdAt DateTime @default(now())
+
+  @@index([templeEventId])
+  @@map("temple_event_checklist_items")
+}
+
+/// 活動支出紀錄（規格第四節「建立完成後自動完成 ✓ 建立支出」）：這是這個
+/// 活動中心「模組內」的簡易支出容器，建立活動時自動備好、可以馬上使用，
+/// 不會憑空生成任何一筆資料。跟 FinanceRecord（財務流水帳模組，目前只有
+/// 資料模型、尚未開發畫面/API，見 schema 上方註解）刻意分開，避免這一輪
+/// 順便把財務模組也做掉——那是另一個尚未排入開發的模組，見交付說明的
+/// 誠實限制章節。
+model TempleEventExpense {
+  id            String      @id @default(cuid())
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  category    String? // 支出項目分類
+  amount      Decimal  @db.Decimal(12, 2)
+  occurredOn  DateTime @db.Date
+  description String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([templeEventId])
+  @@map("temple_event_expenses")
+}
+
+// ============================================================
+// 祭改（PURIFICATION）專屬明細：延續 V9.0「祭改管理與小人頭貼紙列印」
+// 的完整規格（十六節），只是把資料掛載點從 PurificationYear 改成
+// TempleEvent + RitualRecord。所有業務規則（編號跳號、貼紙欄位、
+// 列印預覽/批次分離……）完全不變，見 src/lib/purification.ts。
+// ============================================================
+
+/// 祭改報名的狀態。CANCELLED 保留原編號、不重新分配給別人；SUPPLEMENTARY
+/// 代表這一筆是在正式編號/列印開始之後才臨時新增的補報資料。
+enum PurificationEntryStatus {
+  ACTIVE // 有效
+  CANCELLED // 取消（保留編號，不釋出給後面的人使用）
+  SUPPLEMENTARY // 補報（臨時新增，接續目前最後一個有效編號）
+}
+
+/// 祭改報名的收款狀態。⚠️ 2026-07-16（V11.0.1）：這個欄位與下面
+/// `PurificationEntry.paymentAmount` 從 V9.0 起就是「單一欄位直接覆蓋」
+/// 的簡化設計，沒有應收金額、沒有收款分錄。V11.0.1 全宮共用收款中心整合
+/// 後，正式的已收/未收金額改由 amountDue/amountPaid/amountUnpaid（見下方
+/// PurificationEntry 新欄位）與 PurificationPayment 收款分錄維護；這兩個
+/// 舊欄位保留但不再是權威資料來源，只當作歷史欄位保留舊資料、避免破壞
+/// 既有讀取這兩個欄位的畫面（見 src/lib/purification.ts 說明與
+/// migration 的資料轉換註解）。
+enum PurificationPaymentStatus {
+  UNPAID // 未收
+  PARTIAL // 部分收款
+  PAID // 已收款
+}
+
+/// V11.0.1 新增：祭改是否收費的三態旗標。需求明確要求「不得將空白金額
+/// 自動當成零元已付款」，所以用獨立的三態 enum 表達「尚未設定」，不用
+/// nullable boolean（容易被誤讀成 false=免收）。
+enum PurificationFeeStatus {
+  UNSET // 尚未設定金額（預設值，不是免收，也不是有應收金額）
+  CHARGEABLE // 收費（amountDue 才有意義）
+  WAIVED // 免收（不產生應收）
+}
+
+/// 禁用編號清單（跨年度全域固定清單）：預設「連續 44」規則是程式邏輯層級
+/// 的固定規則（見 src/lib/purificationNumbering.ts 的 containsConsecutive44），
+/// 不需要存進資料庫；這張表只用來存「無論哪一年都要禁用」的號碼（例如某個
+/// 編號是宮方長期慣例避開的數字），一般工作人員不可修改，只有管理者可以
+/// 新增/刪除。跟上面 TempleEventBannedNumber（單一活動年度額外禁用）刻意
+/// 分開：這張表是全域的，那張表是單一年度的，兩者在編號時都會套用。
+model PurificationBannedNumber {
+  id        String   @id @default(cuid())
+  number    Int      @unique
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@map("purification_banned_numbers")
+}
+
+/// 祭改報名者，每一位、每一年度一筆，掛在該年度、該戶的 RitualRecord 底下
+/// （RitualRecord.activityType = PURIFICATION）。household 直接透過
+/// ritualRecord.household 取得，不再像舊版那樣在這張表自己存一個 householdId。
+model PurificationEntry {
+  id             String       @id @default(cuid())
+  ritualRecordId String
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+
+  // 冗餘存一份 templeEventId，方便「這個年度全部報名者」的編號指派/禁用號碼
+  // 檢查/列印批次查詢，不需要每次都多一層 join 到 RitualRecord。
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id])
+
+  number Int? // 祭改編號（阿拉伯數字），尚未編號前為 null
+
+  // 優先關聯信眾主資料；memberId 有值時，姓名/性別/生日/地址一律從 Member
+  // 即時讀取，不在這裡另外存一份。
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id])
+
+  // 以下欄位只有在「臨時報名者」（isTemporaryName=true，尚未有信眾主資料）
+  // 時才會使用；memberId 有值時這幾個欄位一律忽略、不讀取。
+  isTemporaryName        Boolean   @default(false)
+  manualDisplayName      String?
+  manualGender           String?
+  manualSolarBirthDate   DateTime? @db.Date
+  manualLunarBirthYear   Int?
+  manualLunarBirthMonth  Int?
+  manualLunarBirthDay    Int?
+  manualLunarIsLeapMonth Boolean   @default(false)
+  manualAddress          String?
+  manualPhone            String?
+
+  // ⚠️ 舊欄位（V9.0～V11.0），保留舊資料相容性，不再是權威來源，見上方
+  // PurificationPaymentStatus enum註解與 migration 的資料轉換說明。
+  paymentStatus PurificationPaymentStatus @default(UNPAID)
+  paymentAmount Decimal?                  @db.Decimal(12, 2)
+
+  // V11.0.1「全宮共用收款中心」整合新欄位：正式的應收/已收/未收金額。
+  feeStatus    PurificationFeeStatus @default(UNSET)
+  amountDue    Decimal?              @db.Decimal(12, 2) // feeStatus=CHARGEABLE 時才有意義；UNSET/WAIVED 一律為 null
+  amountPaid   Decimal               @default(0) @db.Decimal(12, 2) // 由 PurificationPayment 加總維護
+  amountUnpaid Decimal               @default(0) @db.Decimal(12, 2)
+
+  registeredAt DateTime @default(now())
+  notes        String?  @db.Text
+
+  status PurificationEntryStatus @default(ACTIVE)
+
+  isPrinted    Boolean   @default(false)
+  printedAt    DateTime?
+  printBatchId String?
+  printBatch   TempleEventPrintBatch? @relation(fields: [printBatchId], references: [id])
+
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments PurificationPayment[]
+
+  @@unique([templeEventId, number])
+  @@index([templeEventId, status])
+  @@index([ritualRecordId])
+  @@index([memberId])
+  @@index([deletedAt])
+  @@map("purification_entries")
+}
+
+/// V11.0.1 新增：祭改收款分錄，比照 V10.1 OfferingPayment／
+/// UniversalSalvationPayment 同一套既有慣例。
+model PurificationPayment {
+  id String @id @default(cuid())
+
+  purificationEntryId String
+  purificationEntry   PurificationEntry @relation(fields: [purificationEntryId], references: [id], onDelete: Cascade)
+
+  kind   OfferingPaymentKind @default(PAYMENT)
+  amount Decimal             @db.Decimal(12, 2)
+  paidOn DateTime            @db.Date
+
+  method          String?
+  collectedByName String?
+
+  receiptNumber String?
+  reprintCount  Int       @default(0)
+  lastReprintAt DateTime?
+
+  reason          String? @db.Text
+  relatedEntryId  String?
+
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([purificationEntryId])
+  @@index([kind])
+  @@map("purification_payments")
+}
+
+// ============================================================
+// V8.1「台北三玄宮模板中心」：管理所有列印/Excel/CSV/Word/PDF 模板。
+// 即使目前尚未真的上傳 Word/PDF 原始檔，也先建立模板分類資料，之後檔案
+// 送到後只要新增一筆 TemplateVersion 並標記 isActive，不需要重新開發。
+// ============================================================
+
+enum TemplateCategory {
+  PRINT // 列印模板
+  EXCEL // Excel模板
+  CSV // CSV模板
+  WORD // Word模板
+  PDF // PDF模板
+}
+
+/// 模板分類（一個模板「項目」，例如「光明燈燈牌」「祭改小人頭」），
+/// 版本歷史另外存在 TemplateVersion。
+model TemplateDefinition {
+  id           String            @id @default(cuid())
+  category     TemplateCategory
+  key          String // 穩定識別碼，例如 "GUANGMING_LANTERN_TABLET"
+  name         String // 顯示名稱，例如「光明燈燈牌」
+  description  String?           @db.Text
+  activityType ActivityType? // 所屬活動類型（收據/財務報表等通用模板可為空）
+  sortOrder    Int               @default(0)
+
+  versions TemplateVersion[]
+  additionalPrintItems AdditionalPrintItem[] // V9.1：附加列印項目選用的模板（例如「普渡寶袋」「祖先寶袋」）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([category, key])
+  @@index([category])
+  @@map("template_definitions")
+}
+
+/// 模板版本：每次上傳新的 Word/Excel/PDF 原始檔都建立一筆，isActive 標記
+/// 目前正式使用的版本，方便之後版本比對/回溯。fileUrl 本輪先留欄位（沙盒
+/// 環境無法真的儲存二進位檔案），真正上線後接檔案儲存服務即可。
+model TemplateVersion {
+  id                   String             @id @default(cuid())
+  templateDefinitionId String
+  templateDefinition   TemplateDefinition @relation(fields: [templateDefinitionId], references: [id], onDelete: Cascade)
+
+  versionLabel String
+  fileName     String?
+  fileUrl      String?
+  isActive     Boolean   @default(false)
+  uploadedAt   DateTime?
+  note         String?   @db.Text
+
+  createdAt DateTime @default(now())
+
+  additionalPrintItems AdditionalPrintItem[] // V9.1：記錄附加列印項目實際使用的模板版本（供「模板版本」列印紀錄使用）
+
+  @@index([templateDefinitionId])
+  @@map("template_versions")
+}
+
+// ============================================================
+// V8.1「Excel智慧匯入」：欄位對應記憶，設定一次即可永久保存，之後同一種
+// 匯入類型（importKind）遇到同樣的 Excel 欄位名稱，會自動帶出上次的對應。
+// ============================================================
+
+model ImportFieldMapping {
+  id               String   @id @default(cuid())
+  importKind       String // 例如 "HOUSEHOLD" / "PURIFICATION" / "GUANGMING_LANTERN"
+  sourceColumnName String // Excel/CSV 檔案裡實際出現的欄位名稱
+  targetField      String // ERP 欄位 key
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([importKind, sourceColumnName])
+  @@index([importKind])
+  @@map("import_field_mappings")
+}
+
+// ============================================================
+// V9.1「附加列印項目與多寶袋管理機制」：修正普渡（歷代祖先／個人乙位正魂／
+// 冤親債主／無緣子女）過去「是否有寶袋（是/否）＋寶袋數量（單一數字）」
+// 這種簡化設計沒辦法表達「同一筆祭祀資料有好幾個名稱不同的寶袋」的問題。
+// 每一個寶袋（或牌位/疏文/燈牌/其他列印項目）都是一筆獨立的
+// AdditionalPrintItem，各自可以有自己的列印名稱、數量、模板、狀態。
+// ============================================================
+
+/// 附加列印項目類型。
+enum AdditionalPrintItemType {
+  POCKET // 寶袋
+  TABLET // 牌位
+  PETITION // 疏文
+  LANTERN_TABLET // 燈牌
+  OTHER // 其他列印項目
+}
+
+/// 附加列印項目狀態。
+enum AdditionalPrintItemStatus {
+  PENDING_CONFIRMATION // 待確認（例如 Excel 匯入找不到明確來源資料時）
+  PENDING_PRINT // 待列印
+  PRINTED // 已列印
+  CANCELLED // 取消（保留歷史，不再出現在待列印清單，見需求「十三」）
+}
+
+/// 附加列印項目（需求「一～十四」的核心資料表）：歷代祖先／個人乙位正魂／
+/// 冤親債主／無緣子女……任何一筆普渡祭祀資料，都可以另外掛零筆、一筆或
+/// 多筆這種資料，每一筆都是獨立、可以個別列印/取消/補印的紀錄，不會被
+/// 簡化成一個數字。
+model AdditionalPrintItem {
+  id String @id @default(cuid())
+
+  // 所屬活動（TempleEvent，可為空）：只有透過「活動精靈」建立或沿用去年
+  // 建立的普渡活動才會有值；V10.0 之前就存在、從沒進過活動精靈的既有
+  // 普渡登記資料，這裡會是 null，見 src/lib/additionalPrintItems.ts 的
+  // 「活動摘要只統計有 activityId 的項目」說明。
+  activityId String?
+  activity   TempleEvent? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  // 掛在哪一筆普渡登記（RitualRecord，activityType = UNIVERSAL_SALVATION）
+  // 底下——用來知道這筆附加列印項目屬於哪一戶、哪一年。
+  ritualRecordId String
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+
+  // 來源登記項目：目前唯一的來源是 UniversalSalvationEntry（歷代祖先／
+  // 個人乙位正魂／冤親債主／無緣子女），刻意比照 RecordVersion 的
+  // entityType/entityId 慣例，不建成強制 FK——保留未來如果其他祭祀類型
+  // 也需要掛附加列印項目時，同一張表可以直接沿用，不需要重新設計。
+  sourceEntryId   String
+  sourceEntryType String @default("UNIVERSAL_SALVATION_ENTRY")
+
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  itemType AdditionalPrintItemType
+
+  // 列印名稱：跟原祭祀名稱（displayName）分開保存（需求「五」）。新增時
+  // usesSourceName=true 代表「沿用原祭祀名稱」，畫面上會自動帶入、但存進
+  // 這個獨立欄位，之後原祭祀名稱異動不會回頭覆蓋已經建立的列印名稱；
+  // usesSourceName=false 代表管理者自訂了不同的列印名稱。
+  printName      String
+  usesSourceName Boolean @default(true)
+
+  // 數量（需求「六」）：同一個列印名稱、同樣內容要印幾份，不同名稱一律要
+  // 分成不同筆 AdditionalPrintItem，不可以用加總的數字表示。
+  quantity Int @default(1)
+
+  // 使用模板（選填）：對應模板中心的 TemplateDefinition／TemplateVersion。
+  templateId String?
+  template   TemplateDefinition? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  status AdditionalPrintItemStatus @default(PENDING_CONFIRMATION)
+  note   String? @db.Text
+
+  // 預設 vs 額外（需求「七」）：false=依活動/祭祀項目既定規則自動建立的
+  // 預設項目，true=信眾另外要求的額外項目。
+  isExtra Boolean @default(false)
+
+  // 列印紀錄（需求「十」）：isPrinted/printedAt/printedByName 是「最近一次
+  // 列印」的快照；printedQuantity 是累計已經印出的份數（含補印），用來
+  // 判斷 quantity=2 時是否已經完整印出兩份；reprintCount 是補印次數，
+  // 補印不會回頭修改 quantity（原始數量），只會讓 printedQuantity／
+  // reprintCount 往上累加，見 src/lib/additionalPrintItemRules.ts 的
+  // computePrintProgress()。
+  isPrinted       Boolean   @default(false)
+  printedQuantity Int       @default(0)
+  printedAt       DateTime?
+  printedByName   String?
+  reprintCount    Int       @default(0)
+
+  printBatchId String?
+  printBatch   TempleEventPrintBatch? @relation(fields: [printBatchId], references: [id], onDelete: SetNull)
+
+  templateVersionId String?
+  templateVersion   TemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: SetNull)
+
+  // 收款與費用（需求「十一」）：資料架構預留，目前三玄宮不對外收費時，
+  // isChargeable 一律是 false、金額全部是 0/空，但欄位本身不會因為之後
+  // 開放收費而需要重構。paymentId 刻意不建 FK（跟其他模組的財務架構
+  // 預留一致，目前沒有正式的 Payment 資料表可以關聯）。
+  isChargeable Boolean  @default(false)
+  unitPrice    Decimal? @db.Decimal(12, 2)
+  subtotal     Decimal? @db.Decimal(12, 2)
+  isPaid       Boolean  @default(false)
+  paymentId    String?
+
+  // 建立者（自由文字，見 recordVersion.ts 說明：系統目前沒有登入/session
+  // 機制，沒辦法保證這是驗證過的身份）。
+  createdBy String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // 刪除保護（需求「十三」）：取消是 status=CANCELLED（保留在清單裡，只是
+  // 不再出現在待列印清單）；deletedAt 是另一層更徹底的「移入回收區」，
+  // 只有超過保留期限、且只有超級管理員才能從回收區永久刪除，跟
+  // Household/Member/RitualRecord/UniversalSalvationEntry 用同一套
+  // src/lib/recycleBin.ts 機制。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  @@index([ritualRecordId])
+  @@index([sourceEntryId])
+  @@index([householdId])
+  @@index([activityId])
+  @@index([status])
+  @@index([printBatchId])
+  @@index([deletedAt])
+  @@map("additional_print_items")
+}
+
+// ============================================================
+// V10.1「建立供品認捐中心（Offering Center）」：宮慶／四位主祀神明聖誕／
+// 普渡／其他法會共用的認捐管理模組。純粹附加，不影響上面任何既有資料表的
+// 欄位與關聯（除了上方 TempleEvent/Household/Member 新增的反向關聯與
+// offeringTurtleExclusiveRule 欄位，都是additive、不影響既有資料）。
+//
+// ⚠️ 誠實說明整合範圍（對應本輪使用者補充指示「請以現有架構為唯一開發
+// 基礎，不要另外建立第二套資料結構」）：
+// 1. 信眾中心／家戶資料／宮務活動中心／模板中心／版本紀錄／回收區——這五個
+//    是系統目前真正已經開發完成的模組，本模組直接整合：sponsorMemberId/
+//    sponsorHouseholdId 指向既有 Member/Household；activityId 指向既有
+//    TempleEvent；OfferingClaim 的刪除保護沿用既有 src/lib/recycleBin.ts；
+//    每一次新增/修改/取消都寫入既有 src/lib/recordVersion.ts。
+// 2. 收款中心／收據中心／財務中心／年度收費設定——查過目前程式碼
+//    （src/app、src/lib 全部搜尋過「收款中心」「收據中心」「財務中心」
+//    「年度收費設定」關鍵字），這四個目前都「還沒有任何畫面或 API」，
+//    只有 FinanceRecord/AuditLog 這兩張схема 預留、從未真正被寫入使用
+//    （schema.prisma 第 313 行附近的既有註解也說明這一點）。既然這四個
+//    模組本身都還沒開發，這裡不會另外從零打造一套平行的「收款中心」
+//    UI／資料表來假裝整合，而是：
+//    a. 「年度收費設定」：直接用 OfferingType.defaultPrice（全域預設）
+//       + ActivityOffering.price（活動當次覆蓋）取代，範圍限定在供品
+//       認捐使用，不建立系統通用的年度收費設定模組（那是更大範圍的
+//       獨立需求，超出本次「供品認捐中心」的模組邊界）。
+//    b. 「收款中心」：新增 OfferingPayment（見下方），支援分次付款、
+//       退款/轉款——這是供品認捐「這個模組」需要的收款明細，不是要
+//       取代或搶先做出系統通用的收款中心；欄位設計（amount/paidOn/
+//       method/collectedByName/receiptNumber/note）刻意跟 FinanceRecord
+//       的形狀（category/amount/occurredOn/description）能夠對應，
+//       未來真正開發「收款中心」模組時，可以直接把這裡的資料匯入/對接，
+//       不需要重新設計欄位。
+//    c. 「收據中心」：收據號碼／補印次數直接記在 OfferingPayment 上
+//       （receiptNumber/reprintCount/lastReprintAt），不另外建立
+//       獨立的 Receipt 資料表——理由同上，避免疊床架屋。
+//    d. 「財務中心」：FinanceRecord 需要 createdById（User 外鍵），
+//       但系統目前沒有登入/session 機制（同一份 schema 第 331 行
+//       User model 的既有註解），沒辦法真的寫入 FinanceRecord；這裡
+//       選擇「不強行寫入」，而是提供
+//       getOfferingIncomeSummaryForFinance()（見
+//       src/lib/offeringClaims.ts）這支查詢函式，回傳的形狀直接對應
+//       FinanceRecord 需要的欄位，等財務中心真正開發、登入機制做出來
+//       之後，直接呼叫這支函式產生 FinanceRecord 草稿即可，不需要
+//       重新從供品認捐資料反查一次。
+// ============================================================
+
+/// 供品計量單位。
+enum OfferingUnit {
+  ZHI // 隻
+  DUI // 對
+  PAN // 盤
+  FEN // 份
+  ZU // 組
+  OTHER // 其他
+}
+
+/// 供品的「系統行為」分類——只有這裡列出的幾種行為需要程式碼裡的特殊規則
+/// （壽龜的一人一隻＋跨供品互斥、花果供品的年度 24 筆排程），其餘設定
+/// （名稱/數量/價格/單位/是否收費……）一律走通用欄位，不寫死。管理者
+/// 新增「平安米」「鮮花」「金紙」等未來供品時，一律用 GENERIC，不需要
+/// 改程式碼。
+enum OfferingBehaviorKind {
+  TURTLE // 壽龜（大福壽龜／小福壽龜）：一人一隻＋可設定跨供品種類互斥
+  NOODLE_TOWER // 壽桃麵塔：以「對」為單位
+  LOOSE_PEACH // 散壽桃麵：支援「每盤分開」或「合為一組」兩種認捐模式
+  FLORAL // 花果供品：年度自動產生 24 筆農曆日期名額
+  GENERIC // 其他供品：不套用任何特殊規則
+}
+
+/// 散壽桃麵等供品的認捐模式（需求「九」）：每盤分開 vs 合為一組。
+enum OfferingClaimMode {
+  INDIVIDUAL // 每一份（盤/隻/對）分開由不同信眾認捐
+  GROUPED // 全部合為一組，由一位信眾整組認捐
+}
+
+/// 活動供品設定狀態（需求「二」）。
+enum ActivityOfferingStatus {
+  OPEN // 開放
+  FULL // 額滿
+  STOPPED // 停止
+  CLOSED // 結案
+}
+
+/// 認捐狀態（需求「二十、取消與退款」）。
+enum OfferingClaimStatus {
+  ACTIVE // 有效
+  CANCELLED // 已取消（尚未收款的取消，直接釋出名額）
+  REFUND_PENDING // 已收款，退款/轉款處理中
+  REFUNDED // 已收款取消，退款/轉款已完成
+}
+
+/// 認捐收款狀態（需求「十三」，跨年度未收款是由 year+paymentStatus 動態
+/// 判斷出來的提醒狀態，不是另外存一個 enum 值，見 offeringRules.ts 的
+/// isCrossYearUnpaid()）。
+enum OfferingPaymentStatus {
+  UNPAID // 未收款
+  PARTIAL // 部分收款
+  PAID // 已收清
+  WAIVED // 免收
+}
+
+/// 認捐收據狀態。
+enum OfferingReceiptStatus {
+  NOT_ISSUED // 尚未開立
+  ISSUED // 已開立正式收據
+  REPRINTED // 已補印過
+}
+
+/// 單筆收款/退款/轉款紀錄的種類（需求「十三」不得只存累計金額，需求
+/// 「二十」退款/轉款需要保存金額/日期/經手人/原因）。
+enum OfferingPaymentKind {
+  PAYMENT // 收款
+  REFUND // 退款
+  TRANSFER_OUT // 轉出（轉款給另一筆認捐或另一年度）
+  TRANSFER_IN // 轉入
+}
+
+/// 爐主／副爐主身分類型（需求「十五」）。
+enum StoveMasterRoleType {
+  STOVE_MASTER // 爐主
+  VICE_STOVE_MASTER // 副爐主
+}
+
+enum StoveMasterStatus {
+  ACTIVE // 有效
+  CANCELLED // 已取消
+}
+
+/// 供品種類（需求「一」）：全域設定，不綁定任何一個活動年度。管理者可自行
+/// 新增/修改/停用/調整排序，本模組上線時預設建立 5 種（大福壽龜/小福壽龜/
+/// 壽桃麵塔/散壽桃麵/花果供品），詳見 src/lib/offeringTypes.ts 的
+/// DEFAULT_OFFERING_TYPES seed 清單。
+model OfferingType {
+  id String @id @default(cuid())
+
+  name         String // 供品名稱，例如「大福壽龜」
+  category     String? // 供品類別（自由文字，例如「壽龜」「麵塔」「花果」「其他供品」）
+  behaviorKind OfferingBehaviorKind @default(GENERIC)
+  unit         OfferingUnit         @default(OTHER)
+
+  isChargeable        Boolean  @default(true)
+  hasLimitedQuantity  Boolean  @default(true)
+  defaultQuantity     Int      @default(1)
+  defaultPrice        Decimal? @db.Decimal(12, 2)
+  allowPriceOverride  Boolean  @default(true)
+  allowDuplicateClaim Boolean  @default(false) // 是否允許同一信眾重複認捐（需求「一」）
+  claimMode           OfferingClaimMode @default(INDIVIDUAL)
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  note      String? @db.Text
+
+  activityOfferings ActivityOffering[]
+  claims            OfferingClaim[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([behaviorKind])
+  @@map("offering_types")
+}
+
+/// 活動供品設定（需求「二」）：任何活動皆可從供品種類庫加入需要的供品，
+/// 同一種供品在不同活動可以各自設定不同數量/價格，互不影響。
+model ActivityOffering {
+  id String @id @default(cuid())
+
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  offeringTypeId String
+  offeringType   OfferingType @relation(fields: [offeringTypeId], references: [id])
+
+  quantity           Int // 當次數量
+  price              Decimal? @db.Decimal(12, 2) // 當次價格（useDefaultPrice=false 時使用）
+  useDefaultPrice     Boolean  @default(true) // 是否使用年度預設價格（來自 OfferingType.defaultPrice）
+  allowPriceOverride  Boolean  @default(true) // 是否允許單筆修改價格
+  hasLimitedQuantity  Boolean  @default(true)
+  isChargeable        Boolean  @default(true)
+  claimMode           OfferingClaimMode @default(INDIVIDUAL) // 需求「九」：散壽桃麵每盤分開/合為一組，由活動設定決定
+
+  claimStartDate DateTime? @db.Date // 認捐開始日期
+  claimEndDate   DateTime? @db.Date // 認捐截止日期
+
+  status ActivityOfferingStatus @default(OPEN)
+  note   String?                @db.Text
+
+  floralSlots FloralOfferingSlot[]
+  claims      OfferingClaim[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([templeEventId, offeringTypeId])
+  @@index([templeEventId])
+  @@index([offeringTypeId])
+  @@map("activity_offerings")
+}
+
+/// 花果供品年度排程（需求「十」）：建立活動時，behaviorKind=FLORAL 的供品
+/// 會自動產生 24 筆名額（依農曆一日/十五日排序）。這是「名額」本身
+/// （即使還沒有人認捐也存在），跟下面 OfferingClaim（實際認捐紀錄）分開，
+/// 才能同時支援「顯示尚未認捐日期」與「同一天只能一位認捐人」。
+model FloralOfferingSlot {
+  id String @id @default(cuid())
+
+  activityOfferingId String
+  activityOffering   ActivityOffering @relation(fields: [activityOfferingId], references: [id], onDelete: Cascade)
+
+  // 冗餘存一份 templeEventId，方便「這個活動全部花果供品排程」查詢，比照
+  // PurificationEntry 的 templeEventId 慣例，不需要每次都多一層 join。
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  lunarMonth  Int // 農曆月（1-12）
+  lunarDay    Int // 農曆日（1 或 15，目前固定，但欄位本身不限制）
+  isLeapMonth Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  isActive      Boolean  @default(true) // 管理者可停用個別日期（例如閏月調整）
+  priceOverride Decimal? @db.Decimal(12, 2) // 單筆價格覆蓋；null 代表沿用 ActivityOffering 的價格
+  note          String?  @db.Text
+
+  claims OfferingClaim[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([activityOfferingId, lunarMonth, lunarDay, isLeapMonth])
+  @@index([templeEventId])
+  @@index([isActive])
+  @@map("floral_offering_slots")
+}
+
+/// 認捐資料（需求「三」核心資料表）：每一筆認捐獨立保存，不管是壽龜/
+/// 麵塔/散壽桃麵/花果供品/其他供品，都共用這張表（用 activityOffering
+/// 關聯回的 OfferingType.behaviorKind 決定特殊規則）。
+model OfferingClaim {
+  id String @id @default(cuid())
+
+  activityId String
+  activity   TempleEvent @relation(fields: [activityId], references: [id])
+
+  activityOfferingId String
+  activityOffering   ActivityOffering @relation(fields: [activityOfferingId], references: [id])
+
+  offeringTypeId String
+  offeringType   OfferingType @relation(fields: [offeringTypeId], references: [id])
+
+  // 花果供品專用：對應的農曆日期名額；其他供品種類一律為 null。
+  floralSlotId String?
+  floralSlot   FloralOfferingSlot? @relation(fields: [floralSlotId], references: [id], onDelete: SetNull)
+
+  year Int // 年度（民國年），冗餘自 activity.year，方便跨年度查詢不用每次 join
+
+  // 認捐人：需求「三」明確要求優先從信眾中心搜尋選取，查無資料才新增信眾——
+  // 因此這裡的 sponsorMemberId／sponsorHouseholdId 是「必填」的真正 Member/
+  // Household 外鍵（不像 PurificationEntry 的 isTemporaryName 允許純手動輸入
+  // 姓名，供品認捐一律要有信眾主資料）。sponsorNameSnapshot/phoneSnapshot
+  // 是建立當下的姓名/電話快照，之後信眾主資料改名不會回頭影響歷史認捐紀錄。
+  sponsorMemberId String
+  sponsorMember   Member @relation(fields: [sponsorMemberId], references: [id])
+
+  sponsorHouseholdId String
+  sponsorHousehold   Household @relation(fields: [sponsorHouseholdId], references: [id])
+
+  sponsorNameSnapshot String
+  phoneSnapshot       String?
+
+  quantity  Int      @default(1)
+  unitPrice Decimal? @db.Decimal(12, 2)
+
+  amountDue    Decimal @default(0) @db.Decimal(12, 2)
+  amountPaid   Decimal @default(0) @db.Decimal(12, 2) // 由 OfferingPayment 加總維護，不是使用者直接填寫
+  amountUnpaid Decimal @default(0) @db.Decimal(12, 2) // = amountDue - amountPaid（含退款調整），維護方式同上
+
+  paymentStatus OfferingPaymentStatus @default(UNPAID)
+  receiptStatus OfferingReceiptStatus @default(NOT_ISSUED)
+
+  // 需求「七、福壽龜付款時間」：付款可能延後到下一年度，不強制活動結案前收清。
+  expectedPaymentDate DateTime? @db.Date // 預計付款日期
+  collectionNote      String?  @db.Text // 催收備註
+
+  note   String?             @db.Text
+  status OfferingClaimStatus @default(ACTIVE)
+
+  // 需求「二十」：已收款的取消，需保存退款/轉款金額、日期、經手人及原因。
+  refundedAmount Decimal   @default(0) @db.Decimal(12, 2)
+  refundReason   String?   @db.Text
+  refundedAt     DateTime?
+  refundedByName String?
+
+  createdBy String? // 建立者（自由文字，系統尚無登入機制，見 permissions.ts 說明）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 刪除保護：同 AdditionalPrintItem，取消（status=CANCELLED/REFUNDED）是
+  // 第一層、可逆的軟性狀態；deletedAt 是第二層「移入回收區」，只有已經取消
+  // 的認捐才能移入回收區，且要超過保留期限才能永久刪除，見
+  // src/lib/offeringClaims.ts 的 moveOfferingClaimToRecycleBin()。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  payments OfferingPayment[]
+
+  @@index([activityId])
+  @@index([activityOfferingId])
+  @@index([offeringTypeId])
+  @@index([sponsorMemberId])
+  @@index([sponsorHouseholdId])
+  @@index([floralSlotId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([year])
+  @@index([deletedAt])
+  @@map("offering_claims")
+}
+
+/// 單筆收款/退款/轉款紀錄（需求「十三」：每次收款需獨立保存，不得只存累計
+/// 金額）。收據號碼／補印次數也記在這裡（需求「十四」），不另外建立獨立的
+/// 收據資料表——見上方模組註解「誠實說明整合範圍」c 項。
+model OfferingPayment {
+  id String @id @default(cuid())
+
+  offeringClaimId String
+  offeringClaim   OfferingClaim @relation(fields: [offeringClaimId], references: [id], onDelete: Cascade)
+
+  kind   OfferingPaymentKind @default(PAYMENT)
+  amount Decimal             @db.Decimal(12, 2) // 一律存正數，正負意涵由 kind 決定（PAYMENT/REFUND/TRANSFER_OUT/TRANSFER_IN）
+  paidOn DateTime            @db.Date
+
+  method          String? // 付款方式（自由文字，例如「現金」「轉帳」）
+  collectedByName String? // 收款人（自由文字，系統尚無登入機制）
+
+  receiptNumber String?
+  reprintCount  Int       @default(0)
+  lastReprintAt DateTime?
+
+  reason         String? @db.Text // 退款/轉款原因（PAYMENT 不需要）
+  relatedClaimId String? // 轉款對應到的另一筆認捐 id（選填，比照系統慣例不建 FK）
+
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([offeringClaimId])
+  @@index([kind])
+  @@map("offering_payments")
+}
+
+/// 爐主／副爐主登錄（需求「十五」）：不屬供品，不收費，刻意跟上面的認捐
+/// 資料完全分開，不會建立 OfferingClaim / OfferingPayment / 任何應收款。
+model StoveMasterRegistration {
+  id String @id @default(cuid())
+
+  templeEventId String
+  templeEvent   TempleEvent @relation(fields: [templeEventId], references: [id], onDelete: Cascade)
+
+  year     Int
+  roleType StoveMasterRoleType
+
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  householdId String?
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
+  nameSnapshot String
+  phoneSnapshot String?
+
+  note   String?            @db.Text
+  status StoveMasterStatus  @default(ACTIVE)
+
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([templeEventId])
+  @@index([status])
+  @@map("stove_master_registrations")
+}
+
+// ================================================================
+// V11.0「全宮共用收款中心」（V11.0.1 已補強：普渡贊普／祭改正式串接，
+// 註解於 V11.0.2 更新以反映實際現況，見下方 3.）
+// ================================================================
+//
+// 設計原則（對應本輪需求，避免與 V10.1 供品認捐中心的既有付款資料互相衝突）：
+//
+// 1. 這裡新增的模型全部是「加法」變更，不修改、不刪除 OfferingClaim／
+//    OfferingPayment 任何欄位，也不會另外做一套跟它們互不相通的收款資料。
+//    OfferingClaim 的收款分錄由 src/lib/receivableAdapters.ts 的
+//    offeringClaimAdapter 寫入 OfferingPayment（計算公式跟既有
+//    src/lib/offeringClaims.ts 的 recordOfferingPayment()／
+//    refundOfferingClaim() 完全一致），PaymentAllocation 只多記一筆
+//    「這筆收款中心交易，對應到哪一筆 OfferingPayment」的追蹤關聯，
+//    OfferingPayment 才是真正的付款分錄來源。
+//
+// 2. 一次真實世界的收款（信眾一次拿出一筆錢，裡面可能包含福壽龜+花果+
+//    普渡贊普+祭改等多個項目）對應「一筆」PaymentTransaction，底下掛
+//    「多筆」PaymentAllocation（每個項目分攤多少金額）——不會拆成多筆
+//    互不相干的收款主紀錄。
+//
+// 3. ReceivableSourceType 列出「目前已真正串接」跟「已預留但尚未真正
+//    串接」兩種來源，**這份清單以 src/lib/receivableAdapters.ts 的
+//    registry 為唯一事實來源，這裡的註解只是同步說明，如果之後兩者
+//    不一致，以程式碼（receivableAdapters.ts 的 `ADAPTERS` 陣列與
+//    `RESERVED_SOURCE_NOTES` 常數）為準**：
+//
+//    正式已串接（有完整 Adapter 實作，可以在收款中心實際收款）：
+//      - OFFERING_CLAIM（V10.1 供品認捐）
+//      - MANUAL（收款中心自建的臨時應收項目）
+//      - UNIVERSAL_SALVATION_SPONSOR（普渡贊普，V11.0.1 新增
+//        UniversalSalvationPayment 分錄後正式串接）
+//      - PURIFICATION_ENTRY（祭改，V11.0.1 新增 feeStatus/
+//        PurificationPayment 分錄後正式串接）
+//
+//    僅預留列舉值（沒有 Adapter，沒有任何登記/收費資料表，enum 只是保留
+//    未來擴充用的型別值，目前完全沒有任何 API／畫面會產生這些來源的
+//    資料）：
+//      - PEACE_LANTERN／TAISUI_LANTERN／TREASURY_REPAYMENT／
+//        TEMPLE_CELEBRATION_OTHER／DEITY_BIRTHDAY／
+//        OIL_INCENSE_DONATION／MERIT_DONATION／DHARMA_ASSEMBLY／
+//        SUTRA_CHANTING／OTHER_TEMPLE_ACTIVITY
+//
+//    `isReceivableSourceWired()`（定義在 src/lib/labels.ts，內部委派
+//    src/lib/receivableAdapters.ts 的 `listWiredSourceTypes()`）是唯一
+//    判斷「這個來源目前是否真的可用」的地方，避免使用者誤以為尚未串接
+//    的模組已經上線，也避免這份清單跟程式碼分開維護、之後兜不起來。
+//
+// 4. 收據中心／財務中心本輪都不做正式串接：PaymentAllocation 只預留
+//    receiptStatus/receiptNumber 欄位供 V11.1 收據中心使用；
+//    financeSourceKey 是預留的財務防重複入帳識別碼，本輪沒有任何程式碼
+//    真正寫入財務中心資料表（因為財務中心尚未有真正的流水帳新增畫面，
+//    見下方「犒將」快速按鈕相關規劃）。
+
+enum ReceivableSourceType {
+  OFFERING_CLAIM // 供品認捐（V10.1 OfferingClaim，正式已串接）
+  MANUAL // 收款中心自建的臨時應收項目（ManualReceivable），正式已串接
+  UNIVERSAL_SALVATION_SPONSOR // 普渡贊普（UniversalSalvationDetail + UniversalSalvationPayment 分錄，V11.0.1 起正式已串接）
+  PURIFICATION_ENTRY // 祭改（PurificationEntry.feeStatus/amountDue + PurificationPayment 分錄，V11.0.1 起正式已串接）
+  // --- 以下為僅預留列舉值，沒有 Adapter、沒有登記/收費資料表，尚未有任何資料／畫面 ---
+  PEACE_LANTERN // 平安燈（尚不存在：沒有對應的活動類型與登記資料）
+  TAISUI_LANTERN // 太歲燈（尚不存在：沒有收費欄位或登記資料）
+  TREASURY_REPAYMENT // 補庫（尚不存在：沒有收費欄位或登記資料）
+  TEMPLE_CELEBRATION_OTHER // 宮慶其他應收（尚不存在：宮慶收費已透過 OFFERING_CLAIM 串接，沒有其他獨立應收資料）
+  DEITY_BIRTHDAY // 神明聖誕（尚不存在：收費已透過 OFFERING_CLAIM 串接）
+  OIL_INCENSE_DONATION // 油香捐獻（尚不存在：沒有對應的登記或收費資料表）
+  MERIT_DONATION // 功德捐獻（尚不存在：沒有對應的登記或收費資料表）
+  DHARMA_ASSEMBLY // 法會報名（尚不存在：沒有對應的活動類型與登記資料）
+  SUTRA_CHANTING // 誦經（尚不存在：沒有對應的登記或收費資料表）
+  OTHER_TEMPLE_ACTIVITY // 其他宮務活動（尚不存在：沒有對應的通用登記資料表）
+}
+
+enum PaymentMethodType {
+  CASH // 現金
+  BANK_TRANSFER // 銀行轉帳
+  MOBILE_PAYMENT // 行動支付
+  CHECK // 支票
+  OTHER // 其他
+}
+
+enum PaymentTransactionStatus {
+  COMPLETED // 已完成（正常狀態）
+  VOIDED // 已作廢（登錄錯誤等，見 PaymentAdjustment VOID_INCOMPLETE）
+}
+
+enum AgentRemittanceStatus {
+  PENDING // 待繳回
+  PARTIALLY_REMITTED // 部分繳回
+  REMITTED // 已繳回
+  RECONCILED // 已對帳
+}
+
+enum PaymentAdjustmentType {
+  REFUND // 退款
+  TRANSFER_TO_OTHER // 轉款到其他應收項目
+  RETAIN_AS_OVERPAYMENT // 保留為溢收（不退不轉，暫留待未來抵用）
+  VOID_INCOMPLETE // 作廢未完成的收款登錄（例如登錄錯誤，實際上信眾沒有真的付款）
+}
+
+enum ReceivableReceiptLinkStatus {
+  NOT_LINKED // 尚未串接收據（V11.0 預設狀態，收據中心尚未完成）
+  LINKED // 已關聯收據（保留給 V11.1 使用）
+  VOIDED // 收據已作廢（保留給 V11.1 使用）
+}
+
+enum ManualReceivableStatus {
+  UNPAID // 未收款
+  PARTIAL // 部分收款
+  PAID // 已收清
+  WAIVED // 免收
+  CANCELLED // 已取消
+}
+
+/// 收款中心自建的「其他臨時應收項目」——不屬於任何既有宮務模組（供品認捐／
+/// 祭改／普渡等），是行政人員在收款中心裡直接手動建立的一次性應收項目
+/// （例如：臨時場地捐款、雜項代收）。刻意設計成最小欄位、只服務「收款」
+/// 這一件事，不是另外開發一個新的宮務登記模組。
+model ManualReceivable {
+  id String @id @default(cuid())
+
+  title String // 項目名稱，例如「臨時場地捐款」
+  year  Int // 年度（民國年），供跨年度未收款查詢使用
+
+  payerMemberId String?
+  payerMember   Member? @relation(fields: [payerMemberId], references: [id], onDelete: SetNull)
+
+  payerHouseholdId String?
+  payerHousehold   Household? @relation(fields: [payerHouseholdId], references: [id], onDelete: SetNull)
+
+  payerNameSnapshot  String
+  payerPhoneSnapshot String?
+
+  amountDue    Decimal @db.Decimal(12, 2)
+  amountPaid   Decimal @default(0) @db.Decimal(12, 2) // 由 PaymentAllocation 加總維護
+  amountUnpaid Decimal @default(0) @db.Decimal(12, 2)
+
+  status ManualReceivableStatus @default(UNPAID)
+
+  note          String? @db.Text
+  createdByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deletedAt     DateTime?
+  deletedByName String?
+
+  allocations PaymentAllocation[]
+
+  @@index([status])
+  @@index([year])
+  @@index([deletedAt])
+  @@map("manual_receivables")
+}
+
+/// 收款主紀錄——對應「一次真實世界的收款事件」，一律只有一筆，即使裡面
+/// 包含多個應收來源的金額（見下方 PaymentAllocation）。
+model PaymentTransaction {
+  id            String @id @default(cuid())
+  transactionNo String @unique // 收款序號，例如 PT-115-000001，方便對帳/報表引用
+
+  /// V11.0.2 新增：防止使用者連點兩次或網路重送造成重複收款。畫面送出收款時
+  /// 帶一組隨機識別碼（例如 crypto.randomUUID()），伺服器端先查詢是否已經有
+  /// 這組識別碼的收款交易，有的話直接回傳既有結果；就算兩個請求幾乎同時通過
+  /// 這個預先查詢，這裡的 unique 限制仍然會擋下第二筆真正寫入資料庫的交易，
+  /// 應用層再攔截 unique 違反錯誤、改成回傳既有結果，而不是建立第二筆
+  /// PaymentTransaction／第二組 PaymentAllocation。允許 null，是因為舊資料
+  /// （這個欄位新增之前建立的收款交易）沒有這組識別碼。
+  idempotencyKey String? @unique
+
+  paidOn      DateTime @db.Date
+  totalAmount Decimal  @db.Decimal(12, 2) // = 所有 allocations.amount 加總，建立時計算後存一份供查詢/報表使用，不是唯一真實金額來源（真實來源仍是各 allocation）
+
+  methodType         PaymentMethodType
+  methodNote         String? // methodType=OTHER 時的說明文字
+  bankName           String? // methodType=BANK_TRANSFER 時填寫
+  bankAccountLast5   String? // 銀行轉帳末五碼
+  checkNumber        String? // methodType=CHECK 時填寫
+
+  payerMemberId String?
+  payerMember   Member? @relation(fields: [payerMemberId], references: [id], onDelete: SetNull)
+
+  payerHouseholdId String?
+  payerHousehold   Household? @relation(fields: [payerHouseholdId], references: [id], onDelete: SetNull)
+
+  payerNameSnapshot  String
+  payerPhoneSnapshot String?
+
+  collectedByName String? // 實際收款經手人
+
+  // 代收（信眾委託他人代收後再繳回宮方）
+  isAgentCollected      Boolean                @default(false)
+  agentName             String?
+  agentRemittanceStatus AgentRemittanceStatus? // 只在 isAgentCollected=true 時使用
+
+  agentReconciliationRecordId String? // 對帳完成後，回填對應的對帳批次 id（多型慣例同上，非外鍵，避免對帳批次刪除時級聯影響交易本身）
+
+  status       PaymentTransactionStatus @default(COMPLETED)
+  voidedAt     DateTime?
+  voidedByName String?
+  voidReason   String? @db.Text
+
+  note          String? @db.Text
+  createdByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allocations PaymentAllocation[]
+  adjustments PaymentAdjustment[]
+  receipts    Receipt[] // V11.1「全宮共用收據中心」：本筆收款交易底下開立過的收據（一筆收款可能對應多張收據，見 receiptType）
+
+  @@index([paidOn])
+  @@index([isAgentCollected])
+  @@index([agentRemittanceStatus])
+  @@index([agentReconciliationRecordId])
+  @@index([status])
+  @@map("payment_transactions")
+}
+
+/// 收款分配明細——一筆 PaymentTransaction 底下，實際分攤給每一個應收來源
+/// 的金額。sourceType/sourceId 是多型（polymorphic）參照，不是外鍵，比照
+/// RecordVersion.entityType/entityId、AdditionalPrintItem.sourceEntryId
+/// 既有慣例（因為來源可能是 OfferingClaim，也可能是未來的其他模組）。
+model PaymentAllocation {
+  id                   String             @id @default(cuid())
+  paymentTransactionId String
+  paymentTransaction   PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+
+  sourceType ReceivableSourceType
+  sourceId   String // 對應來源的 id（例如 OfferingClaim.id 或 ManualReceivable.id）
+
+  // sourceType=OFFERING_CLAIM 時，這裡記錄實際呼叫既有
+  // recordOfferingPayment() 之後產生的 OfferingPayment.id——OfferingClaim
+  // 自己的收款分錄（amountPaid/paymentStatus）仍然完全由那支既有函式維護，
+  // 這個欄位只是收款中心這邊的「追蹤/對照」用途，不是另一套真實來源。
+  sourceOfferingPaymentId String?
+
+  // sourceType=MANUAL 時使用（收款中心自建的臨時應收項目）。
+  manualReceivableId String?
+  manualReceivable   ManualReceivable? @relation(fields: [manualReceivableId], references: [id], onDelete: SetNull)
+
+  sourceLabel String // 顯示用摘要快照，例如「福壽龜（大）－王小美（115年宮慶）」
+  sourceYear  Int? // 原始應收所屬年度快照（跨年度收款：原始應收留在原年度，這裡只記錄快照）
+
+  amount Decimal @db.Decimal(12, 2)
+
+  /// V11.1「全宮共用收據中心」起，這兩個欄位正式由 src/lib/receipt.ts 維護
+  /// （V11.0/V11.0.1/V11.0.2 只先建立欄位，沒有任何程式碼寫入）：
+  /// - receiptStatus：NOT_LINKED＝目前沒有任何未作廢的 ReceiptLine 參照這筆
+  ///   分配；LINKED＝至少有一筆未作廢的 ReceiptLine 參照（可能是部分開立、
+  ///   也可能已全額開立——精確的「已開立/尚可開立金額」一律即時從
+  ///   ReceiptLine 加總計算，這個欄位只是列表畫面用的粗略狀態標記，不是
+  ///   唯一真實來源）。VOIDED 這個列舉值本輪刻意不使用在分配層級（收據的
+  ///   作廢狀態記錄在 Receipt.status，不是這裡——一筆分配可能同時有一張
+  ///   已作廢跟一張有效的收據，無法用單一狀態值正確表示，因此分配層級只用
+  ///   NOT_LINKED/LINKED 兩種粗略狀態）。
+  /// - receiptNumber：這筆分配「最新一張有效收據」的號碼快照，方便列表
+  ///   顯示不用每次都 join ReceiptLine／Receipt；同樣不是唯一真實來源。
+  receiptStatus ReceivableReceiptLinkStatus @default(NOT_LINKED)
+  receiptNumber String?
+
+  // 財務來源識別碼：{sourceType}:{sourceId}:{paymentTransactionId}，由系統
+  // 自動產生並設定唯一限制，作為未來財務中心「防重複入帳」的預留機制——
+  // 本輪沒有任何程式碼會真正寫入財務中心資料表。
+  financeSourceKey String? @unique
+
+  note      String? @db.Text
+  createdAt DateTime @default(now())
+
+  adjustments PaymentAdjustment[]
+  receiptLines ReceiptLine[] // V11.1：本筆分配被開立過的收據明細（可能對應多張收據明細，見「部分收款與收據」規則）
+
+  @@index([paymentTransactionId])
+  @@index([sourceType, sourceId])
+  @@map("payment_allocations")
+}
+
+/// 退款／轉款／保留溢收／作廢——需求明確要求已完成的收款不得由一般使用者
+/// 直接編輯或刪除，一律要透過這裡的其中一種調整類型處理，並保留完整紀錄。
+model PaymentAdjustment {
+  id                   String             @id @default(cuid())
+  paymentTransactionId String
+  paymentTransaction   PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+
+  sourceAllocationId String?
+  sourceAllocation   PaymentAllocation? @relation(fields: [sourceAllocationId], references: [id], onDelete: SetNull)
+
+  adjustmentType PaymentAdjustmentType
+  amount         Decimal               @db.Decimal(12, 2)
+  reason         String                @db.Text
+
+  // TRANSFER_TO_OTHER 專用：轉去的目標應收來源
+  targetSourceType        ReceivableSourceType?
+  targetSourceId          String?
+  targetOfferingPaymentId String? // 若目標是 OfferingClaim，實際呼叫 recordOfferingPayment()/refundOfferingClaim() 之後產生的關聯 OfferingPayment id
+
+  operatorName   String?
+  approvedByName String? // 退款/轉款需要核准人（需求「權限」十二類之一）
+
+  // V11.0.1 新增：退款/轉款/作廢也是一次獨立的金融事件，同樣需要防重複
+  // 入帳的財務來源識別碼，格式 ADJUSTMENT:{sourceAllocationId}:{調整紀錄id}，
+  // 跟 PaymentAllocation.financeSourceKey 是兩組不同命名空間的識別碼——
+  // 一筆分配可以先有一個收款事件的 key，之後又有一個退款事件的 key，
+  // 兩者都各自 unique，不會互相阻擋（見交付報告的說明）。
+  financeSourceKey String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentTransactionId])
+  @@index([adjustmentType])
+  @@map("payment_adjustments")
+}
+
+/// V11.0.1 新增：收款序號安全產生機制。用「同一列上鎖＋原子遞增」取代
+/// V11.0 的「查詢筆數＋1」（那個做法在兩人同時收款時可能算出同一個序號，
+/// 只能靠 unique constraint 事後擋下、要求使用者重新送出）。這張表每個
+/// 年度只有一列，寫入時用 `INSERT ... ON CONFLICT (year) DO UPDATE SET
+/// "currentValue" = "payment_sequence_counters"."currentValue" + 1
+/// RETURNING "currentValue"` 一次到位完成「若不存在就建立為1，若存在就
+/// 原子遞增並取回新值」，PostgreSQL 保證這個語句本身是原子操作，不需要
+/// 額外的應用層鎖。
+model PaymentSequenceCounter {
+  year         Int @id
+  currentValue Int @default(0)
+
+  @@map("payment_sequence_counters")
+}
+
+/// 代收對帳——代收人週期性繳回款項時的對帳紀錄，需求明確要求「實際≠預期
+/// 時必須填寫差異原因」。
+model AgentReconciliationRecord {
+  id String @id @default(cuid())
+
+  agentName   String
+  periodLabel String // 例如「115年7月」，自由文字，不強制格式
+
+  expectedAmount   Decimal @db.Decimal(12, 2) // 該代收人名下所有待對帳交易金額加總
+  actualAmount     Decimal @db.Decimal(12, 2) // 實際繳回金額
+  differenceAmount Decimal @db.Decimal(12, 2) // = actual - expected
+
+  differenceReason String? @db.Text // actual != expected 時，API 層強制要求填寫
+
+  reconciledAt     DateTime @default(now())
+  reconciledByName String?
+
+  note String? @db.Text
+
+  /// V11.0.2 新增（需求「八、再次驗證財務防重複識別」）：代收繳回本身是一次
+  /// 「資金持有狀態移轉」事件（代收人手上的錢變成宮方已確認掌握），不是
+  /// 第二次收入——這裡刻意用跟 PaymentAllocation.financeSourceKey（收入
+  /// 事件，格式 `{sourceType}:{sourceId}:{paymentTransactionId}`）與
+  /// PaymentAdjustment.financeSourceKey（退款/轉款/作廢事件，格式
+  /// `ADJUSTMENT:{allocationId}:{adjustmentId}`）都不同的第三種命名空間
+  /// （格式 `RECONCILIATION:{agentName}:{對帳紀錄id}`），讓之後如果真的
+  /// 開發財務中心，可以清楚分辨「這是資金移轉識別碼，不是收入識別碼」，
+  /// 不會被誤當成第二筆收入入帳。
+  financeSourceKey String? @unique
+
+  @@index([agentName])
+  @@index([reconciledAt])
+  @@map("agent_reconciliation_records")
+}
+
+// ============================================================
+// V11.1「全宮共用收據中心」——正式開發（V11.0～V11.0.2 只預留了
+// PaymentAllocation.receiptStatus/receiptNumber 這兩個欄位，這一輪才真正
+// 建立收據本身的資料結構）。
+//
+// 核心規則（對應需求「三、收據必須以正式收款為來源」）：收據只能由
+// PaymentTransaction／PaymentAllocation 產生，不得繞過收款中心直接由
+// OfferingClaim／普渡／祭改／手動應收等原始宮務資料建立收據。這裡的
+// Receipt/ReceiptLine 完全不會出現任何指向原始宮務資料表的外鍵，
+// ReceiptLine 只能透過 paymentAllocationId 追蹤來源，強制所有收據都
+// 要先經過「原始宮務資料 → 應收 → 正式收款 → 收據」這條路徑。
+// ============================================================
+
+enum ReceiptStatus {
+  DRAFT // 草稿（本輪畫面實際上不會產生這個狀態的資料——收據建立即視為
+  // ISSUED，這裡保留這個列舉值只是因為需求「四」明確列出，供未來如果
+  // 真的需要「先存草稿、之後才正式開立」的兩階段流程時可以直接使用）
+  ISSUED // 已開立（正式收據，佔用一個正式收據號碼）
+  VOIDED // 已作廢
+  REPLACED // 已換開（因為「換開收據」流程被新收據取代，號碼永久保留）
+  NO_RECEIPT_REQUIRED // 不需開立（行政人員標記這筆收款不需要開立正式收據，
+  // 不佔用收據號碼，但仍會建立一筆 Receipt 紀錄＋對應 ReceiptLine，讓
+  // 「已開立/尚可開立收據金額」的加總計算不用另外分岔邏輯，也讓這個決定
+  // 本身留下稽核紀錄）
+}
+
+/// 收據類型：對應需求「五、收據開立方式」的「合併開立」／「分項開立」，
+/// 純粹是畫面呈現與交付報告用的分類標記，不影響底層資料結構（不論哪一種
+/// 都是「一張 Receipt + 一至多筆 ReceiptLine」，差別只在於同一次收款產生
+/// 幾張 Receipt、每張底下有幾筆 ReceiptLine）。
+enum ReceiptType {
+  MERGED // 合併開立：同一筆收款的多個項目合併成一張收據（可能只有一項，也可能多項）
+  SPLIT_ITEM // 分項開立：同一筆收款的其中一個項目，分開單獨開立成一張收據
+}
+
+enum ReceiptPrintKind {
+  ORIGINAL_PRINT // 正式列印（該張收據第一次列印）
+  REPRINT // 補印（第二次以後的列印）
+}
+
+/// 收據號碼年度標示方式。
+enum ReceiptNumberYearMode {
+  ROC // 民國年，例如 115
+  WESTERN // 西元年，例如 2026
+}
+
+/// 收據號碼重編政策。
+enum ReceiptNumberResetPolicy {
+  YEARLY // 每年重新從起始號碼起號（流水號依「年度」各自累計）
+  CONTINUOUS // 不分年度，永遠連續編號累計
+}
+
+/// 收據號碼規則設定——需求「七、收據號碼管理」要求的前綴／年制／位數／
+/// 起訖規則／重編政策，全部集中在這張表，全系統只會有一列（id 固定為
+/// "SINGLETON"，用應用層保證只建立一列，不用資料庫層級的額外機制，
+/// 比照系統目前沒有「系統設定」通用資料表的既有慣例，用最小成本做法）。
+/// 只有 SUPER_ADMIN 可以修改（見 src/lib/permissions.ts
+/// ReceiptSettingsAction "manageNumbering"）。
+model ReceiptNumberingConfig {
+  id String @id @default("SINGLETON")
+
+  prefix       String                   @default("R") // 前綴，例如 "R"
+  yearMode     ReceiptNumberYearMode    @default(WESTERN)
+  digits       Int                      @default(6) // 流水號位數，例如 6 → 000001
+  resetPolicy  ReceiptNumberResetPolicy @default(YEARLY)
+  startNumber  Int                      @default(1) // 起始號碼（重新起號時從這個號碼開始，見 ReceiptSequenceCounter）
+
+  updatedByName String?
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@map("receipt_numbering_configs")
+}
+
+/// 收據流水號安全產生機制——比照 PaymentSequenceCounter 既有慣例（「同一列
+/// 上鎖＋原子遞增」取代「查詢筆數＋1」），用
+/// `INSERT ... ON CONFLICT ("yearKey") DO UPDATE SET "currentValue" =
+/// "receipt_sequence_counters"."currentValue" + 1 RETURNING "currentValue"`
+/// 一次到位完成「若不存在就從 config.startNumber 開始，若存在就原子遞增」，
+/// PostgreSQL 保證這整條語句是原子操作，兩人同時開立收據也只會有一個人
+/// 拿到某個序號。
+///
+/// yearKey 依 ReceiptNumberingConfig.resetPolicy 決定：
+/// - YEARLY：yearKey = 年度字串（依 yearMode 是民國年或西元年，例如 "115" 或 "2026"）
+/// - CONTINUOUS：yearKey 固定使用常數 "ALL"（見 src/lib/receiptRules.ts resolveReceiptYearKey()）
+model ReceiptSequenceCounter {
+  yearKey      String @id
+  currentValue Int    @default(0)
+
+  @@map("receipt_sequence_counters")
+}
+
+/// 收據主資料——對應需求「四、收據資料結構」。
+model Receipt {
+  id String @id @default(cuid())
+
+  /// ISSUED/VOIDED/REPLACED 狀態才會有正式收據號碼；NO_RECEIPT_REQUIRED／
+  /// DRAFT 不佔用收據號碼，此欄位為 null。已作廢／已換開的收據，號碼永久
+  /// 保留在這一列上，不會被其他收據重複使用（見
+  /// src/lib/receipt.ts issueReceipt() 的號碼產生邏輯只在真正建立 ISSUED
+  /// 收據時才呼叫 ReceiptSequenceCounter）。
+  receiptNumber String? @unique
+
+  /// V11.1「防止重複開立機制」（需求「二十二」）：比照
+  /// PaymentTransaction.idempotencyKey 既有慣例，畫面送出開立收據時帶一組
+  /// 一次性識別碼，伺服器先查詢是否已經有這組識別碼的收據，有的話直接回傳
+  /// 既有結果；就算兩個請求幾乎同時通過這個預先查詢，這裡的 unique 限制
+  /// 仍然會擋下第二筆真正寫入資料庫的收據，應用層攔截 unique 違反錯誤、
+  /// 改成回傳既有結果，而不是建立第二張收據。允許 null 是因為換開流程
+  /// 內部建立新收據時不一定需要另外帶一組使用者操作識別碼。
+  idempotencyKey String? @unique
+
+  receiptDate DateTime @db.Date // 收據載明的收款日期（= 對應 PaymentTransaction.paidOn，或換開時沿用原收據日期）
+  receiptTime DateTime @default(now()) // 實際開立這張收據的時間戳記（稽核用，跟「收款當下」不一定同一天）
+
+  payerName        String
+  householdId      String?
+  household        Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  memberId         String?
+  member           Member?    @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  paymentTransactionId String
+  paymentTransaction   PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Restrict)
+  // onDelete: Restrict——收據存在期間，對應的收款交易不應該被刪除（實務上
+  // PaymentTransaction 本來就不會被硬刪除，只會作廢，這裡的 Restrict 只是
+  // 多一層保險，避免未來不小心新增硬刪除功能時，讓收據變成孤兒資料）。
+
+  totalAmount Decimal     @db.Decimal(12, 2) // = 所有 lines.amount 加總
+  receiptType ReceiptType @default(MERGED)
+
+  status     ReceiptStatus @default(ISSUED)
+  printCount Int           @default(0) // 正式列印+補印的總次數（正式列印與補印次數個別統計見 ReceiptPrintLog，這裡只是方便列表顯示的加總快照）
+
+  /// 換開鏈：若這張收據是透過「換開」流程從某張舊收據建立，這裡記錄舊收據
+  /// id；舊收據本身的 status 會被改成 REPLACED（不是 VOIDED），兩者藉由
+  /// 這個欄位互相關聯（需求「十二、收據換開」第 5 點）。
+  originalReceiptId String?
+  originalReceipt   Receipt?  @relation("ReceiptReissueChain", fields: [originalReceiptId], references: [id], onDelete: SetNull)
+  replacedByReceipts Receipt[] @relation("ReceiptReissueChain")
+
+  voidReason     String? @db.Text
+  voidedAt       DateTime?
+  voidedByName   String?
+  approvedByName String? // 作廢／換開都需要核准人（比照 PaymentAdjustment 既有慣例）
+
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedByName String?
+  updatedAt     DateTime @updatedAt
+
+  note String? @db.Text
+
+  lines     ReceiptLine[]
+  printLogs ReceiptPrintLog[]
+
+  @@index([paymentTransactionId])
+  @@index([status])
+  @@index([receiptDate])
+  @@index([householdId])
+  @@index([memberId])
+  @@index([originalReceiptId])
+  @@map("receipts")
+}
+
+/// 收據明細——對應需求「四、收據資料結構」的 ReceiptLine，每一筆都必須
+/// 追蹤至原始 PaymentAllocation（禁止繞過收款分配直接建立明細）。
+model ReceiptLine {
+  id        String  @id @default(cuid())
+  receiptId String
+  receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  paymentAllocationId String
+  paymentAllocation   PaymentAllocation @relation(fields: [paymentAllocationId], references: [id], onDelete: Restrict)
+
+  // 建立當下從 PaymentAllocation 快照，即使原始來源之後有異動（例如活動
+  // 名稱調整），收據本身的既定內容不應該跟著改變。
+  sourceType ReceivableSourceType
+  sourceId   String
+  activityId String? // 對應原始應收所屬的宮務活動（例如 TempleEvent.id），快照用途，非外鍵
+
+  itemName     String // 收據上顯示的項目名稱，例如「福壽龜（大）」
+  amount       Decimal @db.Decimal(12, 2)
+  displayOrder Int     @default(0)
+
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([receiptId])
+  @@index([paymentAllocationId])
+  @@map("receipt_lines")
+}
+
+/// 收據列印紀錄——對應需求「九、收據列印」「十、補印功能」，每一次列印
+/// （不論正式列印或補印）都留一筆，不可省略或事後合併。
+model ReceiptPrintLog {
+  id        String  @id @default(cuid())
+  receiptId String
+  receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  receiptNumber String // 列印當下的收據號碼快照（正常情況下不會變動，快照是為了即使未來收據號碼規則有變化，這筆歷史紀錄仍然正確）
+  kind          ReceiptPrintKind
+
+  printedAt     DateTime @default(now())
+  printedByName String?
+  reason        String?  @db.Text // 補印時必填（需求「十、補印功能」）；正式列印選填
+  deviceInfo    String? // 補印的裝置或來源說明
+  note          String?  @db.Text
+
+  @@index([receiptId])
+  @@index([printedAt])
+  @@map("receipt_print_logs")
+}
+
+// ============================================================
+// V11.1.1「全專案建置、權限與正式封版指令」——補齊可實際執行的使用者身分
+// 與權限檢查（對應指令「二」）。
+//
+// 專案裡本來就已經有 User model（上方第 398 行附近，`role Role` 欄位）
+// ——這是先前財務模組架構預留的操作人員資料結構，一直存在但從未真正被
+// 拿來當作「目前登入者」使用（getCurrentUser() 固定回傳 null）。本輪
+// 依照使用者指令「若已有，請直接沿用；不要另外建立第二套互不相通的人員
+// 資料」，直接沿用這個既有 User model，只把 Role enum 從三種角色
+// （SUPER_ADMIN／STAFF／FINANCE_CLERK）擴充成使用者要求的四級
+// （最高管理員／管理員／一般工作人員／唯讀人員），純附加，不刪除既有的
+// FINANCE_CLERK（沿用既有語意：預留給未來財務模組，尚未開放給任何人）：
+//
+//   SUPER_ADMIN → 最高管理員
+//   ADMIN       → 管理員（新增；授權管理人員，可核准作廢／換開等操作）
+//   STAFF       → 一般工作人員（既有）
+//   READONLY    → 唯讀人員（新增；只能查看/匯出）
+//   FINANCE_CLERK → 既有的財務模組預留角色，語意不變
+//
+// ⚠️ 誠實的範圍說明：這仍然不是完整的登入/驗證系統——User 沒有密碼、
+// 沒有 session、沒有任何機制證明「這個請求真的是這個 User 本人送出的」。
+// 本輪做的是：伺服器端 API 一定會用 request 帶來的 userId 實際查詢這張
+// users 表，確認這個 id 真的存在且 isActive，再依查到的 role 決定能不能
+// 執行——跟先前「完全沒有身分、getCurrentUser() 固定回傳 null 所以完全
+// 沒有後端檢查」比起來，這已經是有意義的進步；也跟「client 直接宣稱自己
+// 是哪個角色」比起來更安全（至少 userId 必須對應資料庫裡真實存在的人）。
+// 但仍然無法防止「有人猜到/盜用別人的 userId」，因為沒有密碼驗證這個
+// id 背後真的是本人操作。真正要防止這件事，需要之後做出真正的登入機制
+// （帳號密碼或其他身分驗證方式），這個限制在交付報告與相關程式註解都
+// 清楚寫明，不含糊帶過。
+
+// ============================================================
+// V11.2「系統管理中心 — 備份與還原中心」新增資料模型（對應指令
+// 「二」「三」「十二」）。
+// ============================================================
+
+/// Google Drive 固定綁定資訊（全系統唯一一列，比照
+/// ReceiptNumberingConfig 用 id="SINGLETON" 的既有慣例）。
+///
+/// ⚠️ refreshToken 存的是加密後的密文（見 src/lib/googleDrive.ts 的
+/// encryptSecret()/decryptSecret()，用 Node 內建 crypto 的
+/// AES-256-GCM，金鑰來自環境變數 GOOGLE_TOKEN_ENCRYPTION_KEY，不是明文
+/// 存進資料庫），accessToken 不落地（每次用 refreshToken 換新的，換到
+/// 就直接用，不特別存放，減少憑證外洩風險）。
+model GoogleDriveConnection {
+  id String @id @default("SINGLETON")
+
+  /// 綁定的 Google 帳號 email（例如 fa0225234163@gmail.com），畫面顯示用。
+  boundEmail String?
+
+  /// 加密後的 refresh token（Base64 編碼的密文＋iv＋authTag，見
+  /// src/lib/googleDrive.ts 的加解密函式）。
+  refreshTokenCipher String? @db.Text
+
+  /// 三玄宮ERP_Backup 資料夾與四個子資料夾的 Google Drive fileId，
+  /// 第一次連線／每次使用前都會確認存在、不存在就自動建立（需求「三」：
+  /// 「不得要求使用者手動建立資料夾」）。
+  rootFolderId       String?
+  dailyFolderId      String?
+  weeklyFolderId     String?
+  monthlyFolderId    String?
+  beforeUpdateFolderId String?
+
+  /// 連線狀態：CONNECTED／DISCONNECTED／ERROR（例如 refresh token 過期
+  /// 或被使用者在 Google 那邊自行撤銷）。
+  status        String  @default("DISCONNECTED")
+  lastError     String? @db.Text
+  connectedAt   DateTime?
+  connectedByName String?
+
+  /// V11.2.1 新增（對應指令「二」「三」「十四」）：最近一次「成功」拿到
+  /// 有效 access token 的時間（不論是備份時自動換發，還是使用者按了
+  /// 「測試連線」）——這是「Google Drive連線」頁面要顯示的「最近一次
+  /// 成功驗證時間」，跟「最近一次成功上傳時間」（來自 BackupLog，不需要
+  /// 在這裡重複存一份）分開。
+  lastVerifiedAt DateTime?
+
+  /// V11.2.1 新增（對應指令「四、增加測試 Google Drive 連線功能」）：
+  /// 最近一次按「測試連線」的逐項檢查結果，JSON 字串（見
+  /// src/lib/googleDrive.ts 的 testGoogleDriveConnection()），純粹給畫面
+  /// 顯示歷史結果用，不是任何判斷邏輯依據。
+  lastTestResult String? @db.Text
+
+  updatedAt DateTime @updatedAt
+
+  @@map("google_drive_connections")
+}
+
+enum BackupType {
+  MANUAL // 手動「立即備份」
+  DAILY // 每日 02:00 自動
+  WEEKLY // 每週日 03:00 自動
+  MONTHLY // 每月一號 04:00 自動，永久保留
+  BEFORE_UPDATE // 更新/migration/版本升級前自動備份
+}
+
+enum BackupStatus {
+  IN_PROGRESS
+  SUCCESS
+  FAILED
+}
+
+/// 備份紀錄（需求「十二、備份Log」）：每一次備份不論成功失敗都會留一筆，
+/// 這是「系統Log」畫面與首頁「備份狀態」卡片的資料來源。
+model BackupLog {
+  id String @id @default(cuid())
+
+  type   BackupType
+  status BackupStatus @default(IN_PROGRESS)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  fileName        String? // 例如 Backup_2026-07-16_0200.zip
+  fileSizeBytes    BigInt?
+  googleDriveFileId String?
+  googleDriveFolder String? // Daily／Weekly／Monthly／Before_Update
+
+  failureReason String? @db.Text
+
+  /// 執行者：手動備份會記錄實際操作人姓名；自動排程備份記錄
+  /// "系統排程（自動）"，不會是 null（需求「十二」明確要求記錄
+  /// 「執行者」「自動或手動」）。
+  executedByUserId String?
+  executedByName   String
+  isAutomatic      Boolean
+
+  /// V11.2.1 新增（對應指令「六」「七」「八」補強）：
+  /// - currentStage：執行中即時階段字串（見 src/lib/backup.ts
+  ///   BACKUP_STAGE 常數），給前端輪詢顯示「準備資料/匯出資料庫/…」用，
+  ///   不是假的百分比進度。完成後維持最後一個階段字串，不清空（方便
+  ///   事後在 Log 頁面查看「進行到哪裡」）。
+  /// - failedStage：若 status=FAILED，記錄失敗當下卡在哪個階段。
+  /// - errorCode：把 failureReason 分類成固定代碼（見 backup.ts
+  ///   classifyBackupError()），畫面依代碼顯示對應的處理建議，而不是
+  ///   只丟一段原始錯誤字串給使用者猜。
+  /// - sha256Checksum：備份 zip 檔案本身的 SHA-256（十六進位字串），
+  ///   「檢查備份完整性」功能用來比對下載回來的檔案有沒有跟上傳時一致。
+  /// - sourceEnvironment：備份當下的執行環境識別資訊（例如
+  ///   RENDER_SERVICE_ID／NODE_ENV／主機名稱），對應指令六「原始環境
+  ///   識別資訊」。
+  /// - reason：目前只有一種用途——還原前自動建立的保護性備份會標記
+  ///   "BEFORE_RESTORE"（type 仍是既有的 BEFORE_UPDATE，沿用同一個
+  ///   Before_Update 資料夾，不新增資料夾架構，見指令「十一」的但書），
+  ///   一般備份這個欄位是 null。
+  currentStage String?
+  failedStage  String?
+  errorCode    String?
+  sha256Checksum String?
+  sourceEnvironment String?
+  reason String?
+
+  /// V11.2.1 新增（對應指令「十、檢查備份完整性」）：最近一次執行完整性
+  /// 檢查的結果快照，避免每次打開 Log 頁面都要重新下載驗證一次。
+  lastIntegrityCheckAt     DateTime?
+  lastIntegrityCheckStatus String?
+  lastIntegrityCheckDetail String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([type, startedAt])
+  @@index([status])
+  @@map("backup_logs")
+}
+
+/// 系統管理中心的一般設定（排程時間、保留政策等），全系統唯一一列。
+/// 目前排程時間/保留政策先以程式碼常數管理（見 src/lib/backupSchedule.ts），
+/// 這張表先建立起來，讓「系統設定」畫面未來可以逐步把常數改成可調整的
+/// 設定值，不用再改一次 schema。
+model SystemSetting {
+  id String @id @default("SINGLETON")
+
+  dailyRetentionDays   Int @default(30)
+  weeklyRetentionWeeks Int @default(12)
+  // Monthly 依需求「七」永久保留，不提供可調整的保留上限。
+
+  /// V11.2.1 新增（對應指令「七、備份執行防重複機制」）：全系統唯一一份
+  /// 備份鎖。`activeBackupLogId` 有值代表「目前有一個備份正在執行」，
+  /// `activeBackupLockExpiresAt` 是這把鎖的到期時間（見
+  /// src/lib/backup.ts 的 BACKUP_LOCK_TTL_MS）——如果上一次備份異常中斷
+  /// （例如整個 process 被殺掉，沒機會執行 finally 釋放鎖），鎖不會
+  /// 永久卡住，超過到期時間後下一次嘗試執行備份會自動視為失效鎖並清除。
+  activeBackupLogId        String?
+  activeBackupLockExpiresAt DateTime?
+
+  /// V11.2.1 新增（對應指令「十三、更新前備份流程檢查」）：上一次成功執行
+  /// 「更新前備份」時的 Render Git commit SHA（來自環境變數
+  /// RENDER_GIT_COMMIT）。下次啟動時如果目前的 commit 跟這裡記錄的相同，
+  /// 代表這只是服務重新啟動／喚醒，不是真正的新版本部署，跳過重複備份；
+  /// 不相同才代表是真正的新版本，執行備份並更新這個欄位。
+  lastBeforeUpdateCommit String?
+
+  updatedAt DateTime @updatedAt
+  updatedByName String?
+
+  @@map("system_settings")
+}
+
+// ============================================================
+// V12.0「信眾關係中心」新增資料模型（對應指令「十五、資料庫設計要求」）。
+//
+// 【設計原則，務必先讀完再改動這個區塊】
+// 1. 信眾關係中心「不是」一套獨立的信眾名單——信眾＝既有的 Member（家戶
+//    成員），不新建一套跟 Member 分離的名單（對應指令「三」「八」「十五、
+//    3」）。姓名／性別／身份／國曆生日／農曆生日／生肖／是否往生／備註
+//    這些既有 Member 已經有的欄位，一律直接讀取 Member，這裡「不」重複
+//    儲存（也不會有兩邊資料兜不起來的風險）。
+// 2. DevoteeProfile 只存 Member 原本沒有、但信眾關係中心需要補充的欄位
+//    （手機／LINE ID／Email／個人公司名稱／個人備註／停用／關懷相關），
+//    跟 Member 是穩定的 1 對 1（memberId 是 @unique）。
+// 3. 【不預先大量建立資料】對應指令「三」「不得大量複製舊資料至新資料表」
+//    ——migration 本身「不會」幫現有 5000+ 位既有成員各自建立一筆
+//    DevoteeProfile。每位信眾的 DevoteeProfile 是「延遲建立」（lazy）：
+//    只有當管理人員第一次幫這位信眾補充手機/標籤/互動紀錄/關懷狀態時，
+//    才會第一次建立這筆資料（見 src/lib/devoteeProfile.ts 的
+//    getOrCreateDevoteeProfile()）。信眾名單／360 總覽在還沒有
+//    DevoteeProfile 的情況下，這些補充欄位一律顯示為空／預設值，不影響
+//    名單本身完全來自 Member 的事實。
+// 4. 稽核紀錄沿用既有的 RecordVersion（見上方 V8.0 段落），不另外新建一套
+//    稽核表——entityType 用 "DevoteeProfile"／"DevoteeTagAssignment"／
+//    "DevoteeInteraction"／"DevoteeCareRecord"，跟既有 Household/Member/
+//    RitualRecord 等共用同一張稽核表、同一套查詢方式。
+// ============================================================
+
+/// 信眾延伸資料（對應指令「七」）：與 Member 穩定 1 對 1，只補充 Member
+/// 沒有的欄位。不儲存任何可以直接從 Member 取得的核心資料（姓名/生日/
+/// 生肖/是否往生等）。
+model DevoteeProfile {
+  id       String @id @default(cuid())
+  memberId String @unique
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  // 指令「七」列出的補充欄位——Member 原本都沒有這些欄位，這裡才是唯一
+  // 儲存的地方（不是重複新增，是本來就不存在）。
+  mobile      String? // 手機（Household.phone 是家戶電話，這裡是信眾個人手機，兩者不同）
+  lineId      String?
+  email       String?
+  companyName String? // 信眾個人公司名稱（Household.companyName 是家戶登記的公司，兩者可能不同，各自獨立）
+  personalNote String? @db.Text // 個人備註（跟 Member.notes 分開：Member.notes 是既有的家戶成員備註，這裡是信眾關係中心專屬的補充備註，避免混用既有欄位造成既有畫面/報表意外變化）
+
+  isDisabled     Boolean @default(false) // 是否停用（信眾關係中心專屬狀態，不影響 Member 本身任何既有邏輯）
+  disabledReason String? @db.Text
+
+  // 需要關懷（對應指令「十一」）：由管理者「正式標記」後的目前狀態快照，
+  // 歷史異動另外存在 DevoteeCareRecord。系統自動偵測到的「建議」關懷名單
+  // （一年以上未參加活動等）不會寫進這裡——careFlag 只代表「管理者已經
+  // 正式標記」。
+  careFlag          Boolean   @default(false)
+  careReason        String?   @db.Text
+  careNote          String?   @db.Text // 最新關懷備註（十一：「最新備註」欄位）
+  careAssignedToName String?  // 負責人
+  lastContactedAt   DateTime? @db.Date
+  nextContactSuggestedAt DateTime? @db.Date
+
+  tagAssignments DevoteeTagAssignment[]
+  interactions   DevoteeInteraction[]
+  careRecords    DevoteeCareRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isDisabled])
+  @@index([careFlag])
+  @@map("devotee_profiles")
+}
+
+/// 信眾標籤定義（對應指令「八」）。
+model DevoteeTag {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  isSystemDefault Boolean @default(false) // 是否為系統預設標籤（VIP/宮委/董事/義工…等 11 個），僅供畫面顯示區別，不影響權限或行為
+  isActive Boolean @default(true) // 停用後不得影響舊資料（指令「八、3」）——用 isActive=false，不做實體刪除
+  sortOrder Int    @default(0)
+  note     String? @db.Text
+
+  assignments DevoteeTagAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("devotee_tags")
+}
+
+/// 信眾標籤套用紀錄（對應指令「八」）：一位信眾可以有多個標籤，同一標籤
+/// 不得重複套用（@@unique 保證）。
+model DevoteeTagAssignment {
+  id               String         @id @default(cuid())
+  devoteeProfileId String
+  devoteeProfile   DevoteeProfile @relation(fields: [devoteeProfileId], references: [id], onDelete: Cascade)
+  tagId            String
+  tag              DevoteeTag     @relation(fields: [tagId], references: [id], onDelete: Restrict) // Restrict：有信眾正在使用這個標籤時，不能直接刪除標籤定義本身（只能停用，見 DevoteeTag.isActive）
+
+  assignedByName String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([devoteeProfileId, tagId])
+  @@index([devoteeProfileId])
+  @@index([tagId])
+  @@map("devotee_tag_assignments")
+}
+
+/// 信眾互動紀錄（對應指令「九」）：可修改，但不得無紀錄地直接刪除
+/// ——刪除採軟刪除（deletedAt），並透過既有 RecordVersion 保留稽核紀錄。
+model DevoteeInteraction {
+  id               String         @id @default(cuid())
+  devoteeProfileId String
+  devoteeProfile   DevoteeProfile @relation(fields: [devoteeProfileId], references: [id], onDelete: Cascade)
+
+  interactionType DevoteeInteractionType
+  occurredAt      DateTime // 日期及時間
+  content         String   @db.Text
+  followUp        String?  @db.Text // 後續待辦
+  nextContactDate DateTime? @db.Date
+
+  createdByName String?
+  updatedByName String?
+
+  deletedAt     DateTime? // 軟刪除：有值代表已刪除，不會出現在一般列表
+  deletedByName String?
+  deleteReason  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([devoteeProfileId])
+  @@index([deletedAt])
+  @@index([occurredAt])
+  @@map("devotee_interactions")
+}
+
+enum DevoteeInteractionType {
+  PHONE_CALL // 電話聯絡
+  LINE_CONTACT // LINE聯絡
+  VISIT // 現場來宮
+  ADDRESS_UPDATE // 地址更新
+  CARE_CONTACT // 關懷聯絡
+  ACTIVITY_INQUIRY // 詢問活動
+  RITUAL_INQUIRY // 詢問法會
+  OTHER // 其他
+}
+
+/// 關懷狀態異動歷史（對應指令「十五」建議的 DevoteeCareRecord）：
+/// DevoteeProfile 上的 careFlag/careNote/careAssignedToName 等欄位是「目前
+/// 狀態的快照」，這裡是「每一次異動」的歷史紀錄，供之後追查關懷處理過程。
+model DevoteeCareRecord {
+  id               String         @id @default(cuid())
+  devoteeProfileId String
+  devoteeProfile   DevoteeProfile @relation(fields: [devoteeProfileId], references: [id], onDelete: Cascade)
+
+  action         DevoteeCareAction
+  reason         String?           @db.Text
+  assignedToName String?
+  note           String?           @db.Text
+
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([devoteeProfileId])
+  @@index([createdAt])
+  @@map("devotee_care_records")
+}
+
+enum DevoteeCareAction {
+  FLAGGED // 正式標記需要關懷
+  UNFLAGGED // 取消關懷標記
+  CONTACTED // 記錄一次關懷聯絡（更新最後聯絡日期/下次聯絡日期）
+  NOTE_UPDATED // 僅更新關懷備註
+}
+

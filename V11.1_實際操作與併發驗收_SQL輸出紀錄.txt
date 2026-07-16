@@ -1,0 +1,268 @@
+======================================================
+V11.1 全宮共用收據中心 —— 實際資料庫操作與併發驗收紀錄
+（沙盒環境無法執行 npm install / npm run dev，這裡改用真實 PostgreSQL
+  直接驗證收據中心的核心資料操作與併發安全性，方法論同 V11.0.2 交付報告）
+======================================================
+
+1. 收據情境測試資料準備
+Timing is off.
+======================================================
+情境1：一筆單項收款開一張收據（單項開立）
+======================================================
+INSERT 0 1
+
+======================================================
+2. 九項情境模擬（單項開立/合併開立/分項開立/部分收款/標記不需開立/列印補印/作廢/換開/統計核對）
+======================================================
+Timing is off.
+======================================================
+情境1：一筆單項收款開一張收據（單項開立）
+======================================================
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+     id      | receiptNumber | totalAmount | status 
+-------------+---------------+-------------+--------
+ RCPT_SINGLE | R-2026-000001 |     1200.00 | ISSUED
+(1 row)
+
+======================================================
+情境2：一筆多項收款合併開一張收據（供品2000+普渡贊普1500+祭改500=4000）
+======================================================
+INSERT 0 1
+INSERT 0 3
+UPDATE 3
+>>> 驗證：一張收據、三筆明細、加總等於4000
+ receiptNumber | totalAmount | line_count | lines_sum 
+---------------+-------------+------------+-----------
+ R-2026-000002 |     4000.00 |          3 |   4000.00
+(1 row)
+
+======================================================
+情境3：一筆多項收款分開開立多張收據（PT_RCPT_SPLIT：福壽龜800＋祭改500，各自一張）
+======================================================
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+>>> 驗證：兩張各自獨立的收據號碼，各自金額正確，不是同一張
+ receiptNumber | totalAmount | receiptType 
+---------------+-------------+-------------
+ R-2026-000003 |      800.00 | SPLIT_ITEM
+ R-2026-000004 |      500.00 | SPLIT_ITEM
+(2 rows)
+
+======================================================
+情境4：同一應收項目分兩次付款，各自開立收據（第一次3000，第二次2000）
+======================================================
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+>>> 驗證：兩張收據合計 5000，不超過 USD_V1101_1 實際已收金額 5000
+ receipts_total 
+----------------
+        5000.00
+(1 row)
+
+     id      | amountPaid 
+-------------+------------
+ USD_V1101_1 |    5000.00
+(1 row)
+
+======================================================
+情境5：標記不需開立（不佔用正式收據號碼，仍留下稽核紀錄）
+======================================================
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+>>> 驗證：狀態為 NO_RECEIPT_REQUIRED，收據號碼為 NULL（不佔用正式流水號）
+     id      | receiptNumber |       status        | totalAmount 
+-------------+---------------+---------------------+-------------
+ RCPT_NORCPT |               | NO_RECEIPT_REQUIRED |      600.00
+(1 row)
+
+======================================================
+情境6：正式列印 + 補印兩次（printCount 正確累加，種類正確區分）
+======================================================
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+UPDATE 1
+>>> 驗證：printCount=3（1次正式列印+2次補印），正式列印次數與補印次數分開計算
+     id      | printCount | original_print_count | reprint_count 
+-------------+------------+----------------------+---------------
+ RCPT_SINGLE |          3 |                    1 |             2
+(1 row)
+
+======================================================
+情境7：作廢收據（不影響收款/退款，PaymentAllocation 金額不變，回收站
+   receiptStatus 退回 NOT_LINKED 讓待開立列表重新顯示它）
+======================================================
+--- 作廢前 payment_allocations 金額（應與作廢後完全相同）---
+       id        | amount 
+-----------------+--------
+ PA_RCPT_SPLIT_1 | 800.00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+--- 作廢後 payment_allocations 金額（應完全相同，未被作廢動作影響）---
+       id        | amount 
+-----------------+--------
+ PA_RCPT_SPLIT_1 | 800.00
+(1 row)
+
+--- 作廢後 payment_transactions 總額也應完全相同（收據作廢不影響財務收入）---
+ totalAmount 
+-------------
+     1300.00
+(1 row)
+
+--- 已作廢收據的原號碼永久保留、狀態正確 ---
+ receiptNumber | status |  voidReason  | approvedByName 
+---------------+--------+--------------+----------------
+ R-2026-000003 | VOIDED | 開立金額打錯 | 王主委
+(1 row)
+
+======================================================
+情境8：換開收據（作廢原收據為 REPLACED、建立新收據取得新號碼、金額不變）
+======================================================
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+>>> 驗證：舊收據狀態=REPLACED（不是VOIDED）、原號碼保留；新收據狀態=ISSUED、新號碼、金額與舊收據相同(500)、originalReceiptId正確關聯
+        id        | receiptNumber |  status  | totalAmount | originalReceiptId 
+------------------+---------------+----------+-------------+-------------------
+ RCPT_SPLIT_2     | R-2026-000004 | REPLACED |      500.00 | 
+ RCPT_SPLIT_2_NEW | R-2026-000007 | ISSUED   |      500.00 | RCPT_SPLIT_2
+(2 rows)
+
+======================================================
+情境9：收據統計初步核對（有效開立張數/金額，作廢與換開不計入有效金額）
+======================================================
+ effective_issued_count | effective_issued_amount | voided_count | replaced_count | no_receipt_required_count 
+------------------------+-------------------------+--------------+----------------+---------------------------
+                      5 |                10700.00 |            1 |              1 |                         1
+(1 row)
+
+
+======================================================
+3. 真實併發測試：兩個同時進行的 PostgreSQL session 搶收據流水號
+======================================================
+=== 收據流水號併發測試 ===
+--- Session A ---
+Timing is on.
+BEGIN
+Time: 0.225 ms
+Session A：收據流水號取號並持有交易 1.5 秒（測試年度 key=TESTYR）
+ currentValue 
+--------------
+            1
+(1 row)
+
+INSERT 0 1
+Time: 0.888 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 1502.022 ms (00:01.502)
+COMMIT
+Time: 4.530 ms
+--- Session B ---
+Timing is on.
+Session B：幾乎同時也嘗試取號（同一個測試年度 key=TESTYR）
+ currentValue 
+--------------
+            2
+(1 row)
+
+INSERT 0 1
+Time: 1111.406 ms (00:01.111)
+
+======================================================
+4. 真實併發測試：兩個同時進行的 PostgreSQL session 帶相同 idempotencyKey 開立收據
+======================================================
+=== 收據 idempotencyKey 併發測試 ===
+--- Session A ---
+Timing is on.
+Session A：用 idempotencyKey=RCPT_IDEM_TEST_1 建立一張收據，交易中停留 1.5 秒
+BEGIN
+Time: 0.163 ms
+INSERT 0 1
+Time: 1.715 ms
+ pg_sleep 
+----------
+ 
+(1 row)
+
+Time: 1500.406 ms (00:01.500)
+COMMIT
+Time: 1.602 ms
+--- Session B ---
+Timing is on.
+Session B：幾乎同時，帶「同一組」idempotencyKey=RCPT_IDEM_TEST_1 再送一次（模擬使用者連點兩下開立收據）
+psql:/tmp/receipt_concurrency_idem_b_run.sql:4: ERROR:  duplicate key value violates unique constraint "receipts_idempotencyKey_key"
+DETAIL:  Key ("idempotencyKey")=(RCPT_IDEM_TEST_1) already exists.
+Time: 1105.860 ms (00:01.106)
+
+======================================================
+5. 驗證過程中發現並修正的真實邏輯錯誤：換開收據（REPLACED）造成金額重複計算
+======================================================
+在驗證情境8（換開收據）之後，用以下 SQL 重新核對「尚可開立收據金額」計算，
+發現修正前的程式邏輯（只排除 VOIDED，沒有排除 REPLACED）會把「已換開的
+舊收據」與「換開後的新收據」的金額重複累計兩次：
+
+--- 修正前（只排除 VOIDED）---
+       id        | allocation_amount | receipted_amount | remaining
+-----------------+-------------------+------------------+-----------
+ PA_RCPT_SPLIT_2 |            500.00 |          1000.00 |   -500.00   ← 錯誤：出現負數，重複計算
+
+已修正 src/lib/receipt.ts 的 3 處金額計算（listPendingReceiptAllocations／
+getAllocationReceiptSnapshot／recalculateAllocationReceiptStatus），改為明確
+只把 ISSUED／NO_RECEIPT_REQUIRED 視為「有效佔用金額」的收據狀態，REPLACED
+（已換開，被新收據取代）跟 VOIDED 一樣都要排除。修正後重新核對：
+
+--- 修正後 ---
+       id        | allocation_amount | receipted_amount | remaining
+-----------------+-------------------+------------------+-----------
+ PA_RCPT_SPLIT_2 |            500.00 |           500.00 |      0.00   ← 正確
+
+這是本輪透過真實資料庫情境驗證（而不是只看程式碼推論）才發現的真實邏輯
+錯誤，修正後已重新確認 tsc 0 非噪音錯誤、206/206 自動測試全數通過。
+
+======================================================
+6. Migration 從空白資料庫完整重放驗證（全部 12 支 migration 依序套用）
+======================================================
+建立全新資料庫 sanxuan_v11_1_fresh，依序套用專案全部 12 支 migration
+（從 20260101000000_init 到 20260716090000_receipt_center），全部成功，
+證明 migration 順序、外鍵、索引從零開始建置也完全正確，不是只在既有已
+migrate 過的資料庫上疊加測試：
+
+=== Applying prisma/migrations/20260101000000_init/migration.sql === OK
+=== Applying prisma/migrations/20260715000000_ritual_core/migration.sql === OK
+=== Applying prisma/migrations/20260716000000_version_history_recycle_bin/migration.sql === OK
+=== Applying prisma/migrations/20260716010000_purification_module/migration.sql === OK
+=== Applying prisma/migrations/20260716020000_temple_event_center/migration.sql === OK
+=== Applying prisma/migrations/20260716030000_additional_print_items/migration.sql === OK
+=== Applying prisma/migrations/20260716040000_offering_center/migration.sql === OK
+=== Applying prisma/migrations/20260716050000_collection_center/migration.sql === OK
+=== Applying prisma/migrations/20260716060000_collection_center_v2/migration.sql === OK
+=== Applying prisma/migrations/20260716070000_payment_idempotency_key/migration.sql === OK
+=== Applying prisma/migrations/20260716080000_reconciliation_finance_key/migration.sql === OK
+=== Applying prisma/migrations/20260716090000_receipt_center/migration.sql === OK
+
+收據號碼設定表（receipt_numbering_configs）確認自動塞入唯一一列預設值：
+ id=SINGLETON, prefix=R, yearMode=WESTERN, digits=6, resetPolicy=YEARLY, startNumber=1
+
+再次對這支新資料庫重複執行同一支 20260716090000_receipt_center migration，
+確認會在第一個語句就失敗（不會靜默重複建立資料表或重複插入設定列）。

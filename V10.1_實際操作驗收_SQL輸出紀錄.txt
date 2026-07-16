@@ -1,0 +1,195 @@
+Pager usage is off.
+Timing is off.
+=== 步驟0：建立測試家戶與信眾（模擬情境：王小美） ===
+INSERT 0 1
+INSERT 0 1
+=== 場景1：建立一場宮慶活動（115年度） ===
+INSERT 0 1
+     id     |    activityType    | year |        name        
+------------+--------------------+------+--------------------
+ TE_TEST001 | TEMPLE_CELEBRATION |  115 | 民國一一五年度宮慶
+(1 row)
+
+=== 種子資料：建立 5 種預設供品種類（比對 DEFAULT_OFFERING_TYPES） ===
+INSERT 0 5
+=== 場景2：加入大福壽龜1隻、小福壽龜6隻到這場宮慶 ===
+INSERT 0 2
+=== 場景3：調整福壽龜數量及價格（大福壽龜改為 1隻/12000元；小福壽龜改為 6隻/2000元） ===
+UPDATE 1
+UPDATE 1
+       id        | quantity |  price   | useDefaultPrice 
+-----------------+----------+----------+-----------------
+ AO_LARGE_TURTLE |        1 | 12000.00 | f
+ AO_SMALL_TURTLE |        6 |  2000.00 | f
+(2 rows)
+
+=== 場景4：登錄王小美取得大福壽龜（未付款，amountDue=12000） ===
+INSERT 0 1
+        id         | sponsorNameSnapshot | amountDue | amountPaid | amountUnpaid | paymentStatus 
+-------------------+---------------------+-----------+------------+--------------+---------------
+ OC_LARGE_TURTLE_1 | 王小美              |  12000.00 |       0.00 |     12000.00 | UNPAID
+(1 row)
+
+=== 場景5+6：王小美再登錄小福壽龜——套用 checkTurtleExclusiveConflict() 的實際查詢邏輯（src/lib/offeringClaims.ts 第119-136行），一律強制檢查（2026-07-16已移除可關閉開關） ===
+--- 系統會執行的前置檢查查詢（完全比照 offeringClaims.ts 的 existingTurtleClaims 查詢） ---
+        id         |   name   | behaviorKind 
+-------------------+----------+--------------
+ OC_LARGE_TURTLE_1 | 大福壽龜 | TURTLE
+(1 row)
+
+--- 上面查到 1 筆「大福壽龜」有效認捐，behaviorKind=TURTLE → checkTurtleExclusiveConflict("TURTLE", true) 回傳 allowed=false（已由 tests/offeringRules.test.ts「案例4」實際執行驗證）→ 應用程式會拒絕這筆新增，故意不在這裡插入 OC_SMALL_TURTLE_1，以此代表系統正確擋下 ---
+=== 場景7：確認福壽龜未付款可跨年度追蹤（isCrossYearUnpaid，已由 tests/offeringRules.test.ts「案例6/7」驗證）。這裡直接用 SQL 模擬「現在是116年度」查詢仍為114/115年度且未收款的認捐 ===
+        id         | year | paymentStatus 
+-------------------+------+---------------
+ OC_LARGE_TURTLE_1 |  115 | UNPAID
+(1 row)
+
+=== 場景8：分兩次付款（第一次收5000，第二次收7000，合計12000＝應收） ===
+INSERT 0 1
+UPDATE 1
+        id         | amountDue | amountPaid | amountUnpaid | paymentStatus 
+-------------------+-----------+------------+--------------+---------------
+ OC_LARGE_TURTLE_1 |  12000.00 |    5000.00 |      7000.00 | PARTIAL
+(1 row)
+
+INSERT 0 1
+UPDATE 1
+        id         | amountDue | amountPaid | amountUnpaid | paymentStatus 
+-------------------+-----------+------------+--------------+---------------
+ OC_LARGE_TURTLE_1 |  12000.00 |   12000.00 |         0.00 | PAID
+(1 row)
+
+--- 收款分錄（sumPaymentLedger 純函式加總邏輯已由「案例16」驗證），這裡直接查真實資料表確認兩筆分錄都存在、金額加總=12000 ---
+  id  |  kind   | amount  | receiptNumber 
+------+---------+---------+---------------
+ OP_1 | PAYMENT | 5000.00 | R00001
+ OP_2 | PAYMENT | 7000.00 | R00002
+(2 rows)
+
+ total_paid 
+------------
+   12000.00
+(1 row)
+
+=== 場景9：補印收據三次，確認不會增加收款或財務金額（reprintCount遞增，amount/amountDue/amountPaid完全不變） ===
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+  id  | amount  | reprintCount 
+------+---------+--------------
+ OP_2 | 7000.00 |            3
+(1 row)
+
+ amountDue | amountPaid | amountUnpaid 
+-----------+------------+--------------
+  12000.00 |   12000.00 |         0.00
+(1 row)
+
+--- 補印前後金額欄位（amount/amountDue/amountPaid）完全相同，只有 reprintCount 從0變3 ---
+=== 場景10：已付款認捐取消——必須先進入待退款/轉款流程，不得直接刪除 ===
+UPDATE 1
+        id         |     status     | amountPaid 
+-------------------+----------------+------------
+ OC_LARGE_TURTLE_1 | REFUND_PENDING |   12000.00
+(1 row)
+
+--- 狀態變成 REFUND_PENDING，名額尚未釋出（cancelOfferingClaim() 邏輯，見 offeringClaims.ts 472-511行）---
+INSERT 0 1
+UPDATE 1
+        id         |  status  | amountPaid | refundedAmount |   refundReason   
+-------------------+----------+------------+----------------+------------------
+ OC_LARGE_TURTLE_1 | REFUNDED |       0.00 |       12000.00 | 信眾要求全額退款
+(1 row)
+
+=== 場景11：登錄爐主及副爐主——只保留姓名，不產生應收/收款/收據 ===
+INSERT 0 1
+INSERT 0 1
+  id  |     roleType      | memberId  |    nameSnapshot    | status 
+------+-------------------+-----------+--------------------+--------
+ SM_1 | STOVE_MASTER      | M_TEST001 | 王小美             | ACTIVE
+ SM_2 | VICE_STOVE_MASTER |           | 李大同（尚未建檔） | ACTIVE
+(2 rows)
+
+--- 確認 stove_master_registrations 資料表結構本身完全沒有金額/付款/收據欄位 ---
+                               Table "public.stove_master_registrations"
+    Column     |              Type              | Collation | Nullable |            Default            
+---------------+--------------------------------+-----------+----------+-------------------------------
+ id            | text                           |           | not null | 
+ templeEventId | text                           |           | not null | 
+ year          | integer                        |           | not null | 
+ roleType      | "StoveMasterRoleType"          |           | not null | 
+ memberId      | text                           |           |          | 
+ householdId   | text                           |           |          | 
+ nameSnapshot  | text                           |           | not null | 
+ phoneSnapshot | text                           |           |          | 
+ note          | text                           |           |          | 
+ status        | "StoveMasterStatus"            |           | not null | 'ACTIVE'::"StoveMasterStatus"
+ createdByName | text                           |           |          | 
+ createdAt     | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updatedAt     | timestamp(3) without time zone |           | not null | 
+Indexes:
+    "stove_master_registrations_pkey" PRIMARY KEY, btree (id)
+    "stove_master_registrations_status_idx" btree (status)
+    "stove_master_registrations_templeEventId_idx" btree ("templeEventId")
+Foreign-key constraints:
+    "stove_master_registrations_householdId_fkey" FOREIGN KEY ("householdId") REFERENCES households(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "stove_master_registrations_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES members(id) ON UPDATE CASCADE ON DELETE SET NULL
+    "stove_master_registrations_templeEventId_fkey" FOREIGN KEY ("templeEventId") REFERENCES temple_events(id) ON UPDATE CASCADE ON DELETE CASCADE
+
+=== 場景12：宮慶建立3對壽桃麵塔 ===
+INSERT 0 1
+=== 場景13：建立5小盤散壽桃麵 ===
+INSERT 0 1
+       id        |   name   | quantity 
+-----------------+----------+----------
+ AO_NOODLE_TOWER | 壽桃麵塔 |        3
+ AO_LOOSE_PEACH  | 散壽桃麵 |        5
+(2 rows)
+
+=== 場景14：產生全年24次花果供品（generateFloralOfferingSlots，已由「案例11」實際執行驗證產出24筆） ===
+INSERT 0 1
+DO
+ floral_slot_count 
+-------------------
+                24
+(1 row)
+
+=== 場景15：修改其中一場花果供品金額為非1500元（三月十五日改為2000元的個別覆蓋價） ===
+UPDATE 1
+ lunarMonth | lunarDay | priceOverride 
+------------+----------+---------------
+          3 |       15 |       2000.00
+(1 row)
+
+=== 場景16：登錄花果認捐人、金額及付款狀態（三月十五日，2000元，未收款） ===
+INSERT 0 1
+     id      | lunarMonth | lunarDay | unitPrice | paymentStatus 
+-------------+------------+----------+-----------+---------------
+ OC_FLORAL_1 |          3 |       15 |   2000.00 | UNPAID
+(1 row)
+
+=== 場景17+18：全年花果認捐工作名單（依農曆日期排序，含尚未認捐日期），不做牆面超長版型（純網頁A4查詢清單） ===
+ lunarMonth | lunarDay |   sponsor    | unit_price | payment_status 
+------------+----------+--------------+------------+----------------
+          1 |        1 | （尚未認捐） |            | 
+          1 |       15 | （尚未認捐） |            | 
+          2 |        1 | （尚未認捐） |            | 
+          2 |       15 | （尚未認捐） |            | 
+          3 |        1 | （尚未認捐） |            | 
+          3 |       15 | 王小美       | 2000.00    | UNPAID
+(6 rows)
+
+--- 確認名單只是一般查詢結果（工作清單），schema/程式碼裡沒有任何「牆面超長版型」欄位或列印模板 ---
+=== 場景19：確認未付款資料可進入未收款查詢 ===
+     id      |   name   | sponsorNameSnapshot | amountUnpaid | paymentStatus 
+-------------+----------+---------------------+--------------+---------------
+ OC_FLORAL_1 | 花果供品 | 王小美              |      2000.00 | UNPAID
+(1 row)
+
+=== 最終彙總：這場宮慶目前資料總覽 ===
+ activity_offerings_count | active_claims_count | floral_slots_count | stove_masters_count | payments_count 
+--------------------------+---------------------+--------------------+---------------------+----------------
+                        5 |                   2 |                 24 |                   2 |              3
+(1 row)
+
