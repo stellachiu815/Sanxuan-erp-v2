@@ -134,6 +134,8 @@ export async function copyUniversalSalvationFromPreviousYear(
     return { ok: false, status: 404, error: `找不到 ${fromYear} 年的普渡資料，無法複製` };
   }
 
+  const universalSalvation = source.universalSalvation;
+
   // V8.0：建立資料與寫入版本紀錄放在同一個資料庫交易（transaction）裡，
   // 確保「資料真的建立了」跟「留下版本紀錄」不會只成功一半。
   const created = await prisma.$transaction(async (tx) => {
@@ -148,17 +150,17 @@ export async function copyUniversalSalvationFromPreviousYear(
         universalSalvation: {
           create: {
             isRegistered: false,
-            yangshangName: source.universalSalvation.yangshangName,
-            enshrinementLocation: source.universalSalvation.enshrinementLocation,
-            isSponsor: source.universalSalvation.isSponsor,
-            sponsorQuantity: source.universalSalvation.sponsorQuantity,
-            sponsorUnitPrice: source.universalSalvation.sponsorUnitPrice,
-            sponsorAmount: source.universalSalvation.sponsorAmount,
-            sponsorNotes: source.universalSalvation.sponsorNotes,
-            tableNumber: source.universalSalvation.tableNumber,
-            notes: source.universalSalvation.notes,
+            yangshangName: universalSalvation.yangshangName,
+            enshrinementLocation: universalSalvation.enshrinementLocation,
+            isSponsor: universalSalvation.isSponsor,
+            sponsorQuantity: universalSalvation.sponsorQuantity,
+            sponsorUnitPrice: universalSalvation.sponsorUnitPrice,
+            sponsorAmount: universalSalvation.sponsorAmount,
+            sponsorNotes: universalSalvation.sponsorNotes,
+            tableNumber: universalSalvation.tableNumber,
+            notes: universalSalvation.notes,
             entries: {
-              create: source.universalSalvation.entries.map((entry) => ({
+              create: universalSalvation.entries.map((entry) => ({
                 category: entry.category,
                 displayName: entry.displayName,
                 yangshangName: entry.yangshangName,
