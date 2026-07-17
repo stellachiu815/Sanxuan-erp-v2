@@ -47,7 +47,7 @@ export type HouseholdView = {
   }[];
   activities: {
     id: string;
-    type: "ANNUAL_LANTERN" | "UNIVERSAL_SALVATION" | "TEMPLE_CELEBRATION" | "REPRINT";
+    type: "ANNUAL_LANTERN" | "UNIVERSAL_SALVATION" | "TEMPLE_CELEBRATION" | "REPRINT" | "OTHER";
     year: number | null;
     note: string | null;
     createdAt: Date;
