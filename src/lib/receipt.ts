@@ -215,44 +215,37 @@ export type PendingReceiptFilters = {
 export async function listPendingReceiptAllocations(
   filters: PendingReceiptFilters = {}
 ): Promise<PendingReceiptAllocationView[]> {
-  const where: Prisma.PaymentAllocationWhereInput = {
-    paymentTransaction: { status: "COMPLETED" },
+  const paymentWhere: Prisma.PaymentTransactionWhereInput = {
+    status: "COMPLETED",
   };
+
+  const where: Prisma.PaymentAllocationWhereInput = {
+    paymentTransaction: paymentWhere,
+  };
+
   if (filters.sourceType) where.sourceType = filters.sourceType as never;
   if (filters.transactionNo) {
-    where.paymentTransaction = { ...where.paymentTransaction, transactionNo: { contains: filters.transactionNo } };
+    paymentWhere.transactionNo = { contains: filters.transactionNo };
   }
   if (filters.householdId) {
-    where.paymentTransaction = { ...where.paymentTransaction, payerHouseholdId: filters.householdId };
+    paymentWhere.payerHouseholdId = filters.householdId;
   }
   if (filters.payerName) {
-    where.paymentTransaction = {
-      ...where.paymentTransaction,
-      payerNameSnapshot: { contains: filters.payerName },
-    };
+    paymentWhere.payerNameSnapshot = { contains: filters.payerName };
   }
   if (filters.payerPhone) {
-    where.paymentTransaction = {
-      ...where.paymentTransaction,
-      payerPhoneSnapshot: { contains: filters.payerPhone },
-    };
+    paymentWhere.payerPhoneSnapshot = { contains: filters.payerPhone };
   }
   if (filters.methodType) {
-    where.paymentTransaction = { ...where.paymentTransaction, methodType: filters.methodType as never };
+    paymentWhere.methodType = filters.methodType as never;
   }
   if (filters.collectedByName) {
-    where.paymentTransaction = {
-      ...where.paymentTransaction,
-      collectedByName: { contains: filters.collectedByName },
-    };
+    paymentWhere.collectedByName = { contains: filters.collectedByName };
   }
   if (filters.dateFrom || filters.dateTo) {
-    where.paymentTransaction = {
-      ...where.paymentTransaction,
-      paidOn: {
-        ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
-        ...(filters.dateTo ? { lte: filters.dateTo } : {}),
-      },
+    paymentWhere.paidOn = {
+      ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+      ...(filters.dateTo ? { lte: filters.dateTo } : {}),
     };
   }
   if (filters.receiptStatus) where.receiptStatus = filters.receiptStatus;
