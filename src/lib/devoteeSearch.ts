@@ -95,7 +95,7 @@ export async function searchAcrossTemple(q: string): Promise<DevoteeSearchRespon
       searchAnnualLanterns(query),
     ]);
 
-  const groups: { category: DevoteeSearchCategory; label: string; results: DevoteeSearchResult[] }[] = [
+  const groups = [
     { category: "DEVOTEE", label: DEVOTEE_SEARCH_CATEGORY_LABEL.DEVOTEE, results: devotees },
     { category: "HOUSEHOLD", label: DEVOTEE_SEARCH_CATEGORY_LABEL.HOUSEHOLD, results: households },
     { category: "ACTIVITY", label: DEVOTEE_SEARCH_CATEGORY_LABEL.ACTIVITY, results: activities },
