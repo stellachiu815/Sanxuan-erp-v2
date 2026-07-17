@@ -227,7 +227,14 @@ export async function updateAdditionalPrintItem(
     input.unitPrice !== undefined ? input.unitPrice : existing.unitPrice ? existing.unitPrice.toNumber() : null;
   const fee = computeAdditionalPrintItemFee(isChargeable, unitPrice, quantity);
 
-  const data: Prisma.AdditionalPrintItemUpdateInput = {
+  // 修正：AdditionalPrintItem.templateId 是 @relation(fields: [templateId], ...)
+  // 的純量外鍵欄位，Prisma 產生的「Checked」版 AdditionalPrintItemUpdateInput
+  // 只允許用巢狀的 template: { connect/disconnect } 寫法操作這個關聯，不接受
+  // 直接指派 templateId 這個純量欄位，導致 Render Build 出現 TypeScript 錯誤
+  // （"Property 'templateId' does not exist on type 'AdditionalPrintItemUpdateInput'"）。
+  // 這裡改用「Unchecked」版型別——Prisma Client 執行期本來就同時支援兩種寫法，
+  // 只是型別宣告要對應到允許直接寫純量外鍵的版本，不影響任何執行邏輯或資料庫寫入結果。
+  const data: Prisma.AdditionalPrintItemUncheckedUpdateInput = {
     usesSourceName,
     quantity,
     printName,
