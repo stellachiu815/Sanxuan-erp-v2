@@ -1,3 +1,4 @@
+import type { ActivityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { deriveBirthdayInfo, formatLunarDate, formatSolarDate } from "@/lib/lunar";
 
@@ -47,7 +48,7 @@ export type HouseholdView = {
   }[];
   activities: {
     id: string;
-    type: "ANNUAL_LANTERN" | "UNIVERSAL_SALVATION" | "TEMPLE_CELEBRATION" | "REPRINT" | "OTHER";
+    type: ActivityType;
     year: number | null;
     note: string | null;
     createdAt: Date;
