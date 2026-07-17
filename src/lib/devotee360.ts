@@ -237,7 +237,12 @@ async function getDonationStats(memberId: string, now: Date) {
       where: { memberId, deletedAt: null, activityType: "UNIVERSAL_SALVATION" },
       include: { universalSalvation: true },
     }),
-    prisma.purificationEntry.findMany({ where: { memberId, deletedAt: null } }),
+    // 修正：原本這裡沒有 include ritualRecord，但下面「祭改」區塊會讀取
+    // p.ritualRecord（見下方），導致 Render Build 出現 TypeScript 錯誤
+    // （"Property 'ritualRecord' does not exist on type PurificationEntry"）。
+    // 這裡補上 include: { ritualRecord: true }，只補齊查詢帶出的關聯資料，
+    // 不改 schema、不改下面的判斷邏輯、不新增功能。
+    prisma.purificationEntry.findMany({ where: { memberId, deletedAt: null }, include: { ritualRecord: true } }),
   ]);
 
   type YearAmount = { year: number; received: number; due: number };
