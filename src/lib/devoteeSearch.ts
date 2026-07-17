@@ -95,16 +95,28 @@ export async function searchAcrossTemple(q: string): Promise<DevoteeSearchRespon
       searchAnnualLanterns(query),
     ]);
 
-  const groups = [
-    { category: "DEVOTEE", label: DEVOTEE_SEARCH_CATEGORY_LABEL.DEVOTEE, results: devotees },
-    { category: "HOUSEHOLD", label: DEVOTEE_SEARCH_CATEGORY_LABEL.HOUSEHOLD, results: households },
-    { category: "ACTIVITY", label: DEVOTEE_SEARCH_CATEGORY_LABEL.ACTIVITY, results: activities },
-    { category: "RITUAL", label: DEVOTEE_SEARCH_CATEGORY_LABEL.RITUAL, results: rituals },
-    { category: "OFFERING_CLAIM", label: DEVOTEE_SEARCH_CATEGORY_LABEL.OFFERING_CLAIM, results: offeringClaims },
-    { category: "PAYMENT", label: DEVOTEE_SEARCH_CATEGORY_LABEL.PAYMENT, results: payments },
-    { category: "RECEIPT", label: DEVOTEE_SEARCH_CATEGORY_LABEL.RECEIPT, results: receipts },
-    { category: "PURIFICATION", label: DEVOTEE_SEARCH_CATEGORY_LABEL.PURIFICATION, results: purifications },
-    { category: "ANNUAL_LANTERN", label: DEVOTEE_SEARCH_CATEGORY_LABEL.ANNUAL_LANTERN, results: lanterns },
+  const groups: {
+  category: DevoteeSearchCategory;
+  label: string;
+  results: DevoteeSearchResult[];
+}[] = [
+    { category: "DEVOTEE" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.DEVOTEE, results: devotees },
+    { category: "HOUSEHOLD" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.HOUSEHOLD, results: households },
+
+{ category: "ACTIVITY" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.ACTIVITY, results: activities },
+
+{ category: "RITUAL" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.RITUAL, results: rituals },
+
+{ category: "OFFERING_CLAIM" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.OFFERING_CLAIM, results: offeringClaims },
+
+{ category: "PAYMENT" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.PAYMENT, results: payments },
+
+{ category: "RECEIPT" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.RECEIPT, results: receipts },
+
+{ category: "PURIFICATION" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.PURIFICATION, results: purifications },
+
+{ category: "ANNUAL_LANTERN" as DevoteeSearchCategory, label: DEVOTEE_SEARCH_CATEGORY_LABEL.ANNUAL_LANTERN, results: lanterns },
+   
   ].filter((g) => g.results.length > 0);
 
   const total = groups.reduce((sum, g) => sum + g.results.length, 0);
