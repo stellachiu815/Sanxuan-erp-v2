@@ -4,3 +4,13 @@
 .env.development
 .env.production
 .env*.local
+
+# Dependencies and build output
+node_modules/
+.next/
+
+# macOS
+.DS_Store
+
+# Next.js generated
+next-env.d.ts
