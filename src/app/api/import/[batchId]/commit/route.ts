@@ -15,16 +15,24 @@
  *   （見 /api/import/pending），本輪不處理覆蓋/合併。
  *
  * 每個批次只能確認匯入一次（COMMITTED 之後重複呼叫會回錯誤，避免重複建立資料）。
+ *
+ * V11.3 補上原本沒有的權限管控（見 manageDataImport 說明）：body 必須帶
+ * operatorUserId，一樣經過 assertSystemPermissionForOperator 驗證。
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseImportRow, type ImportRawRow } from "@/lib/importRules";
 import type { MemberRole } from "@prisma/client";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ batchId: string }> }
 ) {
+  const body = await request.json().catch(() => ({}));
+  const check = await assertSystemPermissionForOperator(body?.operatorUserId, "manageDataImport");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+
   const { batchId } = await params;
 
   const batch = await prisma.importBatch.findUnique({

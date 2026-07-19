@@ -1,14 +1,23 @@
 /**
  * 查詢單一匯入批次目前的狀態與每一列結果。
  * 讓「確認匯入」後重新整理頁面，還是能看到這個批次的結果（不會因為重新整理就消失）。
+ *
+ * V11.3 補上原本沒有的權限管控（見 manageDataImport 說明）。
  */
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ batchId: string }> }
 ) {
+  const check = await assertSystemPermissionForOperator(
+    request.nextUrl.searchParams.get("operatorUserId"),
+    "manageDataImport"
+  );
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+
   const { batchId } = await params;
   const batch = await prisma.importBatch.findUnique({
     where: { id: batchId },

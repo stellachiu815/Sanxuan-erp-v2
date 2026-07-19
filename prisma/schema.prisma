@@ -16,7 +16,10 @@ model Household {
   id          String   @id @db.VarChar(10) // 家戶編號，例如 F00009
   name        String   // 家戶名稱，例如「王家」
   contactName String?  // 主要聯絡人
-  phone       String?
+  phone       String?  // 家用／市內電話
+  mobile      String?  // V11.3「信眾資料匯入預檢中心」新增：手機（跟 phone 分開儲存，
+  // 不合併成同一個字串——市話跟手機用途不同，未來簡訊/名冊列印可能需要分開使用；
+  // 既有只有 phone 的家戶完全不受影響，這欄一律是 null，不會回填/推算）。
   address     String?
   companyName String?  // 公司名稱（預留欄位，供搜尋使用）
   notes       String?  @db.Text // 備註
@@ -69,6 +72,12 @@ model Member {
   isDeceased    Boolean   @default(false)
   deceasedAt    DateTime? @db.Date
   yangshangName String? // 陽上姓名（標記離世時填寫）
+
+  // V11.3「信眾資料匯入預檢中心」新增：出生時辰（選填，文字儲存，例如「子時」
+  // 「23:00-01:00」，格式不強制，之後祭改/疏文若需要精確時辰再由行政人員
+  // 覆核調整）。屬信眾個人資料本身、不是信眾關係中心的延伸資料，所以直接
+  // 加在 Member（DevoteeProfile 是 1 對 1 延伸表，不重複建立同性質欄位）。
+  birthHour String?
 
   notes String? @db.Text
 
@@ -566,6 +575,28 @@ enum ImportRowStatus {
   ERROR // 未通過驗證，永遠不會被匯入，需修正 Excel 後重新上傳
   DUPLICATE_PENDING // 家戶編號已存在資料庫，不覆蓋、列為待確認，需要人工檢視
   IMPORTED // 已經確認匯入、寫入正式資料
+
+  // ↓ V11.3「信眾資料匯入預檢中心」新增。舊的家戶批次匯入（上面 4 個值）
+  // 完全不受影響、不重新命名、不刪除，繼續原封不動使用；新流程用下面
+  // 這 6 個值，兩套匯入流程的 ImportRow 靠 ImportBatch.importKind 區分，
+  // 互不干擾（同一個安全的加法型 migration，只新增 enum 值）。
+  READY_TO_IMPORT // 可新增：驗證通過、沒有偵測到疑似重複，確認匯入時會真正寫入
+  SUSPECTED_DUPLICATE // 疑似重複：找到高/中相似度的既有資料，需要人工確認，預設不匯入
+  INCOMPLETE_DATA // 資料不完整：缺少必填欄位
+  FORMAT_ERROR // 格式錯誤：欄位內容看不懂（日期、性別等格式錯誤），不是缺漏
+  HOUSEHOLD_UNCERTAIN // 待確認家戶：檔案內同戶線索不足或衝突，無法確定歸屬哪一戶
+  EXCLUDED // 不匯入：使用者手動選擇略過，或疑似重複/待確認家戶未被人工確認納入
+}
+
+/// V11.3「信眾資料匯入預檢中心」新增：使用者對一列「疑似重複／待確認家戶」
+/// 資料做出的最終處理決定。這個決定要長期保存（不像候選比對結果每次都
+/// 即時重算），避免使用者下次打開同一個尚未確認的批次時，要重新判斷一次
+/// 已經想清楚的事。
+enum ImportRowResolutionDecision {
+  CONFIRMED_DUPLICATE // 確認為同一人／同一戶：不會建立新資料，這一列會被排除在匯入之外
+  CONFIRMED_NOT_DUPLICATE // 確認不是同一人／同一戶：可以繼續當成新資料匯入
+  ASSIGN_HOUSEHOLD // 指定歸屬某個既有家戶（見 resolutionHouseholdId）
+  SKIP // 略過：不管候選比對結果如何，這一列都不匯入
 }
 
 /// 一次 Excel 上傳 = 一個批次
@@ -613,6 +644,18 @@ model ImportRow {
   status   ImportRowStatus
   errors   Json? // string[]，ERROR 時的錯誤訊息
   warnings Json? // string[]，OK 但有可疑之處時的提醒（例如生肖與系統換算不符）
+
+  // ↓ V11.3「信眾資料匯入預檢中心」新增：人工對「疑似重複／待確認家戶」
+  // 做出的最終決定（見上方 ImportRowResolutionDecision 說明）。候選比對
+  // 結果本身刻意不落地保存（每次開啟批次即時重新查詢資料庫），只有這個
+  // 「人已經做出的決定」需要長期保存；舊的家戶批次匯入完全不會用到這幾欄，
+  // 一律是 null。
+  resolutionDecision    ImportRowResolutionDecision?
+  resolutionHouseholdId String? // ASSIGN_HOUSEHOLD／CONFIRMED_DUPLICATE 時，對應的既有 Household.id
+  resolutionMemberId    String? // CONFIRMED_DUPLICATE 且判斷為同一位信眾時，對應的既有 Member.id
+  resolutionNote        String? @db.Text
+  resolvedAt            DateTime?
+  resolvedByName        String?
 
   createdAt DateTime @default(now())
 

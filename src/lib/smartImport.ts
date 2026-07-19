@@ -84,8 +84,14 @@ export type ImportAnalysis = {
   summary: { total: number; new: number; update: number; duplicate: number; missingData: number; needsConfirmation: number };
 };
 
-/** 把原始列依欄位對應轉成 { targetFieldKey: value }。 */
-function applyMapping(row: Record<string, unknown>, mapping: Record<string, string | null>): Record<string, unknown> {
+/**
+ * 把原始列依欄位對應轉成 { targetFieldKey: value }。
+ *
+ * 這支原本是這個檔案的私有函式，V11.3「信眾資料匯入預檢中心」
+ * （src/lib/devoteeImportValidate.ts）需要同一個「依欄位對應轉換一列資料」
+ * 的邏輯，改成 export 直接沿用，不在別的檔案重寫一次一樣的迴圈。
+ */
+export function applyMapping(row: Record<string, unknown>, mapping: Record<string, string | null>): Record<string, unknown> {
   const mapped: Record<string, unknown> = {};
   for (const [col, value] of Object.entries(row)) {
     // mapping 的 key 一律是「原始」欄位名稱（見 suggestColumnMappingPure 的說明），

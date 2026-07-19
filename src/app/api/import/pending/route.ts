@@ -1,11 +1,20 @@
 /**
  * 列出所有「待確認」的匯入列（家戶編號跟現有資料庫衝突、被擋下沒有匯入的列）。
  * 純查詢、唯讀，方便行政人員之後人工比對決定怎麼處理（本輪不提供覆蓋/合併功能）。
+ *
+ * V11.3 補上原本沒有的權限管控（見 manageDataImport 說明）。
  */
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const check = await assertSystemPermissionForOperator(
+    request.nextUrl.searchParams.get("operatorUserId"),
+    "manageDataImport"
+  );
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+
   const rows = await prisma.importRow.findMany({
     where: { status: "DUPLICATE_PENDING" },
     include: { batch: { select: { fileName: true, createdAt: true } } },

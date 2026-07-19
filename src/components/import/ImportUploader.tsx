@@ -7,6 +7,7 @@ import {
   secondaryButtonClass,
   errorTextClass,
 } from "@/components/household/formStyles";
+import { useOperator } from "@/lib/operatorClient";
 
 type RowStatus = "OK" | "ERROR" | "DUPLICATE_PENDING" | "IMPORTED";
 
@@ -55,6 +56,10 @@ export default function ImportUploader() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const existingBatchId = searchParams.get("batch");
+  // V11.3 補上這一頁原本完全沒有的權限檢查（見 src/lib/operator.ts 的
+  // manageDataImport 說明）：這裡只負責帶上 operatorUserId，真正的權限
+  // 判斷一律在伺服器端的 4 支 API route 完成，不是只靠前端擋。
+  const { operatorUserId } = useOperator();
 
   const [batch, setBatch] = useState<BatchState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,31 +73,39 @@ export default function ImportUploader() {
   const [error, setError] = useState<string | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
 
-  const loadBatch = useCallback(async (batchId: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/import/${batchId}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "讀取匯入結果失敗");
-      setBatch(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "讀取匯入結果失敗");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadBatch = useCallback(
+    async (batchId: string, userId: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/import/${batchId}?operatorUserId=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "讀取匯入結果失敗");
+        setBatch(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "讀取匯入結果失敗");
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   // 重新整理頁面時，如果網址上有 batch 參數，重新讀取這個批次的結果，
-  // 資料不會因為重新整理就消失。
+  // 資料不會因為重新整理就消失。要等操作人員身分載入完成（operatorUserId
+  // 有值）才能呼叫，否則一定會被伺服器以 401 拒絕。
   useEffect(() => {
-    if (existingBatchId) loadBatch(existingBatchId);
-  }, [existingBatchId, loadBatch]);
+    if (existingBatchId && operatorUserId) loadBatch(existingBatchId, operatorUserId);
+  }, [existingBatchId, operatorUserId, loadBatch]);
 
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setCommitResult(null);
+    if (!operatorUserId) {
+      setError("請先在上方選擇目前操作人員");
+      return;
+    }
     const form = e.currentTarget;
     const fileInput = form.elements.namedItem("file") as HTMLInputElement;
     const file = fileInput.files?.[0];
@@ -102,6 +115,7 @@ export default function ImportUploader() {
     }
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("operatorUserId", operatorUserId);
 
     setLoading(true);
     try {
@@ -118,15 +132,19 @@ export default function ImportUploader() {
   }
 
   async function handleCommit() {
-    if (!batch) return;
+    if (!batch || !operatorUserId) return;
     setCommitting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/import/${batch.batchId}/commit`, { method: "POST" });
+      const res = await fetch(`/api/import/${batch.batchId}/commit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "確認匯入失敗");
       setCommitResult(data);
-      await loadBatch(batch.batchId);
+      await loadBatch(batch.batchId, operatorUserId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "確認匯入失敗");
     } finally {
@@ -158,10 +176,13 @@ export default function ImportUploader() {
             className="mt-5 block w-full text-sm text-ink-soft file:mr-4 file:rounded-full file:border-0 file:bg-mist-100 file:px-4 file:py-2 file:text-sm file:text-ink-soft hover:file:bg-mist-200"
           />
           <div className="mt-5 flex gap-3">
-            <button type="submit" disabled={loading} className={primaryButtonClass}>
+            <button type="submit" disabled={loading || !operatorUserId} className={primaryButtonClass}>
               {loading ? "檢查中…" : "上傳並檢查"}
             </button>
           </div>
+          {!operatorUserId && (
+            <p className="mt-3 text-xs text-ink-faint">請先在上方選擇目前操作人員（僅最高管理員可以匯入）。</p>
+          )}
         </form>
       )}
 

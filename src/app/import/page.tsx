@@ -2,7 +2,18 @@ import { Suspense } from "react";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import ImportUploader from "@/components/import/ImportUploader";
+import { OperatorProvider } from "@/lib/operatorClient";
+import OperatorBar from "@/components/system/OperatorBar";
+import SystemCenterGate from "@/components/system-center/SystemCenterGate";
 
+/**
+ * V11.3 補上這一頁原本完全沒有的權限管控（見 assertSystemPermissionForOperator
+ * 於 4 支 /api/import/* API route 的呼叫，以及 manageDataImport 權限說明）：
+ * 這裡跟系統管理中心其餘頁面同一種結構——只要求操作人員／SystemCenterGate
+ * 通過，畫面才會顯示 ImportUploader；真正的安全防線在伺服器端每一支 API，
+ * 就算有人知道網址直接呼叫 API 也會被拒絕。既有的上傳/驗證/確認匯入邏輯
+ * 完全沒有變動。
+ */
 export default function ImportPage() {
   return (
     <div className="min-h-screen">
@@ -25,9 +36,14 @@ export default function ImportPage() {
           農曆生日、生肖、是否已辭世、歷代祖先、個人乙位正魂、陽上姓名、安奉位置、備註。
           家戶編號如果已經存在資料庫，不會覆蓋，會列為「待確認」。
         </p>
-        <Suspense fallback={<p className="text-sm text-ink-faint">載入中…</p>}>
-          <ImportUploader />
-        </Suspense>
+        <OperatorProvider>
+          <OperatorBar />
+          <SystemCenterGate>
+            <Suspense fallback={<p className="text-sm text-ink-faint">載入中…</p>}>
+              <ImportUploader />
+            </Suspense>
+          </SystemCenterGate>
+        </OperatorProvider>
       </main>
     </div>
   );

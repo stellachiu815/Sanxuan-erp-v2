@@ -11,6 +11,9 @@
  * 4. 把整批結果存成一筆 ImportBatch + 多筆 ImportRow（狀態 PREVIEWED 批次），
  *    回傳 batchId 與統計數字、每一列的狀態，讓前端顯示錯誤清單。
  *    這一步「完全不會」寫入 Household / Member / WorshipRecord。
+ *
+ * V11.3 補上原本沒有的權限管控（見 manageDataImport 說明）：multipart
+ * form-data 必須帶 operatorUserId，一樣經過 assertSystemPermissionForOperator 驗證。
  */
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
@@ -23,9 +26,18 @@ import {
   rawRowToPlainRecord,
   type ParsedRow,
 } from "@/lib/importRules";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
+
+  const operatorUserIdRaw = formData.get("operatorUserId");
+  const check = await assertSystemPermissionForOperator(
+    typeof operatorUserIdRaw === "string" ? operatorUserIdRaw : null,
+    "manageDataImport"
+  );
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+
   const file = formData.get("file");
 
   if (!file || typeof file === "string") {
