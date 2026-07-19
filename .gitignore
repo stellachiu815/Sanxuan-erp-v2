@@ -14,3 +14,14 @@ node_modules/
 
 # Next.js generated
 next-env.d.ts
+
+# 本專案的正式套件管理工具是 npm（package-lock.json 已加入版本控制）。
+# 這幾個是 Yarn（尤其是 Yarn Berry / PnP 模式）才會產生的檔案，避免有人
+# 不小心在這個專案跑了 yarn install，把 Yarn 的產物也一起加進版本控制，
+# 造成兩套套件管理工具的紀錄同時存在、彼此打架（就是這次 EROFS 錯誤的
+# 起因——専案原本沒有 yarn.lock，被一次 yarn install 意外建立，並且因為
+# 沒有 .yarnrc.yml 指定 nodeLinker，Yarn 預設用 PnP 模式，PnP 又跟 Prisma
+# 的原生引擎檔案有已知的相容性問題）。
+yarn.lock
+.pnp.*
+.yarn/

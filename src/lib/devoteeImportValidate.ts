@@ -1,86 +1,58 @@
-import type { MemberRole } from "@prisma/client";
 import { applyMapping } from "@/lib/smartImport";
-import {
-  normalizeName,
-  normalizePhone,
-  toNullableText,
-  normalizeGender,
-  normalizeDeceasedFlag,
-  parseFlexibleSolarDate,
-  parseFlexibleLunarDate,
-  parseFlexibleLunarMonthDay,
-  checkZodiacConsistency,
-} from "@/lib/devoteeImportNormalize";
+import { normalizeName, toNullableText, splitMultiValue } from "@/lib/devoteeImportNormalize";
 
 /**
- * V11.3「信眾資料匯入預檢中心」——單列資料驗證（需求「第四步」資料正規化
- * ＋「第五步」資料預覽的「資料不完整／格式錯誤」判斷依據）。
+ * V11.3「信眾資料匯入預檢中心」正式版——單列（＝一戶）資料驗證。
  *
- * 刻意跟「重複比對」（devoteeImportDuplicateCheck.ts）、「家戶分組」
- * （devoteeImportHouseholdGrouping.ts）分開——這裡只做「這一列本身資料
- * 乾不乾淨」的判斷，完全不查資料庫，方便單獨測試。
+ * 正式 Excel 固定只有七欄，一列＝一戶（需求「三玄宮 ERP V11.3 家戶匯入
+ * 正式版（依正式 Excel 格式）」）：
+ *
+ *   家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先（逗號分隔）｜乙位正魂（逗號分隔）｜家戶成員（逗號分隔）
+ *
+ * 這個檔案只做「這一列本身資料乾不乾淨」的判斷，完全不查資料庫——正式
+ * 建立／更新 Household、Member、WorshipRecord（歷代祖先／乙位正魂）的邏輯
+ * 在 devoteeImportBatch.ts。
+ *
+ * ⚠️ 舊版（彈性欄位、姓名必填）已經完全被取代，不是並存的第二套格式
+ * （使用者已明確選擇「完全改成只支援這七欄」）：
+ *   - 不再要求「姓名」為必填欄位，也不會再顯示「缺少必填欄位：姓名」。
+ *   - 改為檢查「家戶成員」是否存在，若存在就自動拆解成多筆姓名。
  */
 
 export type NormalizedHouseholdFields = {
-  code: string; // 戶號或原系統編號（必填，直接對應既有 Household.id）
-  contactName: string | null;
-  phone: string | null;
-  mobile: string | null;
-  address: string | null;
-  companyName: string | null;
-  notes: string | null;
-};
-
-export type NormalizedMemberFields = {
-  name: string; // 必填
-  gender: string | null;
-  solarBirthDate: Date | null;
-  lunarBirthYear: number | null;
-  lunarBirthMonth: number | null;
-  lunarBirthDay: number | null;
-  lunarIsLeapMonth: boolean;
-  birthHour: string | null;
-  relationToHead: MemberRole;
-  isDeceased: boolean;
-  yangshangName: string | null;
-  notes: string | null;
+  code: string; // 家戶編號（必填，直接對應既有 Household.id）
+  name: string; // 戶名（必填，對應既有 Household.name）
+  contactName: string | null; // 主要聯絡人
+  address: string | null; // 地址
 };
 
 export type NormalizedDevoteeRow = {
   rowNumber: number;
   raw: Record<string, unknown>;
   household: NormalizedHouseholdFields;
-  member: NormalizedMemberFields;
+  memberNames: string[]; // 家戶成員，拆解後、已去除同列重複
+  ancestorNames: string[]; // 歷代祖先，拆解後、已去除同列重複
+  spiritNames: string[]; // 乙位正魂，拆解後、已去除同列重複
   /** 缺少必填欄位——對應「資料不完整」狀態 */
   missingFieldErrors: string[];
-  /** 欄位內容看不懂（日期、農曆月日等格式問題）——對應「格式錯誤」狀態 */
+  /** 欄位內容看不懂——對應「格式錯誤」狀態 */
   formatErrors: string[];
-  /** 通過驗證但有可疑之處的提醒（例如生肖跟系統換算不符），不影響是否可匯入 */
+  /** 通過驗證但有可疑之處的提醒，不影響是否可匯入（目前正式格式沒有會觸發
+   *  警告的欄位，保留這個欄位是為了跟批次/預覽的資料形狀維持一致，方便
+   *  之後如果新增警告規則不用改動呼叫端型別）。 */
   warnings: string[];
 };
 
-const RELATION_ALIASES: Record<string, MemberRole> = {
-  戶長: "HOUSEHOLD_HEAD",
-  配偶: "SPOUSE",
-  兒子: "SON",
-  子: "SON",
-  長子: "SON",
-  女兒: "DAUGHTER",
-  女: "DAUGHTER",
-  長女: "DAUGHTER",
-  父親: "FATHER",
-  父: "FATHER",
-  母親: "MOTHER",
-  母: "MOTHER",
-  祖父: "GRANDFATHER",
-  祖母: "GRANDMOTHER",
-};
-
-/** 「與戶主關係」看不懂的寫法一律歸類成「其他」（Member.role 既有預設值），不擋匯入。 */
-function normalizeRelationToHead(raw: unknown): MemberRole {
-  const s = toNullableText(raw);
-  if (!s) return "OTHER";
-  return RELATION_ALIASES[s] ?? "OTHER";
+/** 依序去除重複，保留第一次出現的順序（同一列「家戶成員」寫兩次同名時，只算一筆，避免重複建立）。 */
+function dedupeKeepOrder(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names) {
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
 }
 
 export function normalizeAndValidateDevoteeRow(
@@ -93,91 +65,42 @@ export function normalizeAndValidateDevoteeRow(
   const formatErrors: string[] = [];
   const warnings: string[] = [];
 
-  // ---- 家戶欄位 ----
-  const codeRaw = toNullableText(mapped.household_code) ?? "";
-  // 「戶號或原系統編號」這裡刻意不列為必填——需求「第七步」明確把戶號當成
-  // 判斷同戶的其中一個線索而非唯一依據，代表來源資料（例如舊系統匯出）有
-  // 可能本來就沒有整理好的戶號。留空的列會交給 devoteeImportHouseholdGrouping.ts
-  // 依地址／主要聯絡人／電話等線索嘗試判斷同戶；判斷不出來就標記「待確認
-  // 家戶」，而不是在這裡直接當成錯誤列擋掉。
-  if (codeRaw.length > 10) {
-    formatErrors.push(`「戶號或原系統編號」不能超過 10 個字（目前「${codeRaw}」共 ${codeRaw.length} 字）`);
+  const code = normalizeName(mapped.householdCode);
+  if (!code) {
+    missingFieldErrors.push("缺少必填欄位「家戶編號」");
+  } else if (code.length > 10) {
+    formatErrors.push(`「家戶編號」不能超過 10 個字（目前「${code}」共 ${code.length} 字）`);
   }
 
-  const household: NormalizedHouseholdFields = {
-    code: codeRaw,
-    contactName: toNullableText(mapped.household_contactName),
-    phone: normalizePhone(mapped.household_phone),
-    mobile: normalizePhone(mapped.household_mobile),
-    address: toNullableText(mapped.household_address),
-    companyName: toNullableText(mapped.household_companyName),
-    notes: toNullableText(mapped.household_notes),
-  };
-
-  // ---- 信眾欄位 ----
-  const name = normalizeName(mapped.member_name);
+  const name = normalizeName(mapped.householdName);
   if (!name) {
-    missingFieldErrors.push("缺少必填欄位「姓名」");
+    missingFieldErrors.push("缺少必填欄位「戶名」");
   }
 
-  const gender = normalizeGender(mapped.member_gender);
+  const contactName = toNullableText(mapped.primaryContact);
+  const address = toNullableText(mapped.address);
 
-  const solar = parseFlexibleSolarDate(mapped.member_solarBirthDate, "國曆生日");
-  if (solar.error) formatErrors.push(solar.error);
-
-  const lunarCombined = parseFlexibleLunarDate(mapped.member_lunarBirthDate, "農曆生日");
-  if (lunarCombined.error) formatErrors.push(lunarCombined.error);
-
-  const lunarSplit = parseFlexibleLunarMonthDay(mapped.member_lunarBirthMonth, mapped.member_lunarBirthDay);
-  if (lunarSplit.error) formatErrors.push(lunarSplit.error);
-
-  if (solar.date && (lunarCombined.lunar || lunarSplit.month)) {
-    formatErrors.push("「國曆生日」與「農曆生日」請只填一種，不要兩個都填");
+  // 需求明確指示：不要再驗證「姓名」，改為檢查「家戶成員」是否存在；
+  // 存在的話自動拆解姓名（依「、」或「，」拆開，見 splitMultiValue）。
+  const memberNames = dedupeKeepOrder(splitMultiValue(mapped.householdMembers));
+  if (memberNames.length === 0) {
+    missingFieldErrors.push("缺少必填欄位「家戶成員」");
   }
 
-  let lunarBirthYear: number | null = null;
-  let lunarBirthMonth: number | null = null;
-  let lunarBirthDay: number | null = null;
-  let lunarIsLeapMonth = false;
-  if (!solar.date) {
-    if (lunarCombined.lunar) {
-      lunarBirthYear = lunarCombined.lunar.year;
-      lunarBirthMonth = lunarCombined.lunar.month;
-      lunarBirthDay = lunarCombined.lunar.day;
-      lunarIsLeapMonth = lunarCombined.lunar.isLeapMonth;
-    } else if (lunarSplit.month && lunarSplit.day) {
-      lunarBirthMonth = lunarSplit.month;
-      lunarBirthDay = lunarSplit.day;
-    }
-  }
+  const ancestorNames = dedupeKeepOrder(splitMultiValue(mapped.ancestors));
+  const spiritNames = dedupeKeepOrder(splitMultiValue(mapped.spirits));
 
-  const zodiacInput = toNullableText(mapped.member_zodiac);
-  const zodiacWarning = checkZodiacConsistency(
-    zodiacInput,
-    solar.date,
-    lunarBirthYear ? { year: lunarBirthYear } : null
-  );
-  if (zodiacWarning) warnings.push(zodiacWarning);
+  const household: NormalizedHouseholdFields = { code, name, contactName, address };
 
-  const deceased = normalizeDeceasedFlag(mapped.member_isDeceased);
-  if (deceased.warning) warnings.push(deceased.warning);
-
-  const yangshangName = toNullableText(mapped.member_yangshangName);
-
-  const member: NormalizedMemberFields = {
-    name,
-    gender,
-    solarBirthDate: solar.date,
-    lunarBirthYear,
-    lunarBirthMonth,
-    lunarBirthDay,
-    lunarIsLeapMonth,
-    birthHour: toNullableText(mapped.member_birthHour),
-    relationToHead: normalizeRelationToHead(mapped.member_relationToHead),
-    isDeceased: deceased.value,
-    yangshangName: deceased.value ? yangshangName : null,
-    notes: toNullableText(mapped.member_notes),
+  return {
+    rowNumber,
+    raw,
+    household,
+    memberNames,
+    ancestorNames,
+    spiritNames,
+    missingFieldErrors,
+    formatErrors,
+    warnings,
   };
-
-  return { rowNumber, raw, household, member, missingFieldErrors, formatErrors, warnings };
 }

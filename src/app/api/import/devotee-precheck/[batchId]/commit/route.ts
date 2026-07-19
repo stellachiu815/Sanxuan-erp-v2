@@ -1,6 +1,7 @@
 /**
- * V11.3「信眾資料匯入預檢中心」——第九步：確認匯入（測試匯入上限 30 人／
- * 10 戶、Transaction 寫入、結果凍結）。
+ * V11.3「信眾資料匯入預檢中心」正式版——確認匯入（單批上限 30 位家戶成員／
+ * 10 戶、Transaction 寫入、結果凍結）。依序建立 Household → Member →
+ * Ancestor（WorshipRecord type=ANCESTOR_LINE）→ Spirit（type=INDIVIDUAL）。
  *
  * POST /api/import/devotee-precheck/xxx/commit
  *   body: { operatorUserId }
@@ -28,7 +29,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ bat
   return NextResponse.json({
     ok: true,
     householdsCreated: result.householdsCreated,
+    householdsUpdated: result.householdsUpdated,
     membersCreated: result.membersCreated,
+    ancestorsCreated: result.ancestorsCreated,
+    spiritsCreated: result.spiritsCreated,
     skippedCount: result.skippedCount,
     failedCount: result.failedCount,
     failures: result.failures,

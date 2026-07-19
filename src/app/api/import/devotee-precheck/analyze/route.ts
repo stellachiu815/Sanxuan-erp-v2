@@ -6,7 +6,7 @@
  * POST /api/import/devotee-precheck/analyze  （multipart/form-data）
  *   file: 上傳的 .xlsx/.xls/.csv 檔案（單檔，見 MAX_UPLOAD_FILE_BYTES 大小限制）
  *   mapping（選填，JSON 字串）: 使用者手動調整過的欄位對應
- *     例如 {"戶號":"household_code","姓名":"member_name"}；不帶的話系統會
+ *     例如 {"戶號":"householdCode","戶名":"householdName"}；不帶的話系統會
  *     用已儲存的欄位對應記憶＋別名表自動猜（見 smartImport.ts）。
  *   operatorUserId: 目前操作人員（伺服器端權限檢查用，需求確認「補上
  *     現有 /import 頁面的權限缺口」——這裡從一開始就要求 SUPER_ADMIN）。
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   let rows: Record<string, unknown>[];
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    ({ columns, rows } = parseSpreadsheetBuffer(buffer, { autoDetectHeader: true }));
+    ({ columns, rows } = parseSpreadsheetBuffer(buffer));
   } catch (err) {
     console.error("信眾資料匯入預檢：讀取檔案失敗", err);
     return NextResponse.json({ error: "無法讀取這個檔案，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" }, { status: 400 });

@@ -23,7 +23,7 @@ export default function SystemCenterHomePage() {
     { href: "/system-center/health", label: "🩺 系統健康檢查", desc: "資料庫、Google Drive、剩餘空間", color: "bg-cream-200 hover:bg-cream-300" },
     { href: "/system-center/logs", label: "📜 系統Log", desc: "備份紀錄：成功/失敗、執行者", color: "bg-sage-100 hover:bg-sage-200" },
     { href: "/system-center/settings", label: "⚙️ 系統設定", desc: "備份保留天數／週數", color: "bg-mist-100 hover:bg-mist-200" },
-    { href: "/system-center/data-import", label: "📥 信眾資料匯入", desc: "欄位對照、預覽、疑似重複確認、小規模測試匯入", color: "bg-yolk-100 hover:bg-yolk-200" },
+    { href: "/system-center/data-import", label: "📥 信眾資料匯入", desc: "正式家戶 Excel（家戶／成員／祖先／乙位正魂）欄位對照、預覽、匯入", color: "bg-yolk-100 hover:bg-yolk-200" },
   ];
 
   return (

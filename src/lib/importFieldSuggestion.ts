@@ -67,36 +67,22 @@ const OFFERING_CLAIM_FIELDS: TargetFieldDef[] = [
   { key: "notes", label: "備註" },
 ];
 
-// V11.3「信眾資料匯入預檢中心」欄位定義（需求「第三步」）。key 用
-// household_/member_ 前綴區分兩組資料，避免跟其他 ImportKind 或彼此的
-// key 撞名；「戶號或原系統編號」直接對應既有 Household.id（VarChar(10)，
-// 見 src/lib/importRules.ts 既有家戶批次匯入的相同慣例，不是新概念）。
+// V11.3「信眾資料匯入預檢中心」正式版欄位定義（需求「三玄宮 ERP V11.3
+// 家戶匯入正式版（依正式 Excel 格式）」）。正式格式固定只有七欄，一列＝
+// 一戶：家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜家戶成員。
+//
+// ⚠️ 這是舊版（household_/member_ 前綴、姓名必填、彈性欄位）的完全取代，
+// 不是並存的第二套格式——householdCode／householdName／householdMembers
+// 三個欄位標記為必填，取代舊版的「姓名」必填（改為檢查「家戶成員」是否
+// 存在，見 devoteeImportValidate.ts）。
 const DEVOTEE_PRECHECK_FIELDS: TargetFieldDef[] = [
-  // ⚠️ 這裡刻意「不」標記 required：true。跟其他匯入類型不同，這個欄位
-  // 只是「第七步」家戶分組判斷的其中一個線索（見
-  // devoteeImportValidate.ts 開頭註解的完整說明），沒有填也不會被擋成
-  // 「資料不完整」，只是會被歸類成「待確認家戶」需要人工補上。這裡的
-  // required 標記只給前端欄位對照畫面顯示用，如果標成 true 會跟實際驗證
-  // 行為（devoteeImportValidate.ts 只有姓名是必填）不一致，誤導使用者。
-  { key: "household_code", label: "戶號或原系統編號" },
-  { key: "household_contactName", label: "主要聯絡人" },
-  { key: "household_phone", label: "電話" },
-  { key: "household_mobile", label: "手機" },
-  { key: "household_address", label: "地址" },
-  { key: "household_companyName", label: "公司名稱" },
-  { key: "household_notes", label: "家戶備註" },
-  { key: "member_name", label: "姓名", required: true },
-  { key: "member_gender", label: "性別" },
-  { key: "member_solarBirthDate", label: "國曆生日" },
-  { key: "member_lunarBirthDate", label: "農曆生日" },
-  { key: "member_lunarBirthMonth", label: "農曆出生月" },
-  { key: "member_lunarBirthDay", label: "農曆出生日" },
-  { key: "member_birthHour", label: "出生時辰" },
-  { key: "member_zodiac", label: "生肖" },
-  { key: "member_relationToHead", label: "與戶主關係" },
-  { key: "member_isDeceased", label: "是否往生" },
-  { key: "member_yangshangName", label: "陽上姓名" },
-  { key: "member_notes", label: "個人備註" },
+  { key: "householdCode", label: "家戶編號", required: true },
+  { key: "householdName", label: "戶名", required: true },
+  { key: "primaryContact", label: "主要聯絡人" },
+  { key: "address", label: "地址" },
+  { key: "householdMembers", label: "家戶成員", required: true },
+  { key: "ancestors", label: "歷代祖先" },
+  { key: "spirits", label: "乙位正魂" },
 ];
 
 export function getTargetFields(importKind: ImportKind): TargetFieldDef[] {
@@ -134,26 +120,15 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   unitPrice: ["單價"],
   paidAmount: ["已收金額", "已收款", "已付金額"],
 
-  // V11.3「信眾資料匯入預檢中心」欄位別名。
-  household_code: ["戶號", "原系統編號", "家戶編號", "戶號或原系統編號", "編號"],
-  household_contactName: ["主要聯絡人", "聯絡人"],
-  household_phone: ["電話", "家用電話", "市內電話", "聯絡電話"],
-  household_mobile: ["手機", "手機號碼", "行動電話"],
-  household_address: ["地址", "住址", "戶籍地址"],
-  household_companyName: ["公司名稱", "公司"],
-  household_notes: ["家戶備註", "備註"],
-  member_name: ["姓名", "信眾姓名", "全名"],
-  member_gender: ["性別"],
-  member_solarBirthDate: ["國曆生日", "國曆出生日期", "生日", "出生日期"],
-  member_lunarBirthDate: ["農曆生日", "農曆出生日期"],
-  member_lunarBirthMonth: ["農曆出生月", "農曆月"],
-  member_lunarBirthDay: ["農曆出生日", "農曆日"],
-  member_birthHour: ["出生時辰", "時辰"],
-  member_zodiac: ["生肖"],
-  member_relationToHead: ["與戶主關係", "稱謂", "關係"],
-  member_isDeceased: ["是否往生", "是否已辭世", "往生", "在世狀態"],
-  member_yangshangName: ["陽上姓名"],
-  member_notes: ["個人備註", "備註", "說明"],
+  // V11.3「信眾資料匯入預檢中心」正式版欄位別名（七欄固定格式，見上方
+  // DEVOTEE_PRECHECK_FIELDS 說明）。address 沿用上面已經有的別名，兩種
+  // 匯入類型的「地址」別名寫法本來就相同，不需要重複定義。
+  householdCode: ["家戶編號", "戶號", "編號"],
+  householdName: ["戶名", "家戶名稱", "家戶"],
+  primaryContact: ["主要聯絡人", "聯絡人"],
+  householdMembers: ["家戶成員", "家庭成員", "成員"],
+  ancestors: ["歷代祖先", "祖先"],
+  spirits: ["乙位正魂", "個人乙位正魂"],
 };
 
 export function normalizeColumnName(name: string): string {

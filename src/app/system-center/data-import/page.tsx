@@ -28,9 +28,10 @@ export default function DevoteeDataImportPage() {
         <div className="flex flex-col gap-2">
           <h2 className="text-2xl font-medium text-ink">信眾資料匯入預檢中心</h2>
           <p className="text-sm text-ink-faint">
-            上傳舊系統匯出的 Excel／CSV 資料，先做欄位對照、格式檢查與疑似重複比對，
-            確認無誤後再進行小規模測試匯入（單次最多 30 人或 10 戶）。這裡只會「新增」全新的
-            家戶與信眾，不會覆蓋、合併或修改任何既有資料。
+            上傳正式家戶 Excel（固定七欄：家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜
+            家戶成員，一列代表一戶），先做欄位對照與格式檢查，確認無誤後再匯入（單次最多處理 10 戶
+            或 30 位家戶成員）。家戶編號已存在時會更新戶名／主要聯絡人／地址；家戶成員／歷代祖先／
+            乙位正魂則依姓名比對，已存在的保留、不覆蓋、不刪除，只新增找不到的資料。
           </p>
         </div>
 

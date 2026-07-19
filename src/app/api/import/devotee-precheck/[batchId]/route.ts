@@ -1,13 +1,12 @@
 /**
- * V11.3「信眾資料匯入預檢中心」——查詢單一批次目前狀態（需求「第二步」～
- * 「第六步」的畫面資料來源）。
+ * V11.3「信眾資料匯入預檢中心」正式版——查詢單一批次目前狀態。
  *
  * GET /api/import/devotee-precheck/xxx?operatorUserId=xxx
  *
- * 尚未確認（PREVIEWED）的批次：疑似重複／待確認家戶是即時重新查資料庫算出來
- * 的（需求確認④），每次呼叫這支 API 結果都可能因為資料庫內容改變而不同。
- * 已確認（COMMITTED）的批次：一律回傳當時真正執行的結果，不會重新計算
- * （見 getDevoteeImportBatch 內部邏輯）。
+ * 正式格式一列＝一戶、家戶編號是唯一鍵，一列本身的狀態（可匯入／資料不
+ * 完整／格式錯誤）在分析當下就能一次算完，不會因為資料庫內容改變而變化，
+ * 所以不論 PREVIEWED 或 COMMITTED，這支 API 都是直接回傳存好的結果，不會
+ * 重新查資料庫（見 getDevoteeImportBatch 內部邏輯）。
  */
 import { NextRequest, NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
