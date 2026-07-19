@@ -60,13 +60,72 @@ export async function suggestColumnMapping(
 }
 
 /** 把 Excel/CSV 檔案 buffer 解析成「標題列 + 資料列」的通用格式。 */
-export function parseSpreadsheetBuffer(buffer: Buffer): { columns: string[]; rows: Record<string, unknown>[] } {
+export function parseSpreadsheetBuffer(
+  buffer: Buffer,
+  options: { autoDetectHeader?: boolean } = {}
+): { columns: string[]; rows: Record<string, unknown>[] } {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) return { columns: [], rows: [] };
+
   const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+  if (!options.autoDetectHeader) {
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    return { columns, rows };
+  }
+
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+  });
+
+  const headerWords = [
+    "姓名", "信眾姓名", "戶號", "家戶編號", "戶別", "戶名", "稱謂",
+    "地址", "住址", "電話", "手機", "性別", "生日", "出生日期",
+    "國曆生日", "農曆生日", "生肖", "時辰", "備註", "家戶成員",
+  ];
+
+  let headerIndex = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < Math.min(matrix.length, 20); i++) {
+    const cells = matrix[i].map((value) => String(value ?? "").trim());
+    const nonEmpty = cells.filter(Boolean).length;
+    const matched = cells.filter((cell) =>
+      headerWords.some((word) => cell === word || cell.includes(word))
+    ).length;
+    const score = matched * 100 + nonEmpty;
+
+    if (matched > 0 && score > bestScore) {
+      bestScore = score;
+      headerIndex = i;
+    }
+  }
+
+  const rawHeaders = matrix[headerIndex] ?? [];
+  const used = new Map<string, number>();
+
+  const columns = rawHeaders.map((value, index) => {
+    const base = String(value ?? "").trim() || `未命名欄位_${index + 1}`;
+    const count = used.get(base) ?? 0;
+    used.set(base, count + 1);
+    return count === 0 ? base : `${base}_${count + 1}`;
+  });
+
+  const rows = matrix
+    .slice(headerIndex + 1)
+    .filter((row) => row.some((value) => String(value ?? "").trim() !== ""))
+    .map((row) => {
+      const record: Record<string, unknown> = {};
+      columns.forEach((column, index) => {
+        record[column] = row[index] ?? "";
+      });
+      return record;
+    });
+
   return { columns, rows };
 }
 

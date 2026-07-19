@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   let rows: Record<string, unknown>[];
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    ({ columns, rows } = parseSpreadsheetBuffer(buffer));
+    ({ columns, rows } = parseSpreadsheetBuffer(buffer, { autoDetectHeader: true }));
   } catch (err) {
     console.error("信眾資料匯入預檢：讀取檔案失敗", err);
     return NextResponse.json({ error: "無法讀取這個檔案，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" }, { status: 400 });
