@@ -1,5 +1,5 @@
 import StickerCell from "./StickerCell";
-import { STICKER_A4_PAGE, STICKER_SHEET_CLASS } from "./stickerSheet";
+import { STICKER_A4_PAGE, STICKER_SHEET_CLASS } from "./stickerSheetLayout";
 import type { PurificationPrintFieldsJson } from "./types";
 
 type Props = {

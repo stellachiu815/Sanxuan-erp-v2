@@ -1,7 +1,7 @@
 // 小人頭貼紙 PDF 匯出，跟 src/components/ritual/pdfExport.ts 同樣的做法：
 // 把畫面上「所見即所印」的每一張 A4 版面（.sticker-print-sheet）拍成圖片，
 // 依序放進 PDF 的每一頁，畫面上看到什麼，PDF 就長什麼樣子。
-import { STICKER_SHEET_CLASS } from "./stickerSheet";
+import { STICKER_SHEET_CLASS } from "./stickerSheetLayout";
 
 export async function exportStickerSheetsToPdf(container: HTMLElement, fileName: string): Promise<void> {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([

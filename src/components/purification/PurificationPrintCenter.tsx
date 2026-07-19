@@ -8,7 +8,7 @@ import { errorTextClass, inputClass, primaryButtonClass, secondaryButtonClass } 
 import StickerSheet from "./StickerSheet";
 import StickerCell from "./StickerCell";
 import { exportStickerSheetsToPdf } from "./stickerPdfExport";
-import { STICKER_SHEET_CLASS } from "./stickerSheet";
+import { STICKER_SHEET_CLASS } from "./stickerSheetLayout";
 import type { PurificationPrintFieldsJson } from "./types";
 
 type FilterKind = "ALL" | "UNPRINTED" | "NUMBER_RANGE" | "NAME";
