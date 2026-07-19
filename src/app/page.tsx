@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
+import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
 import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
 import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
@@ -16,6 +17,7 @@ export default async function HomePage() {
         </p>
       </div>
       <SearchBar variant="hero" />
+      <DashboardOverviewCard />
       <OfferingHomeCard />
       <CollectionHomeCard />
       <ReceiptHomeCard />

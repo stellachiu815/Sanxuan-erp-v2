@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import { formatTempleEventName } from "@/lib/templeEventNaming";
 import { defaultChecklistLabels } from "@/lib/checklistDefaults";
+import { solarToLunar, formatSolarDate } from "@/lib/lunar";
 import {
   createPurificationYear,
   copyPurificationYearFromPrevious,
@@ -234,6 +235,63 @@ export async function listTempleEvents(activityType?: ActivityType) {
     where: activityType ? { activityType } : undefined,
     orderBy: [{ year: "desc" }, { activityType: "asc" }],
   });
+}
+
+export type TodayTempleEventEntry = {
+  id: string;
+  activityType: ActivityType;
+  year: number;
+  name: string;
+  status: TempleEventStatus;
+  dateDisplay: string;
+};
+
+/**
+ * 首頁 Dashboard（V11.2「下一個開發任務」需求「二、今日活動」）：找出「活動
+ * 日期」（Step2 的國曆日期 solarDate、或農曆日期 lunarDateMonth/Day，兩者
+ * 擇一填寫）換算後等於今天的活動年度。
+ *
+ * ⚠️ 誠實揭露：只有明確填寫了 solarDate 或完整農曆日期（lunarDateMonth＋
+ * lunarDateDay）的活動年度，才有可能出現在這張卡片——普渡、祭改等活動
+ * 類型本質上是「整個年度的登記期間」，不是單一一天的活動，通常不會填寫
+ * 這兩個欄位，本來就不會出現在「今日活動」名單裡，這是資料本身的性質，
+ * 不是這裡的邏輯遺漏。農曆換算沿用既有 solarToLunar()（見 src/lib/lunar.ts），
+ * 不是另外寫的一套。
+ */
+export async function listTodayTempleEvents(now: Date = new Date()): Promise<TodayTempleEventEntry[]> {
+  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const todayLunar = solarToLunar(today);
+
+  const events = await prisma.templeEvent.findMany({ where: { status: { not: "CANCELLED" } } });
+
+  return events
+    .filter((e) => {
+      if (e.solarDate) {
+        return (
+          e.solarDate.getUTCFullYear() === today.getUTCFullYear() &&
+          e.solarDate.getUTCMonth() === today.getUTCMonth() &&
+          e.solarDate.getUTCDate() === today.getUTCDate()
+        );
+      }
+      if (e.lunarDateMonth && e.lunarDateDay) {
+        return (
+          e.lunarDateMonth === todayLunar.month &&
+          e.lunarDateDay === todayLunar.day &&
+          Boolean(e.lunarDateIsLeap) === todayLunar.isLeapMonth
+        );
+      }
+      return false;
+    })
+    .map((e) => ({
+      id: e.id,
+      activityType: e.activityType,
+      year: e.year,
+      name: e.name,
+      status: e.status,
+      dateDisplay: e.solarDate
+        ? formatSolarDate(e.solarDate)
+        : `農曆${e.lunarDateIsLeap ? "閏" : ""}${e.lunarDateMonth}月${e.lunarDateDay}日`,
+    }));
 }
 
 export type TempleEventHome = {

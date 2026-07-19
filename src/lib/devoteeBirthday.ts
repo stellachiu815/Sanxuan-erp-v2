@@ -123,3 +123,27 @@ export async function listThisMonthLunarBirthdays(now: Date = new Date()): Promi
     .filter((m) => !m.devoteeProfile?.isDisabled && m.lunarBirthMonth === currentLunarMonth)
     .map(toEntry);
 }
+
+/**
+ * 「今日農曆生日」（V11.2 首頁 Dashboard 新增，需求「一、今日生日」）。
+ *
+ * 沿用上面「本月農曆生日」同一套可靠比對方式（同樣用 solarToLunar() 這個
+ * 既有、單一集中管理的換算函式，沒有另外寫一套換算邏輯），只是把比對範圍
+ * 從「月份是否相同」再收斂到「月、日（含是否閏月）是否都相同」——這仍然
+ * 是「儲存的農曆月日 vs 今天換算出的農曆月日」直接比對，不涉及「把農曆
+ * 生日換算成今年對應的國曆日期」那個檔案開頭說明中刻意不做的複雜運算，
+ * 可靠程度與既有的月份比對一致。
+ */
+export async function listTodayLunarBirthdays(now: Date = new Date()): Promise<BirthdayEntry[]> {
+  const todayLunar = solarToLunar(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())));
+  const members = await eligibleMembersBase();
+  return members
+    .filter(
+      (m) =>
+        !m.devoteeProfile?.isDisabled &&
+        m.lunarBirthMonth === todayLunar.month &&
+        m.lunarBirthDay === todayLunar.day &&
+        Boolean(m.lunarIsLeapMonth) === todayLunar.isLeapMonth
+    )
+    .map(toEntry);
+}

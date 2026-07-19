@@ -554,11 +554,21 @@ export async function listAgentPendingTransactions(agentName: string) {
   });
 }
 
-/** 首頁「代收提醒卡」：依代收人分組的待繳回總額。 */
-export async function getAgentPendingSummary() {
-  const pending = await prisma.paymentTransaction.findMany({
+/**
+ * 「目前所有代收人、所有尚未繳回的收款交易」共用查詢——抽出這個小函式只是
+ * 為了讓 getAgentPendingSummary()（依代收人分組）跟 getCollectionHomeSummary()
+ * （首頁 Dashboard 需要的「最長未繳回天數」，V11.2 新增）用同一份查詢條件，
+ * 不要各自重複寫一次一模一樣的 where 條件（避免兩處日後改了忘記同步）。
+ */
+async function fetchAgentPendingTransactions() {
+  return prisma.paymentTransaction.findMany({
     where: { isAgentCollected: true, status: "COMPLETED", agentRemittanceStatus: { in: ["PENDING", "PARTIALLY_REMITTED"] } },
   });
+}
+
+/** 首頁「代收提醒卡」：依代收人分組的待繳回總額。 */
+export async function getAgentPendingSummary() {
+  const pending = await fetchAgentPendingTransactions();
   const byAgent = new Map<string, { agentName: string; count: number; totalAmount: number }>();
   for (const t of pending) {
     const key = t.agentName ?? "（未填寫代收人）";
@@ -664,19 +674,48 @@ export type CollectionHomeSummary = {
   crossYearUnpaidCount: number;
   agentPendingCount: number;
   agentPendingAmount: number;
+  /**
+   * V11.2 首頁 Dashboard 新增（需求「五、代收待繳回」：最長未繳回天數）。
+   * 用目前所有「代收且尚未繳回」交易中，距離收款當天（paidOn）最久的一筆，
+   * 跟 now 相差的天數；完全沒有待繳回交易時為 0（畫面顯示「—」，不是 0天）。
+   */
+  agentPendingLongestDays: number;
 };
 
-export async function getCollectionHomeSummary(currentYear: number): Promise<CollectionHomeSummary> {
-  const [pending, agentPending] = await Promise.all([
+export async function getCollectionHomeSummary(currentYear: number, now: Date = new Date()): Promise<CollectionHomeSummary> {
+  const [pending, agentPendingTransactions] = await Promise.all([
     listPendingReceivables({ currentYear }),
-    getAgentPendingSummary(),
+    fetchAgentPendingTransactions(),
   ]);
+  const agentPendingLongestDays = agentPendingTransactions.reduce((max, t) => {
+    const days = Math.floor((now.getTime() - t.paidOn.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(max, days);
+  }, 0);
   return {
     pendingReceivableCount: pending.length,
     pendingReceivableAmount: round2(pending.reduce((s, p) => s + p.unpaidAmount, 0)),
     crossYearUnpaidCount: pending.filter((p) => p.isCrossYear).length,
-    agentPendingCount: agentPending.reduce((s, a) => s + a.count, 0),
-    agentPendingAmount: round2(agentPending.reduce((s, a) => s + a.totalAmount, 0)),
+    agentPendingCount: agentPendingTransactions.length,
+    agentPendingAmount: round2(agentPendingTransactions.reduce((s, t) => s + Number(t.totalAmount), 0)),
+    agentPendingLongestDays,
+  };
+}
+
+export type TodayCollectionSummary = { count: number; totalAmount: number };
+
+/** 首頁 Dashboard（需求「三、今日收款」）：今天（伺服器本地日期）已完成的收款交易筆數與金額加總。 */
+export async function getTodayCollectionSummary(now: Date = new Date()): Promise<TodayCollectionSummary> {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+  const transactions = await prisma.paymentTransaction.findMany({
+    where: { status: "COMPLETED", paidOn: { gte: startOfToday, lt: startOfTomorrow } },
+  });
+
+  return {
+    count: transactions.length,
+    totalAmount: round2(transactions.reduce((s, t) => s + Number(t.totalAmount), 0)),
   };
 }
 

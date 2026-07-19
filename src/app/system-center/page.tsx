@@ -4,11 +4,13 @@ import OperatorBar from "@/components/system/OperatorBar";
 import SystemCenterGate from "@/components/system-center/SystemCenterGate";
 
 /**
- * V11.2「系統管理」主選單（對應指令「一」的 7 個子項目）。
+ * 系統管理主選單。V11.2 原本是對應指令「一」的 7 個子項目；V11.3 新增
+ * 「📥 信眾資料匯入」（信眾資料匯入預檢中心，第 8 個子項目，同樣要求
+ * SUPER_ADMIN，見 SystemCenterGate 說明），既有 7 個子項目完全不變。
  *
- * 跟收據中心／收款中心不同：這裡的 7 個項目彼此功能完全獨立（備份不等於
+ * 跟收據中心／收款中心不同：這裡每個項目彼此功能完全獨立（備份不等於
  * 還原、Google連線不等於健康檢查……），沒有「本質上是同一份查詢換個篩選
- * 條件」的重疊情況，所以維持指令要求的 7 個獨立分頁，不做整合。
+ * 條件」的重疊情況，所以維持獨立分頁，不做整合。
  *
  * 整個選單（含這一頁本身）只開放 SUPER_ADMIN，見 SystemCenterGate 的說明。
  */
@@ -21,6 +23,7 @@ export default function SystemCenterHomePage() {
     { href: "/system-center/health", label: "🩺 系統健康檢查", desc: "資料庫、Google Drive、剩餘空間", color: "bg-cream-200 hover:bg-cream-300" },
     { href: "/system-center/logs", label: "📜 系統Log", desc: "備份紀錄：成功/失敗、執行者", color: "bg-sage-100 hover:bg-sage-200" },
     { href: "/system-center/settings", label: "⚙️ 系統設定", desc: "備份保留天數／週數", color: "bg-mist-100 hover:bg-mist-200" },
+    { href: "/system-center/data-import", label: "📥 信眾資料匯入", desc: "欄位對照、預覽、疑似重複確認、小規模測試匯入", color: "bg-yolk-100 hover:bg-yolk-200" },
   ];
 
   return (

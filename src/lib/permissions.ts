@@ -407,7 +407,11 @@ export type SystemAction =
   | "downloadBackup" // 下載 Backup ZIP
   | "restoreBackup" // 還原 Backup（一鍵還原，覆蓋目前資料）
   | "manageGoogleDriveConnection" // 連結/解除/重新授權 Google Drive
-  | "manageBackupSchedule"; // 修改備份排程與保留政策
+  | "manageBackupSchedule" // 修改備份排程與保留政策
+  | "manageDataImport"; // V11.3「信眾資料匯入預檢中心」新增：上傳/欄位對照/預覽/
+  // 疑似重複人工確認/測試匯入——比照系統管理中心其餘功能一律 SUPER_ADMIN
+  // 限定；同時用來補上既有「家戶資料 Excel 批次匯入」（/import）原本完全
+  // 沒有權限管控的缺口（見 assertSystemPermissionForOperator 呼叫端）。
 
 const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   SUPER_ADMIN: [
@@ -417,6 +421,7 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
     "restoreBackup",
     "manageGoogleDriveConnection",
     "manageBackupSchedule",
+    "manageDataImport",
   ],
   ADMIN: [],
   STAFF: [],
