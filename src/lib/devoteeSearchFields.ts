@@ -29,6 +29,7 @@ import type { Prisma } from "@prisma/client";
 export const DEVOTEE_SEARCH_FIELD_LABELS = [
   "信眾姓名",
   "家戶編號",
+  "家戶舊編號（歷史對照）",
   "戶名",
   "主要聯絡人",
   "家戶電話",
@@ -39,7 +40,7 @@ export const DEVOTEE_SEARCH_FIELD_LABELS = [
 ] as const;
 
 /** 給輸入框用的統一 placeholder，避免各頁自己寫一句不一樣的提示。 */
-export const DEVOTEE_SEARCH_PLACEHOLDER = "搜尋姓名、電話、地址、家戶編號或戶名";
+export const DEVOTEE_SEARCH_PLACEHOLDER = "搜尋姓名、電話、地址、家戶編號（含舊編號）或戶名";
 
 /**
  * 以 **Member** 為查詢主體時的 OR 條件片段。
@@ -52,6 +53,9 @@ export function memberSearchOrConditions(q: string): Prisma.MemberWhereInput[] {
   return [
     { name: { contains: q } },
     { household: { id: { contains: q } } },
+    // V12.4：家戶舊編號（V12.3 的 HouseholdCodeAlias）。行政人員手上的紙本與
+    // 舊 Excel 仍然是改編號前／合併前的編號，用舊編號也要搜得到目前這一戶。
+    { household: { codeAliases: { some: { oldCode: { contains: q } } } } },
     { household: { name: { contains: q } } },
     { household: { contactName: { contains: q } } },
     { household: { phone: { contains: q } } },
@@ -74,6 +78,8 @@ export function memberSearchOrConditions(q: string): Prisma.MemberWhereInput[] {
 export function householdSearchOrConditions(q: string): Prisma.HouseholdWhereInput[] {
   return [
     { id: { contains: q } },
+    // V12.4：家戶舊編號（見上方 memberSearchOrConditions 的同一項說明）。
+    { codeAliases: { some: { oldCode: { contains: q } } } },
     { name: { contains: q } },
     { contactName: { contains: q } },
     { phone: { contains: q } },

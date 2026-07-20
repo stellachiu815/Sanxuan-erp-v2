@@ -156,12 +156,14 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
                 這一頁原本完全沒有連回所屬家戶的連結（頁面上有家戶資料但不能
                 點）。這裡補上明顯的入口，連到既有的 /household/[id]，不新增
                 第二個家戶頁。反向（家戶頁 → 信眾詳情）在 V12.1 已經做好。 */}
+            {/* V12.4 指令五：所屬家戶必須可點擊，並提供明顯的「回家戶」按鈕，
+                直接開啟既有的 Household Detail（/household/[id]）。 */}
             <Link
               href={`/household/${b.householdId}`}
-              className="mt-2 inline-flex min-h-11 items-center rounded-full bg-mist-100 px-4 py-2 text-xs
-                         text-ink transition hover:bg-mist-200"
+              className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full
+                         bg-mist-100 px-4 py-2 text-sm text-ink transition hover:bg-mist-200 sm:w-auto"
             >
-              🏠 查看所屬家戶（{b.householdId}）→
+              🏠 回家戶：{b.householdName}（{b.householdId}）→
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-1">
@@ -374,27 +376,48 @@ function OverviewTab({
         </div>
       </div>
       {canSeeFullStats ? (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px] text-left text-sm">
-            <thead>
-              <tr className="text-xs text-ink-faint">
-                <th className="px-3 py-2">類別</th>
-                <th className="px-3 py-2">本年度實收</th>
-                <th className="px-3 py-2">累計實收</th>
-                <th className="px-3 py-2">是否有資料</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(ds.byCategory).map(([k, v]) => (
-                <tr key={k} className="border-t border-cream-200">
-                  <td className="px-3 py-2 text-ink">{k}</td>
-                  <td className="px-3 py-2 text-ink-soft"><Money n={v.thisYear.received} /></td>
-                  <td className="px-3 py-2 text-ink-soft"><Money n={v.allTime.received} /></td>
-                  <td className="px-3 py-2 text-xs text-ink-faint">{v.hasData ? "有" : "無登記資料"}</td>
+        <div>
+          {/* V12.4 指令六：手機改用卡片，不需要橫向捲動就能看到逐類別統計；
+              桌面（sm 以上）維持既有完整表格，欄位一欄都沒有拿掉。 */}
+          <div className="flex flex-col gap-2 sm:hidden">
+            {Object.entries(ds.byCategory).map(([k, v]) => (
+              <div key={k} className="rounded-2xl bg-cream-100/60 px-4 py-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm text-ink">{k}</span>
+                  <span className="text-xs text-ink-faint">{v.hasData ? "有資料" : "無登記資料"}</span>
+                </div>
+                <p className="mt-1 text-xs text-ink-soft">
+                  本年度實收 <Money n={v.thisYear.received} />
+                </p>
+                <p className="text-xs text-ink-soft">
+                  累計實收 <Money n={v.allTime.received} />
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs text-ink-faint">
+                  <th className="px-3 py-2">類別</th>
+                  <th className="px-3 py-2">本年度實收</th>
+                  <th className="px-3 py-2">累計實收</th>
+                  <th className="px-3 py-2">是否有資料</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {Object.entries(ds.byCategory).map(([k, v]) => (
+                  <tr key={k} className="border-t border-cream-200">
+                    <td className="px-3 py-2 text-ink">{k}</td>
+                    <td className="px-3 py-2 text-ink-soft"><Money n={v.thisYear.received} /></td>
+                    <td className="px-3 py-2 text-ink-soft"><Money n={v.allTime.received} /></td>
+                    <td className="px-3 py-2 text-xs text-ink-faint">{v.hasData ? "有" : "無登記資料"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="mt-3 text-xs text-ink-faint">{ds.note}</p>
         </div>
       ) : (
@@ -1134,7 +1157,7 @@ function AddWorshipRecordForm({
             </option>
           ))}
         </select>
-        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="名稱（例如：王姓歷代祖先）" className="min-w-[200px] flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="名稱（例如：王姓歷代祖先）" className="min-h-11 w-full min-w-0 flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm sm:min-w-[200px]" />
         <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="安奉地（選填）" className="w-40 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
       </div>
       <div className="mt-3 flex items-center gap-3">
@@ -1201,7 +1224,7 @@ function InteractionsTab({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder="互動內容"
-            className="min-w-[200px] flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+            className="min-h-11 w-full min-w-0 flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm sm:min-w-[200px]"
           />
           <button
             disabled={submitting || !content.trim()}

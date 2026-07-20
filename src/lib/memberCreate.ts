@@ -50,6 +50,11 @@ export type CreateMemberInput = {
    * 不會為了存一個 null 而替每位信眾都產生一筆空的 DevoteeProfile。
    */
   mobile?: unknown;
+  /**
+   * V12.4：Email，寫入既有的 DevoteeProfile.email（沿用既有欄位，不新增）。
+   * 跟 mobile 一樣，只有真的填了才會建立 DevoteeProfile 延伸資料。
+   */
+  email?: unknown;
 };
 
 /** 正規化後、已驗證完成的建立資料（內部使用）。 */
@@ -66,6 +71,7 @@ type NormalizedMemberInput = {
   lunarBirthDay: number | null;
   lunarIsLeapMonth: boolean;
   mobile: string | null;
+  email: string | null;
 };
 
 /**
@@ -83,6 +89,7 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
   const gender = typeof input.gender === "string" && input.gender ? input.gender : null;
   const notes = typeof input.notes === "string" && input.notes.trim() ? input.notes.trim() : null;
   const mobile = typeof input.mobile === "string" && input.mobile.trim() ? input.mobile.trim() : null;
+  const email = typeof input.email === "string" && input.email.trim() ? input.email.trim() : null;
 
   let solarBirthDate: Date | null = null;
   let lunarBirthYear: number | null = null;
@@ -125,6 +132,7 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
     lunarBirthDay,
     lunarIsLeapMonth,
     mobile,
+    email,
   };
 }
 
@@ -159,10 +167,11 @@ export async function createMemberInTransaction(
     },
   });
 
-  // 只有真的填了手機才建立 DevoteeProfile（維持既有延遲建立設計）。
-  if (normalized.mobile) {
+  // 只有真的填了手機或 Email 才建立 DevoteeProfile（維持既有延遲建立設計，
+  // 不會為了存 null 而替每位信眾都產生一筆空的延伸資料）。
+  if (normalized.mobile || normalized.email) {
     await tx.devoteeProfile.create({
-      data: { memberId: created.id, mobile: normalized.mobile },
+      data: { memberId: created.id, mobile: normalized.mobile, email: normalized.email },
     });
   }
 

@@ -71,7 +71,19 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
   const [gender, setGender] = useState("");
   const [role, setRole] = useState("OTHER");
   const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+
+  /**
+   * V12.4 指令三：輸入時的即時疑似重複提示。
+   *
+   * 只是提示，不阻擋建立——送出時 POST /api/devotee-center/create 仍會再檢查
+   * 一次並回 409，那才是真正的把關。兩者共用同一份比對實作
+   * （findPreCreateDuplicates → findDuplicateMatches），不會出現
+   * 「打字時說沒有、送出卻被擋」的矛盾。
+   */
+  const [liveDuplicates, setLiveDuplicates] = useState<DuplicateView[]>([]);
+  const [liveDupDismissed, setLiveDupDismissed] = useState(false);
   const [birthday, setBirthday] = useState<BirthdayValue>(createEmptyBirthdayValue());
 
   // ---- 模式 A：既有家戶 ----
@@ -130,6 +142,60 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
     return () => clearTimeout(timer);
   }, [householdQuery, mode, operatorUserId]);
 
+  /**
+   * V12.4 指令三：姓名／手機／市話／地址任一變動時，debounce 後即時查詢。
+   * 250ms 跟既有 SearchBar／家戶搜尋一致，維持全站一致的輸入手感。
+   */
+  useEffect(() => {
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      setLiveDuplicates([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/devotee-center/duplicate-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operatorUserId,
+            name: trimmedName,
+            mobile: mobile.trim() || null,
+            phone: householdPhone.trim() || null,
+            address: householdAddress.trim() || null,
+            householdId: mode === "existing" ? selectedHousehold?.id ?? null : null,
+            birthdayType: birthday.birthdayType,
+            solarBirthDate: birthday.solarBirthDate,
+            lunarBirthYear: Number(birthday.lunarBirthYear) || null,
+            lunarBirthMonth: Number(birthday.lunarBirthMonth) || null,
+            lunarBirthDay: Number(birthday.lunarBirthDay) || null,
+            lunarIsLeapMonth: birthday.lunarIsLeapMonth,
+          }),
+        });
+        const json = await res.json();
+        const found: DuplicateView[] = json.data?.duplicates ?? [];
+        setLiveDuplicates(found);
+        // 條件改變後重新出現提示，不沿用上一次的「知道了」。
+        if (found.length > 0) setLiveDupDismissed(false);
+      } catch {
+        // 即時提示失敗不干擾建立流程，送出時仍會把關。
+        setLiveDuplicates([]);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [
+    name,
+    mobile,
+    householdPhone,
+    householdAddress,
+    mode,
+    selectedHousehold,
+    birthday,
+    operatorUserId,
+  ]);
+
   function selectHousehold(h: HouseholdOption) {
     setSelectedHousehold(h);
     setHouseholdOptions([]);
@@ -146,7 +212,10 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
     setGender("");
     setRole("OTHER");
     setMobile("");
+    setEmail("");
     setNotes("");
+    setLiveDuplicates([]);
+    setLiveDupDismissed(false);
     setBirthday(createEmptyBirthdayValue());
     setDuplicates(null);
     setError(null);
@@ -162,6 +231,7 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
       gender: gender || null,
       role,
       mobile: mobile.trim() || null,
+      email: email.trim() || null,
       notes: notes.trim() || null,
       birthdayType: birthday.birthdayType,
       // ⚠️ 一律送出明確的布林值。後端用 `=== true` 嚴格比較，送出字串
@@ -433,15 +503,73 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
           />
         </div>
 
-        <div>
-          <label className={labelClass}>個人手機（主要聯絡方式）</label>
-          <input
-            className={touchInputClass}
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            inputMode="tel"
-            placeholder="例如 0912345678"
-          />
+        {/* V12.4 指令三：即時疑似重複提示。只提示、不阻擋，可以直接忽略繼續建立。 */}
+        {liveDuplicates.length > 0 && !liveDupDismissed && (
+          <div className="rounded-2xl bg-yolk-50 px-4 py-3">
+            <p className="text-xs leading-relaxed text-ink-soft">
+              已有相似信眾（{liveDuplicates.length} 位），是否查看？
+              <span className="ml-1 text-ink-faint">系統不會阻止你繼續建立。</span>
+            </p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {liveDuplicates.slice(0, 3).map((d) => (
+                <li key={d.memberId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      router.push(`/devotee-center/${d.memberId}`);
+                    }}
+                    className="min-h-11 w-full rounded-xl bg-white/80 px-3 py-2 text-left text-xs
+                               text-ink-soft shadow-soft transition hover:bg-white"
+                  >
+                    <span className="text-sm text-ink">{d.name}</span>
+                    <span className="ml-2">
+                      {d.householdName}（{d.householdId}）
+                    </span>
+                    <span className="block text-ink-faint">
+                      {[d.phone, d.birthdayDisplay, d.address].filter(Boolean).join("・") || "無聯絡資料"}
+                      {d.reasons.length > 0 && `　—　${d.reasons.join("、")}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {liveDuplicates.length > 3 && (
+              <p className="mt-1 text-xs text-ink-faint">另有 {liveDuplicates.length - 3} 位未顯示。</p>
+            )}
+            <button
+              type="button"
+              onClick={() => setLiveDupDismissed(true)}
+              className="mt-2 min-h-11 text-xs text-ink-faint underline-offset-4 hover:text-ink hover:underline"
+            >
+              知道了，繼續建立
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>手機（主要聯絡方式）</label>
+            <input
+              className={touchInputClass}
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="例如 0912345678"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Email</label>
+            <input
+              className={touchInputClass}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              inputMode="email"
+              autoComplete="email"
+              placeholder="例如 abc@example.com"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -478,12 +606,14 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
             )}
           </p>
           <div>
-            <label className={labelClass}>家戶電話</label>
+            <label className={labelClass}>市話（家戶電話）</label>
             <input
               className={touchInputClass}
               value={householdPhone}
               onChange={(e) => setHouseholdPhone(e.target.value)}
               inputMode="tel"
+              autoComplete="tel-local"
+              placeholder="例如 02-12345678"
             />
           </div>
           <div>

@@ -62,7 +62,7 @@ function TagsInner() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="標籤名稱"
-              className="min-w-[160px] flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+              className="min-h-11 w-full min-w-0 flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm sm:min-w-[160px]"
             />
             <button onClick={createTag} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink">
               新增
