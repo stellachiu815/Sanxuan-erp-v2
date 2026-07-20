@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findDuplicateMatches, DUPLICATE_MATCH_REASON_LABEL, type DuplicateCandidate, type DuplicateMatch } from "@/lib/devoteeDuplicateMatcher";
+import { normalizeNationalId } from "@/lib/nationalId";
 
 /**
  * V12.0「疑似重複信眾」（對應指令「十三」）：從既有 Member/Household/
@@ -129,6 +130,12 @@ export type PreCreateDuplicateInput = {
   lunarBirthDay?: number | null;
   lunarIsLeapMonth?: boolean;
   /**
+   * V13.1 指令十四：身分證字號。這是**最強的比對訊號**——身分證相同幾乎
+   * 可以確定是同一個人。但仍然只提醒、不自動合併（指令十四明令
+   * 「不得自動合併不同的人」）。
+   */
+  nationalId?: string | null;
+  /**
    * 已經確定要加入的家戶（模式 A）。有帶的時候，既有的
    * SAME_HOUSEHOLD_SAME_NAME 規則才有意義——「同一戶裡已經有一位同名的人」
    * 是最需要提醒的情況（例如不小心把同一位家人加了兩次）。建立新家戶
@@ -162,6 +169,9 @@ export async function findPreCreateDuplicates(
 
   const phone = input.phone?.trim() || null;
   const address = input.address?.trim() || null;
+  // V13.1 指令十四：身分證納入比對。空白不比對——大量信眾的身分證是 null，
+  // 若把 null 當成「相同」會讓每一位新信眾都跟所有沒填身分證的人配對成功。
+  const nationalId = normalizeNationalId(input.nationalId);
 
   // 縮小候選範圍：同名 OR 同電話 OR 同地址。三條「同名＋X」規則都要求同名，
   // 所以同名這一條就足以涵蓋；另外兩條是為了讓「電話相同但姓名不同」這種
@@ -172,6 +182,8 @@ export async function findPreCreateDuplicates(
     or.push({ household: { phone } });
   }
   if (address) or.push({ household: { address } });
+  // 身分證相同：即使姓名、電話、地址全都不同也要提醒（改名、搬家的情況）
+  if (nationalId) or.push({ nationalId });
 
   const nearby = await prisma.member.findMany({
     where: { deletedAt: null, household: { deletedAt: null }, OR: or },
@@ -248,6 +260,43 @@ export async function findPreCreateDuplicates(
           : null,
       reasons: [reasonLabel],
     });
+  }
+
+  /**
+   * V13.1 指令十四：身分證相同 → 一律列為疑似重複。
+   *
+   * 這一段刻意**獨立於 findDuplicateMatches()** 之外處理，理由有兩個：
+   * 1. 不修改既有的比對演算法本身（V12.2 的既定約束，其他呼叫端依賴它）。
+   * 2. 身分證相同的訊號比「同名＋同生日」更強，即使姓名完全不同也要提醒
+   *    ——改名、婚後冠夫姓、Excel 打錯字都會造成同一個人姓名不同。
+   *    這種情況 findDuplicateMatches 的規則（全部要求同名）不會命中。
+   *
+   * 依然只是提醒，不阻擋、不自動合併。
+   */
+  if (nationalId) {
+    for (const m of nearby) {
+      if (normalizeNationalId(m.nationalId) !== nationalId) continue;
+      const label = "身分證字號相同";
+      const found = byMemberId.get(m.id);
+      if (found) {
+        if (!found.reasons.includes(label)) found.reasons.unshift(label);
+        continue;
+      }
+      byMemberId.set(m.id, {
+        memberId: m.id,
+        name: m.name,
+        householdId: m.householdId,
+        householdName: m.household.name,
+        phone: m.devoteeProfile?.mobile || m.household.phone || null,
+        address: m.household.address || null,
+        birthdayDisplay: m.solarBirthDate
+          ? toCalendarDateKey(m.solarBirthDate)
+          : m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay
+            ? `農曆 ${m.lunarBirthYear}/${m.lunarBirthMonth}/${m.lunarBirthDay}${m.lunarIsLeapMonth ? "（閏）" : ""}`
+            : null,
+        reasons: [label],
+      });
+    }
   }
 
   return [...byMemberId.values()];

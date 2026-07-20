@@ -132,6 +132,36 @@ model Member {
   deceasedAt    DateTime? @db.Date
   yangshangName String? // 陽上姓名（標記離世時填寫）
 
+  /// V13.1 指令五：「暫不處理」的持久化標記。
+  ///
+  /// 信眾第一次由「在世 → 已辭世」儲存成功後，系統會詢問是否建立乙位正魂。
+  /// 使用者選「暫不處理」時把當下時間寫進這裡，之後一般編輯就**不會再重複
+  /// 彈出**（指令五明確要求「不得在每次編輯信眾時反覆彈出」）。
+  ///
+  /// 為什麼需要一個欄位而不是看「有沒有乙位正魂」：因為「還沒建立」與
+  /// 「決定不建立」是兩件不同的事，只看 WorshipRecord 存不存在無法區分，
+  /// 會導致選了暫不處理的信眾每次編輯都再問一次。
+  ///
+  /// 信眾詳情頁仍常駐「建立乙位正魂」按鈕，這個欄位只影響**自動詢問**，
+  /// 不影響任何手動操作。
+  soulTabletPromptedAt DateTime?
+
+  /// V13.1 指令一：身分證字號。
+  ///
+  /// 放在 Member（不是 DevoteeProfile）——身分證屬於信眾本人的固有基本資料，
+  /// 與 birthHour 同一類，不是「信眾關係中心」的延伸資料；而且 Excel 匯入
+  /// 寫入的對象本來就是 Member，放這裡不需要為了匯入而先建立 DevoteeProfile。
+  ///
+  /// ⚠️ 刻意**不加 @unique**：
+  ///   1. 既有正式資料可能已存在重複或錯誤的身分證，加唯一鍵會讓 migration
+  ///      在正式資料庫直接失敗。
+  ///   2. 重複偵測由 V13.1 的重複檢查流程處理（人工確認），不是由資料庫
+  ///      硬擋——指令十四明確要求「不確定比對必須讓使用者人工確認」。
+  ///
+  /// 一律以大寫、去空白的形式儲存（見 src/lib/nationalId.ts）。空白為 null，
+  /// 只有實際輸入時才驗證格式（指令一）。
+  nationalId String?
+
   // V11.3「信眾資料匯入預檢中心」新增：出生時辰（選填，文字儲存，例如「子時」
   // 「23:00-01:00」，格式不強制，之後祭改/疏文若需要精確時辰再由行政人員
   // 覆核調整）。屬信眾個人資料本身、不是信眾關係中心的延伸資料，所以直接
@@ -160,6 +190,8 @@ model Member {
 
   @@index([householdId])
   @@index([deletedAt])
+  /// V13.1：身分證搜尋（指令一「支援搜尋」）。不是唯一鍵，只是查詢索引。
+  @@index([nationalId])
   @@map("members")
 }
 
@@ -171,12 +203,35 @@ model WorshipRecord {
 
   type WorshipType
 
-  displayName   String // 「某姓歷代祖先」或「姓名 乙位正魂」
-  location      String? // 安奉地 / 地址
-  yangshangName String? // 陽上姓名
+  displayName String // 「某姓歷代祖先」或「姓名 乙位正魂」
+
+  /// 牌位地址（V13.1 指令七正名，原本 UI 標示為「安奉位置」）。
+  ///
+  /// ⚠️ 這是**牌位本身的地址**，不是亡者生前居住地址、也不是家戶地址。
+  /// 建立時可以用「帶入家戶地址」快捷填入，但填入後可自由修改，
+  /// 系統不得強制它等於 Household.address（指令七）。
+  ///
+  /// 可留空：留空時視為「待補資料」，由資料完整度提醒（不阻擋儲存），
+  /// 這是 V13.1 確認的規則——既有 location 為 null 的舊牌位仍可正常編輯。
+  location String?
+
+  /// 陽上姓名（V13.1 指令六）。
+  ///
+  /// 自由文字，**不要求存在於信眾資料庫**、不要求是家戶成員。可為一位或
+  /// 多位，多位以「、」分隔（儲存前由 normalizeYangshangName() 正規化）。
+  ///
+  /// ⚠️ 這裡**只存姓名本身**：
+  ///   - 不存「叩薦」——「叩薦」只在列印輸出時附加（見 src/lib/printChinese.ts）
+  ///   - 不存任何關係稱謂（孝男／孝女／孝媳／孝孫／子／女…）
+  yangshangName String?
 
   memberId String? // 若由「標記離世」流程自動建立，關聯回原成員
   member   Member? @relation(fields: [memberId], references: [id])
+
+  /// V13.1 指令七：建立人（建立日期用既有的 createdAt）。
+  /// 沿用專案既有慣例存操作人姓名字串（同 RecordVersion.operatorName），
+  /// 不建 User FK——系統仍是「選擇操作人」而非登入 session。
+  createdByName String?
 
   notes String? @db.Text
 
@@ -775,6 +830,40 @@ model TempleEvent {
 
   status TempleEventStatus @default(PREPARING)
   note   String?           @db.Text
+
+  // ────────────────────────────────────────────────────────────
+  // V13.1 指令十「活動年度 Activity Year」：受理期間與四個開關。
+  //
+  // 為什麼加在 TempleEvent 而不是新建一張「活動年度」表：TempleEvent
+  // **本來就是**「一年度 × 一活動類型」的主檔（@@unique([activityType, year])），
+  // 它已經是這個專案唯一的活動年度概念。再開一張表就是指令禁止的
+  // 「第二套相同功能」。（注意：另有一張 V1 時代的 Activity 表，
+  //  自 2026-07-15 起已停用、無任何讀寫，不得在那張表上擴充。）
+  //
+  // 全部 nullable 或有預設值，既有 8 種活動類型的資料不受影響。
+  // ⚠️ 刻意不動 @@unique([activityType, year])——那是 V8.1 定案、
+  //    RitualRecord / OfferingClaim / PurificationEntry / StoveMasterRegistration
+  //    全部依賴的核心鍵。
+  // ────────────────────────────────────────────────────────────
+
+  /// 開始受理日期。null = 未設定受理起日（不以此阻擋）。
+  registrationStartAt DateTime? @db.Date
+
+  /// 截止受理日期。null = 未設定截止日（不以此阻擋）。
+  registrationEndAt DateTime? @db.Date
+
+  /// 是否開放報名。這是**管理者的明確意志**，優先於日期區間——
+  /// 指令九要求「必須優先使用實際的活動資料」，不得只靠程式推算日期。
+  isRegistrationOpen Boolean @default(true)
+
+  /// 是否開放列印。與報名分開：常見情況是報名已截止但仍要補印。
+  isPrintOpen Boolean @default(true)
+
+  /// 是否已完成（活動已辦完）。普渡預設年度會跳過已完成的年度。
+  isCompleted Boolean @default(false)
+
+  /// 是否封存。封存後不出現在任何預設年度候選，但歷史資料完整保留。
+  isArchived Boolean @default(false)
 
   // 祭改專用：編號是否已鎖定。任何一筆資料開始列印（建立第一個
   // TempleEventPrintBatch）之後自動設為 true。其他活動類型不使用這個欄位

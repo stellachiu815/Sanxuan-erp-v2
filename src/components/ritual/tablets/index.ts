@@ -15,6 +15,14 @@ export {
 } from "./shared";
 export { default as PrintSheet } from "./PrintSheet";
 
+// V13.1：年度燈燈牌與疏文。與四種牌位模板一樣，只負責排版，
+// 所有國字轉換都在 src/lib/lanternPrint.ts 完成後才傳進來。
+export { default as LanternTablet } from "./LanternTablet";
+export type { LanternTabletProps } from "./LanternTablet";
+export { default as PetitionSheet } from "./PetitionSheet";
+export { toPrintableTablet } from "./shared";
+export type { PrintableTabletEntry } from "./shared";
+
 type TabletCategoryKey = "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "DEBT_CREDITOR" | "UNBORN_CHILD";
 
 /**

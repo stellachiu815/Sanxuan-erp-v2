@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AddMemberModal from "./AddMemberModal";
 import EditHouseholdModal from "./EditHouseholdModal";
-import AddWorshipModal from "./AddWorshipModal";
+import WorshipRecordWizard from "./WorshipRecordWizard";
 import AssignHeadModal from "./AssignHeadModal";
 import ArchiveHouseholdDialog from "./ArchiveHouseholdDialog";
 import MergeHouseholdWizard from "./MergeHouseholdWizard";
@@ -350,10 +350,16 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
         />
       )}
       {openModal === "addWorship" && (
-        <AddWorshipModal
+        /*
+         * V13.1 指令六／七／十六：改用 WorshipRecordWizard（取代舊的
+         * AddWorshipModal 三個輸入框）。新精靈提供陽上人快速帶入、
+         * 帶入家戶地址、列印預覽、重複檢查與確認步驟。
+         */
+        <WorshipRecordWizard
           householdId={householdId}
+          operatorUserId={operatorUser?.id ?? null}
           onClose={() => setOpenModal(null)}
-          onSuccess={handleSuccess}
+          onCreated={handleSuccess}
         />
       )}
       {openModal === "assignHead" && (

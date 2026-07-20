@@ -114,6 +114,18 @@ type StoredRowPayload = {
   };
   /** V12.6：預檢算出的預計動作計畫。舊批次沒有這個欄位，讀取時要容忍 undefined。 */
   plan?: RowPlan;
+  /**
+   * V13.1 指令八：牌位地址（key = 牌位名稱，value = 地址或 null）。
+   *
+   * ⚠️ 為什麼要在**預檢階段**就算好存起來：
+   * 個人 Excel 只存在於分析（analyze）階段，正式匯入（commit）時只讀
+   * ImportRow，已經拿不到個人檔了。所以牌位地址必須在這裡先算好落地，
+   * commit 才有資料可寫。
+   *
+   * 舊批次沒有這個欄位（undefined），讀取時一律容忍——那些批次的牌位
+   * 地址為 null，屬於待補資料，不會出錯。
+   */
+  tabletLocations?: Record<string, string | null>;
 };
 
 /**
@@ -122,7 +134,11 @@ type StoredRowPayload = {
  * 正規化結果存進既有的 rawData Json 欄位（沿用既有欄位，不新增 Prisma
  * 欄位）。
  */
-function serializeRowForStorage(row: NormalizedDevoteeRow, plan?: RowPlan): StoredRowPayload {
+function serializeRowForStorage(
+  row: NormalizedDevoteeRow,
+  plan?: RowPlan,
+  tabletLocations?: Record<string, string | null>
+): StoredRowPayload {
   return {
     raw: toJsonSafeRow(row.raw),
     normalized: {
@@ -132,7 +148,30 @@ function serializeRowForStorage(row: NormalizedDevoteeRow, plan?: RowPlan): Stor
       spiritNames: row.spiritNames,
     },
     ...(plan ? { plan } : {}),
+    ...(tabletLocations && Object.keys(tabletLocations).length > 0 ? { tabletLocations } : {}),
   };
+}
+
+/**
+ * V13.1 指令八：算出這一列所有牌位（歷代祖先＋乙位正魂）的牌位地址。
+ *
+ * 取值順序：個人 Excel 的「牌位地址」欄 → 個人 Excel 的「地址」欄。
+ *
+ * ⚠️ 明確**不使用家戶地址遞補**。指令八：牌位地址不得被家戶地址自動覆蓋、
+ * 不得視為亡者生前地址或信眾個人地址；空白時保持 NULL、不得自動推測。
+ * 留空是合法狀態，會在牌位資料標示為「待補資料」。
+ */
+function buildTabletLocations(
+  row: NormalizedDevoteeRow,
+  lookup: ReturnType<typeof buildPersonLookup>
+): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  const code = row.household.code;
+  for (const name of [...row.ancestorNames, ...row.spiritNames]) {
+    const person = lookupPerson(lookup, code, name);
+    out[name] = person?.tabletAddress ?? person?.address ?? null;
+  }
+  return out;
 }
 
 function deserializeStoredRow(rowNumber: number, stored: StoredRowPayload): NormalizedDevoteeRow {
@@ -285,6 +324,12 @@ export type AnalyzedDevoteeRow = {
   warnings: string[];
   /** V12.6：預計動作計畫（舊批次沒有這個欄位時為 null） */
   plan: RowPlan | null;
+  /**
+   * V13.1 指令八：這一列各個牌位的牌位地址（key = 牌位名稱）。
+   * 於預檢階段由個人 Excel 算出並存入 ImportRow，commit 時直接使用。
+   * 舊批次沒有這個欄位時為 null。
+   */
+  tabletLocations: Record<string, string | null> | null;
 };
 
 // ============================================================
@@ -491,6 +536,11 @@ export async function analyzeDevoteeImport(
         lunarBirthDay: person?.lunarBirthDay ?? null,
         lunarIsLeapMonth: person?.lunarIsLeapMonth ?? false,
         address: person?.address ?? normalized.household.address,
+        // V13.1 指令一：身分證。空白保持 null，不由家戶或其他列推測。
+        nationalId: person?.nationalId ?? null,
+        // 一般家戶成員沒有牌位地址；牌位地址只在歷代祖先／乙位正魂使用
+        // （見下方 buildTabletLocation()）。
+        tabletAddress: null,
       };
       const result = matchIncomingMember(incoming, targetHouseholdId, existingByName.get(name) ?? []);
       const action: PlannedMember["action"] =
@@ -581,7 +631,12 @@ export async function analyzeDevoteeImport(
       // 既有欄位（ImportRow.memberName）沿用來存「這一列的顯示用名稱」，
       // 正式格式一列＝一戶，所以存戶名（不是信眾姓名），供錯誤清單顯示用。
       memberName: normalized.household.name || null,
-      rawData: serializeRowForStorage(normalized, plan) as unknown as Prisma.InputJsonValue,
+      // V13.1：牌位地址在預檢階段算好一起落地（commit 時已無個人 Excel）
+      rawData: serializeRowForStorage(
+        normalized,
+        plan,
+        buildTabletLocations(normalized, personLookup)
+      ) as unknown as Prisma.InputJsonValue,
       status,
       // 只有真正阻擋匯入的才放進 errors；被降級的空白欄位改放 warnings，
       // 讓畫面不會把「保留既有資料」誤顯示成錯誤。
@@ -633,6 +688,7 @@ export async function analyzeDevoteeImport(
       errors: [...normalized.missingFieldErrors, ...normalized.formatErrors],
       warnings: normalized.warnings,
       plan: rowPlans[i] ?? null,
+      tabletLocations: buildTabletLocations(normalized, personLookup),
     };
   });
 
@@ -683,6 +739,8 @@ export async function getDevoteeImportBatch(batchId: string): Promise<DevoteeImp
       ancestorNames: normalized.ancestorNames,
       spiritNames: normalized.spiritNames,
       plan: stored.plan ?? null,
+      // 舊批次沒有 tabletLocations，一律容忍為 null（牌位地址視為待補）
+      tabletLocations: stored.tabletLocations ?? null,
       status: r.status,
       errors: (r.errors as string[] | null) ?? [],
       warnings: (r.warnings as string[] | null) ?? [],
@@ -1184,6 +1242,9 @@ export async function commitDevoteeImport(
                   ...(toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)
                     ? { solarBirthDate: toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)! }
                     : {}),
+                  // V13.1 指令一：身分證。空白時整個欄位不寫入（維持 null），
+                  // 不會塞入空字串。
+                  ...(pm.personData?.nationalId ? { nationalId: pm.personData.nationalId } : {}),
                   ...(pm.personData?.lunarBirthYear
                     ? {
                         lunarBirthYear: pm.personData.lunarBirthYear,
@@ -1233,6 +1294,20 @@ export async function commitDevoteeImport(
               patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
               patch.lunarBirthDay = pm.personData.lunarBirthDay;
               patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+            }
+            /**
+             * V13.1 指令一／十三：身分證。
+             *
+             * 兩層保護，缺一不可：
+             *   1. `pm.personData.nationalId` 有值才進入（Excel 空白 → 不動）
+             *   2. `!existing.nationalId` 才寫入（既有已有值 → 不覆蓋）
+             *
+             * 指令一：「Excel 空白不得覆蓋原有資料」；
+             * 指令十三：「只有 Excel 明確提供新值時才更新」「刪除既有資料必須
+             * 由使用者明確操作，不得把空白視為刪除」。
+             */
+            if (!existing.nationalId && pm.personData.nationalId) {
+              patch.nationalId = pm.personData.nationalId;
             }
             if (Object.keys(patch).length > 0) {
               const after = await tx.member.update({ where: { id: targetId }, data: patch });
@@ -1287,6 +1362,21 @@ export async function commitDevoteeImport(
           }
         }
 
+        /**
+         * V13.1 指令八：牌位地址。
+         *
+         * 「只要該列資料類型屬於歷代祖先／乙位正魂，該列的『地址』一律視為
+         * 牌位地址」。所以這裡取值順序是：
+         *   1. 個人 Excel 的獨立「牌位地址」欄（若有）
+         *   2. 個人 Excel 的「地址」欄（因為這一列是牌位，地址就是牌位地址）
+         *
+         * ⚠️ 明確**不使用**家戶地址（r.household.address）遞補。
+         * 指令八：牌位地址「不得被家戶地址自動覆蓋」、若空白「保持 NULL，
+         * 不得自動推測」。牌位地址留空是合法狀態，會標示為待補資料。
+         */
+        const tabletLocation = (name: string): string | null =>
+          r.tabletLocations?.[name] ?? null;
+
         // 三、歷代祖先：依名稱比對，已存在的略過，只新增找不到的。
         if (r.ancestorNames.length > 0) {
           const existingAncestors = await tx.worshipRecord.findMany({
@@ -1297,7 +1387,13 @@ export async function commitDevoteeImport(
           for (const displayName of r.ancestorNames) {
             if (existingNames.has(displayName)) continue;
             const created = await tx.worshipRecord.create({
-              data: { householdId: household.id, type: "ANCESTOR_LINE", displayName },
+              data: {
+                householdId: household.id,
+                type: "ANCESTOR_LINE",
+                displayName,
+                location: tabletLocation(displayName),
+                createdByName: operatorName,
+              },
             });
             await recordVersion(
               { entityType: "WorshipRecord", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（歷代祖先）" },
@@ -1318,7 +1414,14 @@ export async function commitDevoteeImport(
           for (const displayName of r.spiritNames) {
             if (existingNames.has(displayName)) continue;
             const created = await tx.worshipRecord.create({
-              data: { householdId: household.id, type: "INDIVIDUAL", displayName },
+              data: {
+                householdId: household.id,
+                type: "INDIVIDUAL",
+                displayName,
+                // V13.1 指令八：同歷代祖先，地址視為牌位地址，不用家戶地址遞補
+                location: tabletLocation(displayName),
+                createdByName: operatorName,
+              },
             });
             await recordVersion(
               { entityType: "WorshipRecord", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（乙位正魂）" },

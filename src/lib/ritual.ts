@@ -47,6 +47,11 @@ const universalSalvationInclude = {
       entries: {
         where: { deletedAt: null },
         orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        // V13.1 指令七：牌位地址存在 WorshipRecord.location。普渡登記項目
+        // 若有關聯回牌位（worshipRecordId），列印時要一併帶出牌位地址。
+        // 沒有關聯的項目（例如冤親債主、無緣子女直接手動輸入）則沒有地址，
+        // 模板會自動略過該區塊，不會印出空白框。
+        include: { worshipRecord: { select: { location: true } } },
       },
     },
   },
@@ -607,6 +612,15 @@ export type UniversalSalvationPrintEntry = {
   displayName: string;
   yangshangName: string | null;
   notes: string | null;
+  /**
+   * V13.1 指令七：牌位地址（來自關聯的 WorshipRecord.location）。
+   * 沒有關聯牌位、或牌位地址待補時為 null——列印模板會略過地址區塊。
+   *
+   * ⚠️ 這裡存的是**原始值**（阿拉伯數字）。國字轉換一律在列印模板端由
+   * toPrintableTablet() 處理，不在這裡先轉——資料庫與 API 保留原始資料，
+   * 只有列印輸出才轉換（指令十二）。
+   */
+  location: string | null;
 };
 
 export type UniversalSalvationPrintData = {
@@ -651,6 +665,7 @@ export async function getUniversalSalvationPrintData(
       displayName: entry.displayName,
       yangshangName: entry.yangshangName,
       notes: entry.notes,
+      location: entry.worshipRecord?.location ?? null,
     });
     entriesByCategory.set(entry.category, list);
   }

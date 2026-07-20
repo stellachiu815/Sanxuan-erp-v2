@@ -1,4 +1,4 @@
-import { TABLET_FONT_FAMILY, type PrintTabletEntry } from "./shared";
+import { TABLET_FONT_FAMILY, toPrintableTablet, type PrintTabletEntry } from "./shared";
 
 /**
  * 無緣子女牌位模板（V4.0 建立暫時版型，V4.1 改為可套版）。
@@ -10,19 +10,42 @@ import { TABLET_FONT_FAMILY, type PrintTabletEntry } from "./shared";
  *   格線決定，不要在這裡寫死尺寸）。
  * - 字體請透過 TABLET_FONT_FAMILY（見 ./shared.ts）套用，不要在這裡寫死
  *   字體，之後要換成標楷體時只需要改 shared.ts 一個地方。
+ * - **文字一律取自 toPrintableTablet() 的結果**，不要在這裡自行轉換數字、
+ *   也不要自行附加「叩薦」（V13.1 指令六、十二：轉換只能有一套）。
  */
 export default function UnbornChildTablet({ entry }: { entry: PrintTabletEntry }) {
+  const p = toPrintableTablet(entry);
+
   return (
     <div
-      className="tablet-card flex h-full w-full items-center justify-center border-2 border-dashed border-ink bg-white px-4 py-6"
+      className="tablet-card flex h-full w-full items-center justify-center gap-2 border-2 border-dashed border-ink bg-white px-4 py-6"
       style={{ breakInside: "avoid", fontFamily: TABLET_FONT_FAMILY }}
     >
       <div
         className="text-center text-2xl leading-relaxed text-ink"
         style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
       >
-        {entry.displayName}
+        {p.displayName}
       </div>
+
+      {p.locationText && (
+        <div
+          className="text-center text-xs leading-relaxed text-ink-soft"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+        >
+          {p.locationText}
+        </div>
+      )}
+
+      {/* 陽上人：yangshangText 已含「叩薦」，這裡不再加任何字 */}
+      {p.yangshangText && (
+        <div
+          className="text-center text-sm leading-relaxed text-ink-soft"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+        >
+          {p.yangshangText}
+        </div>
+      )}
     </div>
   );
 }

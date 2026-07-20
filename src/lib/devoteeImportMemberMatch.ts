@@ -32,6 +32,14 @@ export type IncomingMember = {
   lunarBirthDay: number | null;
   lunarIsLeapMonth: boolean;
   address: string | null;
+  /** V13.1 指令一：身分證字號（已正規化，空白為 null） */
+  nationalId: string | null;
+  /**
+   * V13.1 指令八：牌位地址。只有當這一列的資料型態是歷代祖先／乙位正魂時
+   * 才會有值；一般家戶成員一律為 null。
+   * ⚠️ 絕不可與 address 互相覆蓋。
+   */
+  tabletAddress: string | null;
 };
 
 /** 資料庫既有成員（比對用的精簡投影）。 */

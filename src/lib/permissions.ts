@@ -520,6 +520,18 @@ export type DevoteeAction =
   | "createInteraction" // 新增互動紀錄（SUPER_ADMIN + ADMIN）
   | "manageInteractions" // 修改/軟刪除互動紀錄（SUPER_ADMIN 專屬）
   | "manageCareList" // 正式標記/取消關懷狀態（SUPER_ADMIN 專屬）
+  // ────────────────────────────────────────────────────────────
+  // V13.1 指令一：身分證字號的顯示分級。
+  //
+  // 名單頁一律遮罩顯示（A12****789），任何角色都一樣——名單是最容易被
+  // 旁人看到螢幕的畫面。詳情頁／編輯頁需要這個權限才看得到完整號碼。
+  //
+  // 開放給 SUPER_ADMIN／ADMIN／STAFF：STAFF 是日常辦理報名、核對證件的
+  // 第一線人員，看不到完整身分證就無法核對。READONLY 只查詢、不辦業務，
+  // 不需要完整個資。
+  //
+  // ⚠️ 沿用既有的 DevoteeAction 這一套，不是第二套權限系統。
+  | "viewFullNationalId" // 查看完整身分證字號（未授權者只看得到遮罩）
   | "mergeDevotees" // 執行疑似重複信眾合併——指令明確規定本次不開放，見上方說明 6，目前沒有任何角色擁有、也沒有對應 API
   // ────────────────────────────────────────────────────────────
   // V12.3「家戶管理完整強化」指令四：家戶結構性調整的權限分級。
@@ -585,6 +597,8 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "createInteraction",
     "manageInteractions",
     "manageCareList",
+    // V13.1：查看完整身分證字號
+    "viewFullNationalId",
     // V12.3：家戶結構性調整，僅 SUPER_ADMIN／ADMIN。
     "mergeHousehold",
     "splitHousehold",
@@ -604,6 +618,8 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "createInteraction",
     "manageInteractions",
     "manageCareList",
+    // V13.1：查看完整身分證字號
+    "viewFullNationalId",
     // V12.3：家戶結構性調整，僅 SUPER_ADMIN／ADMIN。
     "mergeHousehold",
     "splitHousehold",
@@ -611,7 +627,16 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "changeHouseholdCode",
     "archiveHousehold",
   ],
-  STAFF: ["view", "viewFinancialSummary", "createProfile", "updateProfile", "applyTag", "createInteraction"],
+  // V13.1：STAFF 保留 viewFullNationalId——第一線人員需要核對證件。
+  STAFF: [
+    "view",
+    "viewFinancialSummary",
+    "createProfile",
+    "updateProfile",
+    "applyTag",
+    "createInteraction",
+    "viewFullNationalId",
+  ],
   READONLY: ["view", "viewFinancialSummary"],
   FINANCE_CLERK: [],
 };

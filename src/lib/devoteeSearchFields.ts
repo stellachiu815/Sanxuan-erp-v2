@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { normalizeNationalId } from "@/lib/nationalId";
 
 /**
  * V12.2「信眾建立與查詢中心」指令「七、搜尋邏輯收斂」。
@@ -37,10 +38,15 @@ export const DEVOTEE_SEARCH_FIELD_LABELS = [
   "個人手機",
   "地址",
   "公司名稱",
+  // V13.1 指令一：身分證字號可搜尋。
+  // ⚠️ 只做**完全比對**，不做 contains——身分證是個資，用 contains
+  // 會讓輸入片段（例如「1234」）掃出一堆不相干的人，等於變相的個資列舉。
+  // 行政人員實際使用情境是「拿著證件輸入完整號碼找人」，完全比對就夠了。
+  "身分證字號（需輸入完整號碼）",
 ] as const;
 
 /** 給輸入框用的統一 placeholder，避免各頁自己寫一句不一樣的提示。 */
-export const DEVOTEE_SEARCH_PLACEHOLDER = "搜尋姓名、電話、地址、家戶編號（含舊編號）或戶名";
+export const DEVOTEE_SEARCH_PLACEHOLDER = "搜尋姓名、電話、地址、身分證、家戶編號（含舊編號）或戶名";
 
 /**
  * 以 **Member** 為查詢主體時的 OR 條件片段。
@@ -64,7 +70,21 @@ export function memberSearchOrConditions(q: string): Prisma.MemberWhereInput[] {
     { household: { companyName: { contains: q } } },
     { devoteeProfile: { is: { mobile: { contains: q } } } },
     { devoteeProfile: { is: { companyName: { contains: q } } } },
+    // V13.1：身分證完全比對（見上方 DEVOTEE_SEARCH_FIELD_LABELS 的說明）。
+    ...nationalIdSearchCondition(q),
   ];
+}
+
+/**
+ * 身分證搜尋條件。只有在輸入看起來確實是一組完整身分證時才產生條件，
+ * 否則回傳空陣列（等於不參與這次搜尋）。
+ *
+ * 這樣做的效果：搜尋「王」不會誤觸身分證欄位，搜尋「A123456789」才會。
+ */
+function nationalIdSearchCondition(q: string): Prisma.MemberWhereInput[] {
+  const normalized = normalizeNationalId(q);
+  if (normalized === null || normalized.length !== 10) return [];
+  return [{ nationalId: normalized }];
 }
 
 /**

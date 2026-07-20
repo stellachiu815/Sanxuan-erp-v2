@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { WorshipType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeYangshangName } from "@/lib/printChinese";
 import { worshipTypeLabel } from "@/lib/labels";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 
@@ -62,9 +63,17 @@ export async function POST(
       householdId,
       type: type as WorshipType,
       displayName,
-      yangshangName: toNullableString(body.yangshangName),
+      /**
+       * V13.1 指令六：陽上人一律經過 normalizeYangshangName() 正規化——
+       * 頓號／逗號／換行統一成「、」、去空白、去重複。
+       * 絕不附加「叩薦」（那只在列印時由 printYangshangName 加上）。
+       */
+      yangshangName: normalizeYangshangName(body.yangshangName),
+      /** V13.1 指令七：牌位地址。可留空（待補資料），不阻擋建立。 */
       location: toNullableString(body.location),
       notes: toNullableString(body.notes),
+      /** V13.1 指令七：建立人（建立日期用既有的 createdAt） */
+      createdByName: check.operator.name,
     },
   });
 

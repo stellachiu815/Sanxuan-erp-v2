@@ -1,4 +1,6 @@
 import { normalizeName, toNullableText, toHalfWidthDigits, toSafeCalendarDate } from "@/lib/devoteeImportNormalize";
+import { normalizeNationalId } from "@/lib/nationalId";
+import { parseFlexibleDate } from "@/lib/minguoDate";
 
 /**
  * V12.6「Excel 匯入中心正式版」指令四：個人資料 Excel。
@@ -29,6 +31,13 @@ export const PERSON_SHEET_COLUMNS = [
   "農曆生日",
   "地址",
   "備註",
+  // V13.1 指令一：身分證字號
+  "身分證字號",
+  "身分證",
+  // V13.1 指令八：牌位地址。當該列資料型態為歷代祖先／乙位正魂時，
+  // 「地址」欄位一律視為牌位地址；若 Excel 另外有獨立的牌位地址欄，
+  // 這裡也一併支援。
+  "牌位地址",
 ] as const;
 
 export type PersonSheetRow = {
@@ -48,6 +57,23 @@ export type PersonSheetRow = {
   lunarIsLeapMonth: boolean;
   address: string | null;
   notes: string | null;
+  /**
+   * V13.1 指令一：身分證字號。空白為 null（指令十三：空白必須保持 NULL）。
+   * 這裡**不驗證格式**——匯入是大量既有資料，格式異常應該進預檢待處理清單
+   * 由人工判斷，不是在解析階段就把整列擋掉。
+   */
+  nationalId: string | null;
+  /**
+   * V13.1 指令八：牌位地址。
+   *
+   * ⚠️ 這與 address（信眾個人／家戶地址）是**不同的欄位**，絕不可互相覆蓋。
+   * 取值優先順序：
+   *   1. Excel 若有獨立的「牌位地址」欄 → 直接使用
+   *   2. 否則由呼叫端依該列的資料型態決定（歷代祖先／乙位正魂時，
+   *      把 address 當作牌位地址；見 devoteeImportBatch.ts）
+   * 空白保持 null，不自動推測、不由家戶地址填補。
+   */
+  tabletAddress: string | null;
   formatErrors: string[];
 };
 
@@ -70,11 +96,18 @@ function parseDateCell(raw: unknown, label: string, errors: string[]): string | 
   if (raw === null || raw === undefined) return null;
   if (typeof raw === "string" && raw.trim() === "") return null;
 
-  const safe = toSafeCalendarDate(raw);
-  if (!safe) {
-    errors.push(`「${label}」日期無效或格式看不懂，已略過這個欄位（正確格式：yyyy-MM-dd）`);
+  /**
+   * V13.1 指令十三：匯入必須支援西元、民國、Excel 原生日期、Excel Serial。
+   * 交給 minguoDate.parseFlexibleDate 統一辨識；它涵蓋 toSafeCalendarDate
+   * 的全部保護（Invalid Date、不存在的日期一律 null），並額外支援
+   * 1140721 / 114/7/21 / 114-7-21 與 Excel 序號。
+   */
+  const parsed = parseFlexibleDate(raw);
+  if (!parsed.ok) {
+    errors.push(`「${label}」${parsed.reason}，已略過這個欄位（可用西元或民國格式，例如 2025-07-21 或 114/07/21）`);
     return null;
   }
+  const safe = parsed.date;
   // 統一輸出 yyyy-MM-dd（UTC 曆法欄位，與 toSafeCalendarDate 的建構方式一致）
   const y = safe.getUTCFullYear();
   const m = String(safe.getUTCMonth() + 1).padStart(2, "0");
@@ -136,6 +169,11 @@ export function parsePersonSheet(rawRows: Record<string, unknown>[]): PersonShee
       lunarIsLeapMonth: lunar.leap,
       address: toNullableText(cell(raw, "地址")),
       notes: toNullableText(cell(raw, "備註")),
+      // V13.1：身分證一律正規化（去空白、轉大寫），空白為 null
+      nationalId: normalizeNationalId(cell(raw, "身分證字號", "身分證")),
+      // V13.1：Excel 若有獨立的牌位地址欄就用它；沒有時留 null，
+      // 由 devoteeImportBatch 依資料型態決定是否改用 address
+      tabletAddress: toNullableText(cell(raw, "牌位地址")),
       formatErrors,
     });
   });

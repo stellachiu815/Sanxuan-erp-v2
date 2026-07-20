@@ -1,8 +1,10 @@
 import { MemberRole, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { validateLunarBirthdayInput, parseSolarDateString } from "@/lib/lunar";
+import { validateLunarBirthdayInput } from "@/lib/lunar";
 import { memberRoleLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
+import { resolveBirthdayFields } from "@/lib/birthdaySync";
+import { normalizeNationalId, validateNationalId } from "@/lib/nationalId";
 import { HouseholdManagementError } from "@/lib/householdManagement";
 import { findPreCreateDuplicates } from "@/lib/devoteeDuplicates";
 
@@ -55,6 +57,10 @@ export type CreateMemberInput = {
    * 跟 mobile 一樣，只有真的填了才會建立 DevoteeProfile 延伸資料。
    */
   email?: unknown;
+  /**
+   * V13.1 指令一：身分證字號（選填）。空白存 null；只有實際輸入時才驗證格式。
+   */
+  nationalId?: unknown;
 };
 
 /** 正規化後、已驗證完成的建立資料（內部使用）。 */
@@ -72,6 +78,7 @@ type NormalizedMemberInput = {
   lunarIsLeapMonth: boolean;
   mobile: string | null;
   email: string | null;
+  nationalId: string | null;
 };
 
 /**
@@ -91,33 +98,34 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
   const mobile = typeof input.mobile === "string" && input.mobile.trim() ? input.mobile.trim() : null;
   const email = typeof input.email === "string" && input.email.trim() ? input.email.trim() : null;
 
-  let solarBirthDate: Date | null = null;
-  let lunarBirthYear: number | null = null;
-  let lunarBirthMonth: number | null = null;
-  let lunarBirthDay: number | null = null;
-  let lunarIsLeapMonth = false;
+  /**
+   * V13.1 指令二：國曆與農曆生日**兩者都要永久保存**。
+   *
+   * 舊版是「填國曆就只存國曆、農曆四欄留 null」，資料庫裡永遠只有一半；
+   * 現在統一交給 resolveBirthdayFields() 自動換算另一半，兩邊同時寫入。
+   * 這也順帶讓建立信眾支援民國日期輸入（1140721／114/7/21／114-7-21），
+   * 因為 resolveBirthdayFields 內部用的是 minguoDate.parseFlexibleDate。
+   *
+   * birthdayType 為 "none"／未填 → 五欄全部 null，**不補今天、不補預設生日**。
+   */
+  const birthday = resolveBirthdayFields({
+    birthdayType: input.birthdayType as "solar" | "lunar" | "none" | undefined,
+    solarBirthDate: input.solarBirthDate,
+    lunarBirthYear: input.lunarBirthYear,
+    lunarBirthMonth: input.lunarBirthMonth,
+    lunarBirthDay: input.lunarBirthDay,
+    lunarIsLeapMonth: input.lunarIsLeapMonth,
+  });
+  if (!birthday.ok) throw new HouseholdManagementError(birthday.error);
+  const { solarBirthDate, lunarBirthYear, lunarBirthMonth, lunarBirthDay, lunarIsLeapMonth } =
+    birthday.fields;
 
-  if (input.birthdayType === "solar") {
-    const raw = typeof input.solarBirthDate === "string" ? input.solarBirthDate : "";
-    const parsed = parseSolarDateString(raw);
-    if (!parsed) throw new HouseholdManagementError("國曆生日格式不正確");
-    solarBirthDate = parsed;
-  } else if (input.birthdayType === "lunar") {
-    const y = Number(input.lunarBirthYear);
-    const m = Number(input.lunarBirthMonth);
-    const d = Number(input.lunarBirthDay);
-    const leap = Boolean(input.lunarIsLeapMonth);
-    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
-      throw new HouseholdManagementError("農曆生日請完整輸入年、月、日");
-    }
-    const error = validateLunarBirthdayInput(y, m, d, leap);
-    if (error) throw new HouseholdManagementError(error);
-    lunarBirthYear = y;
-    lunarBirthMonth = m;
-    lunarBirthDay = d;
-    lunarIsLeapMonth = leap;
+  // V13.1 指令一：身分證字號。空白 → null；有值才驗證格式。
+  const nationalId = normalizeNationalId(input.nationalId);
+  if (nationalId !== null) {
+    const check = validateNationalId(nationalId);
+    if (!check.ok) throw new HouseholdManagementError(check.reason);
   }
-  // birthdayType === "none"（或沒填）就整組留空，之後可以再補資料。
 
   return {
     name,
@@ -133,6 +141,7 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
     lunarIsLeapMonth,
     mobile,
     email,
+    nationalId,
   };
 }
 
@@ -164,6 +173,8 @@ export async function createMemberInTransaction(
       lunarBirthMonth: normalized.lunarBirthMonth,
       lunarBirthDay: normalized.lunarBirthDay,
       lunarIsLeapMonth: normalized.lunarIsLeapMonth,
+      // V13.1 指令一：身分證字號（已在 normalizeCreateMemberInput 驗證過）
+      nationalId: normalized.nationalId,
     },
   });
 
