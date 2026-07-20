@@ -4,7 +4,10 @@
  * 的「PREVIEWED」預覽紀錄）。
  *
  * POST /api/import/devotee-precheck/analyze  （multipart/form-data）
- *   file: 上傳的 .xlsx/.xls/.csv 檔案（單檔，見 MAX_UPLOAD_FILE_BYTES 大小限制）
+ *   file: 家戶 Excel（正式七欄），.xlsx/.xls/.csv（見 MAX_UPLOAD_FILE_BYTES 大小限制）
+ *   personFile（V12.6 新增，選填）: 個人資料 Excel，用來補足每位成員的
+ *     手機／市話／Email／生日／地址。它**不會產生自己的匯入列**，只是掛回
+ *     家戶列的成員上，讓成員比對可以做多欄判斷（見 devoteeImportPersonSheet.ts）。
  *   mapping（選填，JSON 字串）: 使用者手動調整過的欄位對應
  *     例如 {"戶號":"householdCode","戶名":"householdName"}；不帶的話系統會
  *     用已儲存的欄位對應記憶＋別名表自動猜（見 smartImport.ts）。
@@ -89,11 +92,50 @@ export async function POST(request: Request) {
     if (target) await saveFieldMapping(DEVOTEE_IMPORT_KIND, col, target);
   }
 
-  const { batchId, summary, rows: analyzedRows } = await analyzeDevoteeImport(fileName, rows, mapping);
+  // V12.6 指令四／五：可選的第二份「個人資料 Excel」。
+  let personRows: Record<string, unknown>[] | undefined;
+  let personFileName: string | null = null;
+  const personFile = formData.get("personFile");
+  if (personFile && typeof personFile !== "string") {
+    const pf = personFile as File;
+    personFileName = pf.name || "person";
+    if (!hasAllowedUploadExtension(personFileName)) {
+      return NextResponse.json(
+        { error: `個人資料檔格式不支援「${personFileName}」，請上傳 .xlsx、.xls 或 .csv 檔案` },
+        { status: 400 }
+      );
+    }
+    if (pf.size > MAX_UPLOAD_FILE_BYTES) {
+      const limitMb = (MAX_UPLOAD_FILE_BYTES / (1024 * 1024)).toFixed(0);
+      return NextResponse.json(
+        { error: `個人資料檔太大（${(pf.size / (1024 * 1024)).toFixed(1)}MB），不能超過 ${limitMb}MB` },
+        { status: 400 }
+      );
+    }
+    try {
+      const buf = Buffer.from(await pf.arrayBuffer());
+      personRows = parseSpreadsheetBuffer(buf).rows;
+    } catch (err) {
+      console.error("信眾資料匯入預檢：讀取個人資料檔失敗", err);
+      return NextResponse.json(
+        { error: "無法讀取個人資料檔，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" },
+        { status: 400 }
+      );
+    }
+  }
+
+  const { batchId, summary, rows: analyzedRows } = await analyzeDevoteeImport(
+    fileName,
+    rows,
+    mapping,
+    personRows
+  );
 
   return NextResponse.json({
     batchId,
     fileName,
+    personFileName,
+    personRowCount: personRows?.length ?? 0,
     columns,
     mapping,
     targetFields: getTargetFields(DEVOTEE_IMPORT_KIND),

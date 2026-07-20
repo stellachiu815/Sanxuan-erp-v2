@@ -6,6 +6,20 @@ import {
   type NormalizedDevoteeRow,
   type NormalizedHouseholdFields,
 } from "@/lib/devoteeImportValidate";
+import {
+  parsePersonSheet,
+  buildPersonLookup,
+  lookupPerson,
+} from "@/lib/devoteeImportPersonSheet";
+import {
+  matchIncomingMember,
+  buildMemberMatchWhere,
+  type IncomingMember,
+  type ExistingMemberForMatch,
+  type MemberMatchCandidate,
+  type MatchConfidence,
+} from "@/lib/devoteeImportMemberMatch";
+import { setPrimaryContact } from "@/lib/householdPrimaryContact";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——批次分析／查詢／確認匯入（依正式
@@ -76,6 +90,8 @@ type StoredRowPayload = {
     ancestorNames: string[];
     spiritNames: string[];
   };
+  /** V12.6：預檢算出的預計動作計畫。舊批次沒有這個欄位，讀取時要容忍 undefined。 */
+  plan?: RowPlan;
 };
 
 /**
@@ -84,7 +100,7 @@ type StoredRowPayload = {
  * 正規化結果存進既有的 rawData Json 欄位（沿用既有欄位，不新增 Prisma
  * 欄位）。
  */
-function serializeRowForStorage(row: NormalizedDevoteeRow): StoredRowPayload {
+function serializeRowForStorage(row: NormalizedDevoteeRow, plan?: RowPlan): StoredRowPayload {
   return {
     raw: toJsonSafeRow(row.raw),
     normalized: {
@@ -93,6 +109,7 @@ function serializeRowForStorage(row: NormalizedDevoteeRow): StoredRowPayload {
       ancestorNames: row.ancestorNames,
       spiritNames: row.spiritNames,
     },
+    ...(plan ? { plan } : {}),
   };
 }
 
@@ -133,10 +150,20 @@ export type DevoteeImportSummary = {
   formatError: number;
   excluded: number;
   imported: number;
+  /** V12.6 指令六：預檢分類。以下由 rowPlan 統計，不是 ImportRowStatus 的計數。 */
+  suspectedDuplicate: number;
+  householdUncertain: number;
+  householdsToCreate: number;
+  householdsToUpdate: number;
+  membersToCreate: number;
+  membersToUpdate: number;
+  autoMatchedHighConfidence: number;
+  fieldConflicts: number;
 };
 
-function buildSummary(statuses: ImportRowStatus[]): DevoteeImportSummary {
+function buildSummary(statuses: ImportRowStatus[], plans: RowPlan[] = []): DevoteeImportSummary {
   const count = (s: ImportRowStatus) => statuses.filter((x) => x === s).length;
+  const sum = (f: (p: RowPlan) => number) => plans.reduce((a, p) => a + f(p), 0);
   return {
     total: statuses.length,
     readyToImport: count("READY_TO_IMPORT"),
@@ -144,8 +171,56 @@ function buildSummary(statuses: ImportRowStatus[]): DevoteeImportSummary {
     formatError: count("FORMAT_ERROR"),
     excluded: count("EXCLUDED"),
     imported: count("IMPORTED"),
+    suspectedDuplicate: count("SUSPECTED_DUPLICATE"),
+    householdUncertain: count("HOUSEHOLD_UNCERTAIN"),
+    householdsToCreate: plans.filter((p) => p.householdAction === "CREATE").length,
+    householdsToUpdate: plans.filter((p) => p.householdAction === "UPDATE").length,
+    membersToCreate: sum((p) => p.members.filter((m) => m.action === "CREATE").length),
+    membersToUpdate: sum((p) => p.members.filter((m) => m.action === "UPDATE").length),
+    autoMatchedHighConfidence: sum(
+      (p) => p.members.filter((m) => m.action === "UPDATE" && m.confidence === "HIGH").length
+    ),
+    fieldConflicts: sum((p) => p.fieldConflicts.length),
   };
 }
+
+/**
+ * V12.6 指令六：每一列的「預計動作」計畫。
+ *
+ * 這是預檢階段算出來、存進 ImportRow.rawData 的判斷結果，讓畫面可以顯示
+ * 「Excel 列號／原始資料／系統既有資料／預計動作／問題原因／可選處理方式」，
+ * 也讓 commit 階段不必重算一次。**計畫本身不寫入任何正式資料。**
+ */
+export type RowPlan = {
+  rowNumber: number;
+  householdAction: "CREATE" | "UPDATE" | "BLOCKED";
+  /** UPDATE 時，實際對應到的既有家戶（可能是透過舊編號 alias 找到的） */
+  matchedHouseholdId: string | null;
+  matchedViaAlias: boolean;
+  /** 既有家戶目前的值，供畫面做「原始資料 vs 系統既有資料」對照 */
+  existingHousehold: { name: string; contactName: string | null; address: string | null } | null;
+  /** 欄位衝突：Excel 有值、既有也有值且不同 */
+  fieldConflicts: { field: string; excelValue: string; existingValue: string }[];
+  /** Excel 空白但既有有值 → 預設保留既有（指令二），列出來讓使用者知道 */
+  keptExistingFields: string[];
+  members: PlannedMember[];
+  blockedReason: string | null;
+  /**
+   * V12.6 指令二：使用者在預檢中心明確勾選「以 Excel 為準，空白也覆蓋」。
+   * 預設 false＝空白保留既有資料。
+   */
+  overwriteBlanks?: boolean;
+};
+
+export type PlannedMember = {
+  name: string;
+  action: "CREATE" | "UPDATE" | "REVIEW" | "SKIP";
+  confidence: MatchConfidence | null;
+  reason: string;
+  candidates: MemberMatchCandidate[];
+  /** 來自個人 Excel 的補充欄位（沒有個人檔時為 null） */
+  personData: IncomingMember | null;
+};
 
 export type AnalyzedDevoteeRow = {
   id: string;
@@ -157,6 +232,8 @@ export type AnalyzedDevoteeRow = {
   status: ImportRowStatus;
   errors: string[];
   warnings: string[];
+  /** V12.6：預計動作計畫（舊批次沒有這個欄位時為 null） */
+  plan: RowPlan | null;
 };
 
 // ============================================================
@@ -166,9 +243,25 @@ export type AnalyzedDevoteeRow = {
 export async function analyzeDevoteeImport(
   fileName: string,
   rawRows: Record<string, unknown>[],
-  mapping: Record<string, string | null>
+  mapping: Record<string, string | null>,
+  /**
+   * V12.6 指令四／五：可選的第二份「個人資料 Excel」。
+   *
+   * 它**不會產生自己的 ImportRow**——解析後依姓名（＋家戶編號）掛回家戶列的
+   * 成員上，用來補足手機／市話／Email／生日／地址，讓指令三的多欄比對有
+   * 資料可用。沒有上傳這一份時，比對會退化成「只有姓名」，此時同名一律
+   * 列為疑似重複交人工確認（而不是自動略過或自動建立）。
+   */
+  personRawRows?: Record<string, unknown>[]
 ): Promise<{ batchId: string; summary: DevoteeImportSummary; rows: AnalyzedDevoteeRow[] }> {
   const normalizedRows = rawRows.map((r, i) => normalizeAndValidateDevoteeRow(r, mapping, i + 2));
+
+  // ---- 個人 Excel（可選）----
+  const personRows = personRawRows?.length ? parsePersonSheet(personRawRows) : [];
+  const personLookup = buildPersonLookup(personRows);
+  const personFormatErrors = personRows.flatMap((p) =>
+    p.formatErrors.map((e) => `個人資料第 ${p.rowNumber} 列（${p.name}）：${e}`)
+  );
 
   /**
    * V12.3 指令七.5：預檢階段就要標示家戶編號的狀況，不能等到正式匯入才爆炸。
@@ -197,6 +290,24 @@ export async function analyzeDevoteeImport(
   ]);
   const existingByCode = new Map(existingHouseholds.map((h) => [h.id, h]));
   const aliasByCode = new Map(aliases.map((a) => [a.oldCode, a]));
+
+  // V12.6 指令二：判斷「欄位衝突」與「空白不覆蓋」需要既有家戶的完整欄位。
+  // 目標可能是編號直接命中的那一戶，也可能是透過舊編號 alias 對照到的那一戶。
+  const targetHouseholdIds = Array.from(
+    new Set([
+      ...existingHouseholds.filter((h) => !h.deletedAt).map((h) => h.id),
+      ...aliases.filter((a) => a.household && !a.household.deletedAt).map((a) => a.householdId),
+    ])
+  );
+  const existingHouseholdDetail = new Map(
+    (targetHouseholdIds.length
+      ? await prisma.household.findMany({
+          where: { id: { in: targetHouseholdIds } },
+          select: { id: true, name: true, contactName: true, address: true },
+        })
+      : []
+    ).map((h) => [h.id, h])
+  );
 
   /** 回傳這個家戶編號在預檢階段的額外錯誤與提醒。 */
   function inspectHouseholdCode(code: string): { errors: string[]; warnings: string[] } {
@@ -227,24 +338,177 @@ export async function analyzeDevoteeImport(
     return { errors: [], warnings: [] }; // 全新編號，正常新增
   }
 
+  // ---- V12.6 指令三：成員多欄比對所需的既有資料（一次撈完，避免逐列查詢）----
+  const allMemberNames = Array.from(new Set(normalizedRows.flatMap((n) => n.memberNames)));
+  const existingMembersRaw = allMemberNames.length
+    ? await prisma.member.findMany({
+        where: buildMemberMatchWhere(allMemberNames),
+        select: {
+          id: true,
+          name: true,
+          householdId: true,
+          solarBirthDate: true,
+          lunarBirthYear: true,
+          lunarBirthMonth: true,
+          lunarBirthDay: true,
+          lunarIsLeapMonth: true,
+          household: { select: { name: true, phone: true, address: true } },
+          devoteeProfile: { select: { mobile: true } },
+        },
+      })
+    : [];
+  const existingMembers: ExistingMemberForMatch[] = existingMembersRaw.map((m) => ({
+    id: m.id,
+    name: m.name,
+    householdId: m.householdId,
+    householdName: m.household.name,
+    mobile: m.devoteeProfile?.mobile ?? null,
+    householdPhone: m.household.phone,
+    householdAddress: m.household.address,
+    solarBirthDate: m.solarBirthDate,
+    lunarBirthYear: m.lunarBirthYear,
+    lunarBirthMonth: m.lunarBirthMonth,
+    lunarBirthDay: m.lunarBirthDay,
+    lunarIsLeapMonth: m.lunarIsLeapMonth,
+  }));
+  const existingByName = new Map<string, ExistingMemberForMatch[]>();
+  for (const m of existingMembers) {
+    const list = existingByName.get(m.name) ?? [];
+    list.push(m);
+    existingByName.set(m.name, list);
+  }
+
+  /** 建立這一列的預計動作計畫（指令六）。純判斷，不寫入任何資料。 */
+  function buildRowPlan(normalized: (typeof normalizedRows)[number], blockedReason: string | null): RowPlan {
+    const code = normalized.household.code;
+    const direct = existingByCode.get(code);
+    const alias = aliasByCode.get(code);
+    const target =
+      direct && !direct.deletedAt
+        ? { id: direct.id, name: direct.name }
+        : alias?.household && !alias.household.deletedAt
+          ? { id: alias.household.id, name: alias.household.name }
+          : null;
+
+    const existingFull = target ? existingHouseholdDetail.get(target.id) ?? null : null;
+
+    // 欄位衝突／空白保留（指令二：空白欄位不可覆蓋既有有效資料）
+    const fieldConflicts: RowPlan["fieldConflicts"] = [];
+    const keptExistingFields: string[] = [];
+    if (existingFull) {
+      const pairs: { field: string; excel: string | null; existing: string | null }[] = [
+        { field: "戶名", excel: normalized.household.name || null, existing: existingFull.name },
+        { field: "主要聯絡人", excel: normalized.household.contactName, existing: existingFull.contactName },
+        { field: "地址", excel: normalized.household.address, existing: existingFull.address },
+      ];
+      for (const p of pairs) {
+        if (!p.excel && p.existing) keptExistingFields.push(p.field);
+        else if (p.excel && p.existing && p.excel !== p.existing) {
+          fieldConflicts.push({ field: p.field, excelValue: p.excel, existingValue: p.existing });
+        }
+      }
+    }
+
+    // 成員比對
+    const targetHouseholdId = target?.id ?? code;
+    const members: PlannedMember[] = normalized.memberNames.map((name) => {
+      const person = lookupPerson(personLookup, code, name);
+      const incoming: IncomingMember = {
+        name,
+        mobile: person?.mobile ?? null,
+        phone: person?.phone ?? null,
+        solarBirthDate: person?.solarBirthDate ?? null,
+        lunarBirthYear: person?.lunarBirthYear ?? null,
+        lunarBirthMonth: person?.lunarBirthMonth ?? null,
+        lunarBirthDay: person?.lunarBirthDay ?? null,
+        lunarIsLeapMonth: person?.lunarIsLeapMonth ?? false,
+        address: person?.address ?? normalized.household.address,
+      };
+      const result = matchIncomingMember(incoming, targetHouseholdId, existingByName.get(name) ?? []);
+      const action: PlannedMember["action"] =
+        result.suggestion === "CREATE"
+          ? "CREATE"
+          : result.suggestion === "SKIP_SAME_PERSON"
+            ? person
+              ? "UPDATE" // 有個人資料可以補進既有成員
+              : "SKIP"
+            : "REVIEW";
+      return {
+        name,
+        action,
+        confidence: result.candidates[0]?.confidence ?? null,
+        reason: result.reason,
+        candidates: result.candidates,
+        personData: person ? incoming : null,
+      };
+    });
+
+    return {
+      rowNumber: normalized.rowNumber,
+      householdAction: blockedReason ? "BLOCKED" : target ? "UPDATE" : "CREATE",
+      matchedHouseholdId: target?.id ?? null,
+      matchedViaAlias: Boolean(!direct && alias?.household),
+      existingHousehold: existingFull
+        ? { name: existingFull.name, contactName: existingFull.contactName, address: existingFull.address }
+        : null,
+      fieldConflicts,
+      keptExistingFields,
+      members,
+      blockedReason,
+    };
+  }
+
   const rowsToCreate = normalizedRows.map((normalized) => {
     const codeCheck = inspectHouseholdCode(normalized.household.code || "");
-    // 家戶編號衝突視為這一列的格式錯誤，不會進入 READY_TO_IMPORT。
-    const status = codeCheck.errors.length > 0 ? ("FORMAT_ERROR" as const) : computeRowStatus(normalized);
+    const plan = buildRowPlan(normalized, codeCheck.errors[0] ?? null);
+
+    // V12.6 指令六：狀態分類。優先序＝格式錯誤 > 必填缺漏 > 疑似重複 > 可匯入。
+    let status: ImportRowStatus;
+    if (codeCheck.errors.length > 0 || normalized.formatErrors.length > 0) {
+      status = "FORMAT_ERROR";
+    } else if (normalized.missingFieldErrors.length > 0) {
+      status = "INCOMPLETE_DATA";
+    } else if (plan.members.some((m) => m.action === "REVIEW")) {
+      // 有成員需要人工判斷（同名但證據不足、或已在別戶）→ 疑似重複，
+      // 預設不匯入，等人工在預檢中心做決定（指令三）。
+      status = "SUSPECTED_DUPLICATE";
+    } else {
+      status = "READY_TO_IMPORT";
+    }
+
+    const memberWarnings = plan.members
+      .filter((m) => m.action === "REVIEW")
+      .map((m) => `成員「${m.name}」：${m.reason}`);
+    const conflictWarnings = plan.fieldConflicts.map(
+      (c) => `「${c.field}」Excel 為「${c.excelValue}」，系統既有為「${c.existingValue}」，匯入後會以 Excel 為準。`
+    );
+    const keptWarnings = plan.keptExistingFields.length
+      ? [`Excel 未填「${plan.keptExistingFields.join("、")}」，將保留系統既有資料，不會被清空。`]
+      : [];
+
     return {
       rowNumber: normalized.rowNumber,
       householdId: normalized.household.code || "",
       // 既有欄位（ImportRow.memberName）沿用來存「這一列的顯示用名稱」，
       // 正式格式一列＝一戶，所以存戶名（不是信眾姓名），供錯誤清單顯示用。
       memberName: normalized.household.name || null,
-      rawData: serializeRowForStorage(normalized) as unknown as Prisma.InputJsonValue,
+      rawData: serializeRowForStorage(normalized, plan) as unknown as Prisma.InputJsonValue,
       status,
       errors: [...normalized.missingFieldErrors, ...normalized.formatErrors, ...codeCheck.errors],
-      warnings: [...normalized.warnings, ...codeCheck.warnings],
+      warnings: [
+        ...normalized.warnings,
+        ...codeCheck.warnings,
+        ...memberWarnings,
+        ...conflictWarnings,
+        ...keptWarnings,
+      ],
     };
   });
 
-  const summary = buildSummary(rowsToCreate.map((r) => r.status));
+  const rowPlans: RowPlan[] = rowsToCreate.map(
+    (r) => (r.rawData as unknown as StoredRowPayload).plan!
+  );
+  const summary = buildSummary(rowsToCreate.map((r) => r.status), rowPlans);
 
   const batch = await prisma.importBatch.create({
     data: {
@@ -254,7 +518,9 @@ export async function analyzeDevoteeImport(
       totalRows: rowsToCreate.length,
       okCount: summary.readyToImport,
       errorCount: summary.formatError + summary.incompleteData,
-      duplicateCount: 0, // 正式格式沒有「疑似重複」這個概念，固定為 0
+      // V12.6：正式格式現在也有「疑似重複」了（成員層級的多欄比對），
+      // 沿用既有欄位記錄筆數，不新增欄位。
+      duplicateCount: summary.suspectedDuplicate,
       rows: { create: rowsToCreate },
     },
     include: { rows: { orderBy: { rowNumber: "asc" } } },
@@ -272,6 +538,7 @@ export async function analyzeDevoteeImport(
       status: r.status,
       errors: [...normalized.missingFieldErrors, ...normalized.formatErrors],
       warnings: normalized.warnings,
+      plan: rowPlans[i] ?? null,
     };
   });
 
@@ -312,6 +579,7 @@ export async function getDevoteeImportBatch(batchId: string): Promise<DevoteeImp
       memberNames: normalized.memberNames,
       ancestorNames: normalized.ancestorNames,
       spiritNames: normalized.spiritNames,
+      plan: stored.plan ?? null,
       status: r.status,
       errors: (r.errors as string[] | null) ?? [],
       warnings: (r.warnings as string[] | null) ?? [],
@@ -322,7 +590,12 @@ export async function getDevoteeImportBatch(batchId: string): Promise<DevoteeImp
     batchId: batch.id,
     fileName: batch.fileName,
     status: batch.status === "COMMITTED" ? "COMMITTED" : "PREVIEWED",
-    summary: buildSummary(batch.rows.map((r) => r.status)),
+    // V12.6：分類統計需要 plan（存在 rawData 裡），舊批次沒有 plan 時退化成
+    // 只有 status 的計數，不會壞掉。
+    summary: buildSummary(
+      batch.rows.map((r) => r.status),
+      rows.map((r) => r.plan).filter((p): p is RowPlan => Boolean(p))
+    ),
     rows,
     createdAt: batch.createdAt,
     committedAt: batch.committedAt,
@@ -432,6 +705,8 @@ export type CommitDevoteeImportResult =
       householdsCreated: number;
       householdsUpdated: number;
       membersCreated: number;
+      /** V12.6：以個人資料 Excel 補足既有成員空白欄位的筆數 */
+      membersUpdated: number;
       ancestorsCreated: number;
       spiritsCreated: number;
       skippedCount: number;
@@ -454,6 +729,8 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
   let householdsCreated = 0;
   let householdsUpdated = 0;
   let membersCreated = 0;
+  let membersUpdated = 0;
+  const touchedHouseholdIds = new Set<string>();
   let ancestorsCreated = 0;
   let spiritsCreated = 0;
   const failures: { rowNumber: number; householdName: string | null; error: string }[] = [];
@@ -500,12 +777,32 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
 
         if (household) {
           const beforeData = household;
+          /**
+           * V12.6 指令二：**空白欄位不可覆蓋既有有效資料**，除非使用者明確
+           * 選擇覆蓋。
+           *
+           * 舊版是無條件寫入三個欄位，Excel 該格留白就會把資料庫既有的
+           * 戶名／主要聯絡人／地址清成空值——這是靜默的資料流失。
+           *
+           * 現在的規則：
+           *   Excel 有值 → 以 Excel 為準（預檢已把差異列為「欄位衝突」讓使用者看過）
+           *   Excel 空白 → 保留既有值（預檢已列在「保留既有欄位」提醒裡）
+           *   除非該列被標記 overwriteBlanks（使用者在預檢中心明確勾選覆蓋）
+           */
+          const overwriteBlanks = r.plan?.overwriteBlanks === true;
+          const keepIfBlank = <T,>(excel: T | null, existing: T | null): T | null =>
+            excel !== null && excel !== undefined && excel !== ("" as unknown as T)
+              ? excel
+              : overwriteBlanks
+                ? excel ?? null
+                : existing;
+
           household = await tx.household.update({
             where: { id: household.id },
             data: {
-              name: r.household.name,
-              contactName: r.household.contactName,
-              address: r.household.address,
+              name: r.household.name || (overwriteBlanks ? r.household.name : beforeData.name),
+              contactName: keepIfBlank(r.household.contactName, beforeData.contactName),
+              address: keepIfBlank(r.household.address, beforeData.address),
             },
           });
           await recordVersion(
@@ -550,8 +847,116 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
           householdsCreated++;
         }
 
-        // 二、家戶成員：依姓名比對，已存在的略過，只新增找不到的。
-        if (r.memberNames.length > 0) {
+        /**
+         * 二、家戶成員（V12.6 指令三：多欄比對，不可只用姓名判定同一人）。
+         *
+         * 這裡**依預檢算好的 plan 執行**，不重算比對——預檢顯示給使用者看的
+         * 動作，就是實際會發生的動作，兩者不會不一致。plan 缺席時（舊批次）
+         * 退回舊行為，維持向下相容。
+         *
+         *   CREATE  → 新增成員（＋個人 Excel 提供的欄位）
+         *   UPDATE  → 高可信度命中既有成員，用個人 Excel 補足空欄位
+         *   SKIP    → 同一戶已有這個人且沒有補充資料，不動
+         *   REVIEW  → 需人工確認；這種列的 status 是 SUSPECTED_DUPLICATE，
+         *             根本不會進入 readyRows，所以這裡不會遇到
+         */
+        const plannedMembers = r.plan?.members;
+        if (plannedMembers?.length) {
+          for (const pm of plannedMembers) {
+            if (pm.action === "SKIP" || pm.action === "REVIEW") continue;
+
+            if (pm.action === "CREATE") {
+              const created = await tx.member.create({
+                data: {
+                  householdId: household.id,
+                  name: pm.name,
+                  ...(pm.personData?.solarBirthDate
+                    ? { solarBirthDate: new Date(`${pm.personData.solarBirthDate}T00:00:00.000Z`) }
+                    : {}),
+                  ...(pm.personData?.lunarBirthYear
+                    ? {
+                        lunarBirthYear: pm.personData.lunarBirthYear,
+                        lunarBirthMonth: pm.personData.lunarBirthMonth,
+                        lunarBirthDay: pm.personData.lunarBirthDay,
+                        lunarIsLeapMonth: pm.personData.lunarIsLeapMonth,
+                      }
+                    : {}),
+                },
+              });
+              // 個人 Excel 的手機／Email 寫進既有的 DevoteeProfile（延遲建立）
+              if (pm.personData?.mobile) {
+                await tx.devoteeProfile.create({
+                  data: { memberId: created.id, mobile: pm.personData.mobile },
+                });
+              }
+              await recordVersion(
+                {
+                  entityType: "Member",
+                  entityId: created.id,
+                  action: "CREATE",
+                  afterData: created,
+                  operatorName,
+                  changeNote: `信眾資料匯入預檢中心：正式匯入（家戶成員）${pm.personData ? "｜已套用個人資料 Excel 補充欄位" : ""}`,
+                },
+                tx
+              );
+              membersCreated++;
+              continue;
+            }
+
+            // UPDATE：高可信度命中既有成員，只補「目前是空的」欄位，
+            // 不覆蓋既有有效資料（指令四：空白資料不得覆蓋現有資料）。
+            const targetId = pm.candidates[0]?.memberId;
+            if (!targetId || !pm.personData) continue;
+            const existing = await tx.member.findUnique({ where: { id: targetId } });
+            if (!existing) continue;
+
+            const patch: Prisma.MemberUpdateInput = {};
+            if (!existing.solarBirthDate && pm.personData.solarBirthDate) {
+              patch.solarBirthDate = new Date(`${pm.personData.solarBirthDate}T00:00:00.000Z`);
+            }
+            if (!existing.lunarBirthYear && pm.personData.lunarBirthYear) {
+              patch.lunarBirthYear = pm.personData.lunarBirthYear;
+              patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
+              patch.lunarBirthDay = pm.personData.lunarBirthDay;
+              patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+            }
+            if (Object.keys(patch).length > 0) {
+              const after = await tx.member.update({ where: { id: targetId }, data: patch });
+              await recordVersion(
+                {
+                  entityType: "Member",
+                  entityId: targetId,
+                  action: "UPDATE",
+                  beforeData: existing,
+                  afterData: after,
+                  operatorName,
+                  changeNote: `信眾資料匯入預檢中心：正式匯入（以個人資料 Excel 補足空白欄位，比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`,
+                },
+                tx
+              );
+              membersUpdated++;
+            }
+
+            if (pm.personData.mobile) {
+              const profile = await tx.devoteeProfile.findUnique({ where: { memberId: targetId } });
+              if (!profile) {
+                await tx.devoteeProfile.create({
+                  data: { memberId: targetId, mobile: pm.personData.mobile },
+                });
+                membersUpdated++;
+              } else if (!profile.mobile) {
+                await tx.devoteeProfile.update({
+                  where: { memberId: targetId },
+                  data: { mobile: pm.personData.mobile },
+                });
+                membersUpdated++;
+              }
+            }
+          }
+        } else if (r.memberNames.length > 0) {
+          // 向下相容：V12.6 之前建立、rawData 沒有 plan 的舊批次，維持原本
+          // 「依姓名比對、已存在的略過」行為，避免舊批次確認匯入時行為改變。
           const existingMembers = await tx.member.findMany({
             where: { householdId: household.id, deletedAt: null },
             select: { name: true },
@@ -611,6 +1016,7 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
           }
         }
 
+        touchedHouseholdIds.add(household.id);
         importedRowIds.push(r.id);
       }
 
@@ -623,6 +1029,41 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
       const excludedRowIds = view.rows.filter((r) => !importedRowIds.includes(r.id)).map((r) => r.id);
       if (excludedRowIds.length > 0) {
         await tx.importRow.updateMany({ where: { id: { in: excludedRowIds } }, data: { status: "EXCLUDED" } });
+      }
+
+      /**
+       * V12.6 指令七：匯入完成後必須執行既有同步服務——**呼叫既有共用
+       * service，不複製邏輯**。
+       *
+       *   1. Primary Contact Sync（src/lib/householdPrimaryContact.ts）
+       *      匯入會新增成員、也會更新家戶的 contactName 文字。若該文字
+       *      剛好對應到這一戶的某位成員，就把 Member.isPrimaryContact
+       *      旗標同步過去，避免出現「contactName 有值但沒有任何成員被標記
+       *      為主要聯絡人」的不一致（V12.3 指令三.5 的規則）。
+       *
+       *   2. Household Reference Sync（src/lib/householdReferenceSync.ts）
+       *      這一輪的匯入**不會把成員從一戶搬到另一戶**——跨戶同名一律被
+       *      標成 SUSPECTED_DUPLICATE 擋在 readyRows 之外（指令三：不可
+       *      自動轉戶）。沒有成員換戶，六張去正規化表的 householdId 就
+       *      沒有需要同步的對象，因此這裡不呼叫 syncMemberHouseholdReferences()。
+       *      日後若開放「匯入時可轉戶」，必須在這裡呼叫它。
+       *
+       *   3. HouseholdCodeAlias：由上方家戶解析階段直接使用（舊編號對照），
+       *      匯入本身不會產生新的別名（別名只在改編號／合併時建立）。
+       */
+      for (const householdId of touchedHouseholdIds) {
+        const h = await tx.household.findUnique({
+          where: { id: householdId },
+          select: { contactName: true },
+        });
+        if (!h?.contactName) continue;
+        const matched = await tx.member.findFirst({
+          where: { householdId, name: h.contactName, deletedAt: null },
+          select: { id: true },
+        });
+        if (matched) {
+          await setPrimaryContact(tx, householdId, matched.id);
+        }
       }
 
       await tx.importBatch.update({
@@ -642,6 +1083,7 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
     householdsCreated,
     householdsUpdated,
     membersCreated,
+    membersUpdated,
     ancestorsCreated,
     spiritsCreated,
     skippedCount: view.rows.length - readyRows.length,
@@ -659,13 +1101,48 @@ export async function buildDevoteeImportErrorCsv(batchId: string): Promise<{ ok:
   const view = await getDevoteeImportBatch(batchId);
   if (!view) return { ok: false, error: "找不到這個匯入批次" };
 
-  const problemRows = view.rows.filter((r) => r.status === "INCOMPLETE_DATA" || r.status === "FORMAT_ERROR");
-  const header = ["原始列號", "家戶編號", "戶名", "錯誤原因", "原始資料摘要"];
+  /**
+   * V12.6 指令八：匯入報告要涵蓋「每筆錯誤原因」，不只格式錯誤。
+   *
+   * 因此除了原本的「資料不完整／格式錯誤」，也一併輸出 V12.6 新增的
+   * SUSPECTED_DUPLICATE（疑似重複，預設不匯入）與 HOUSEHOLD_UNCERTAIN，
+   * 並多帶「狀態／預計動作」兩欄，讓行政人員拿到 CSV 就知道每一列
+   * 發生什麼事、要怎麼處理。欄位只增不減，既有欄位順序不變。
+   */
+  const problemRows = view.rows.filter(
+    (r) =>
+      r.status === "INCOMPLETE_DATA" ||
+      r.status === "FORMAT_ERROR" ||
+      r.status === "SUSPECTED_DUPLICATE" ||
+      r.status === "HOUSEHOLD_UNCERTAIN"
+  );
+  const statusLabel: Partial<Record<ImportRowStatus, string>> = {
+    INCOMPLETE_DATA: "資料不完整",
+    FORMAT_ERROR: "格式錯誤",
+    SUSPECTED_DUPLICATE: "疑似重複（需人工確認）",
+    HOUSEHOLD_UNCERTAIN: "待確認家戶",
+  };
+  const header = ["原始列號", "家戶編號", "戶名", "狀態", "預計動作", "錯誤原因", "原始資料摘要"];
   const lines = [header.join(",")];
   for (const r of problemRows) {
-    const reasons = r.errors.join("；");
+    // 疑似重複的原因存在 warnings（errors 是硬性錯誤），兩者都要輸出。
+    const reasons = [...r.errors, ...r.warnings].join("；");
+    const plannedAction =
+      r.plan?.householdAction === "CREATE"
+        ? "新增家戶"
+        : r.plan?.householdAction === "UPDATE"
+          ? `更新既有家戶${r.plan.matchedHouseholdId ? `(${r.plan.matchedHouseholdId})` : ""}`
+          : "不會匯入";
     const summary = `主要聯絡人:${r.household.contactName ?? "（無）"} 地址:${r.household.address ?? "（無）"} 家戶成員:${r.memberNames.join("、") || "（無）"}`;
-    const cells = [String(r.rowNumber), r.household.code || "（無）", r.household.name || "（無）", reasons, summary].map(csvEscape);
+    const cells = [
+      String(r.rowNumber),
+      r.household.code || "（無）",
+      r.household.name || "（無）",
+      statusLabel[r.status] ?? r.status,
+      plannedAction,
+      reasons,
+      summary,
+    ].map(csvEscape);
     lines.push(cells.join(","));
   }
   return { ok: true, csv: lines.join("\n") };

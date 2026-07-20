@@ -32,17 +32,23 @@ export function toNullableText(raw: unknown): string | null {
 }
 
 /**
- * 拆解「家戶成員」／「歷代祖先」／「乙位正魂」這類逗號分隔多筆姓名的欄位
- * （需求：依「、」或「，」拆開；這裡同時支援半形逗號「,」，避免使用者
- * 直接用英文輸入法打逗號時被擋下）。拆開後每一筆都會 trim（含全形空白），
- * 空字串（例如結尾多打了一個分隔符號）會被濾掉，不會產生空白姓名。
+ * 拆解「家戶成員」／「歷代祖先」／「乙位正魂」這類多筆姓名的欄位。
+ *
+ * 支援的分隔符（V12.6 指令二：逗號、頓號、換行）：
+ *   、  ，  ,   以及換行（\n、\r\n）與分號 ;／；
+ *
+ * 換行是這一版新增的——Excel 儲存格內用 Alt+Enter 換行列多位成員是行政
+ * 人員常用的寫法，舊版只切逗號會把整格當成一個超長姓名。
+ *
+ * 拆開後每一筆都會 trim（含全形空白與定位字元），空字串（例如結尾多打了
+ * 一個分隔符號、或中間有空行）會被濾掉，不會產生空白姓名。
  */
 export function splitMultiValue(raw: unknown): string[] {
   if (raw === null || raw === undefined) return [];
   const s = toHalfWidthDigits(String(raw)).trim();
   if (!s) return [];
   return s
-    .split(/[、，,]/)
-    .map((part) => part.replace(/^[\s　]+|[\s　]+$/g, ""))
+    .split(/[、，,;；\r\n]+/)
+    .map((part) => part.replace(/^[\s　\t]+|[\s　\t]+$/g, ""))
     .filter((part) => part.length > 0);
 }

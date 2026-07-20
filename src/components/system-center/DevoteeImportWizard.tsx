@@ -8,11 +8,21 @@ import { useOperator } from "@/lib/operatorClient";
  * V11.3「信眾資料匯入預檢中心」正式版——五步驟精靈（依正式 7 欄 Excel 格式）：
  *   ① 上傳檔案 → ② 欄位對照 → ③ 預覽與統計 → ④ 確認匯入 → ⑤ 匯入結果
  *
- * ⚠️ 舊版有一個「④ 疑似重複／待確認家戶處理」的人工判斷步驟，正式版已經
- * 移除——正式格式一列＝一戶、家戶編號是唯一鍵，家戶用「編號是否已存在」
- * 判斷要新增還是更新，家戶成員／歷代祖先／乙位正魂用「姓名是否已存在」
- * 判斷要不要新增，兩者都是確認匯入當下就能百分之百決定的事，不再有需要
- * 人工判斷「這是不是同一人／同一戶」的模糊地帶。
+ * V12.6「Excel 匯入中心正式版」更新：
+ *
+ * 「家戶」層級仍然沒有模糊地帶——一列＝一戶、家戶編號是唯一鍵（含舊編號
+ * 對照），要新增還是更新在預檢當下就能百分之百決定。
+ *
+ * 但「家戶成員」層級有：V12.6 起成員改用多欄比對（姓名＋手機／市話／生日／
+ * 地址），而且會跨家戶偵測同名的人。以下兩種情況無法由系統自行決定，一律
+ * 標成 SUSPECTED_DUPLICATE、**預設不匯入**，在第三步逐列顯示原因與可選的
+ * 處理方式，由行政人員判斷：
+ *
+ *   1. 同名但證據不足（沒有手機也沒有生日可以佐證）
+ *   2. 同名的人已經存在於別的家戶（指令三：不可自動轉戶）
+ *
+ * 第二份「個人資料 Excel」（選填）就是用來降低第 1 種情況的——有手機或
+ * 生日可比對時，系統才能給出高可信度判斷。
  */
 
 type ClientHouseholdFields = {
@@ -22,7 +32,47 @@ type ClientHouseholdFields = {
   address: string | null;
 };
 
-type RowStatus = "READY_TO_IMPORT" | "INCOMPLETE_DATA" | "FORMAT_ERROR" | "EXCLUDED" | "IMPORTED";
+type RowStatus =
+  | "READY_TO_IMPORT"
+  | "INCOMPLETE_DATA"
+  | "FORMAT_ERROR"
+  | "EXCLUDED"
+  | "IMPORTED"
+  // V12.6：成員層級多欄比對後需要人工確認的列
+  | "SUSPECTED_DUPLICATE"
+  | "HOUSEHOLD_UNCERTAIN";
+
+/** V12.6 指令六：每一列的預計動作（由後端預檢算好，畫面只負責顯示）。 */
+type MatchCandidate = {
+  memberId: string;
+  name: string;
+  householdId: string;
+  householdName: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  matchedFields: string[];
+  inOtherHousehold: boolean;
+};
+
+type PlannedMember = {
+  name: string;
+  action: "CREATE" | "UPDATE" | "REVIEW" | "SKIP";
+  confidence: "HIGH" | "MEDIUM" | "LOW" | null;
+  reason: string;
+  candidates: MatchCandidate[];
+  personData: unknown | null;
+};
+
+type RowPlan = {
+  rowNumber: number;
+  householdAction: "CREATE" | "UPDATE" | "BLOCKED";
+  matchedHouseholdId: string | null;
+  matchedViaAlias: boolean;
+  existingHousehold: { name: string; contactName: string | null; address: string | null } | null;
+  fieldConflicts: { field: string; excelValue: string; existingValue: string }[];
+  keptExistingFields: string[];
+  members: PlannedMember[];
+  blockedReason: string | null;
+};
 
 type AnalyzedRow = {
   id: string;
@@ -34,6 +84,7 @@ type AnalyzedRow = {
   status: RowStatus;
   errors: string[];
   warnings: string[];
+  plan: RowPlan | null;
 };
 
 type Summary = {
@@ -43,6 +94,15 @@ type Summary = {
   formatError: number;
   excluded: number;
   imported: number;
+  // V12.6 指令六：預檢分類
+  suspectedDuplicate: number;
+  householdUncertain: number;
+  householdsToCreate: number;
+  householdsToUpdate: number;
+  membersToCreate: number;
+  membersToUpdate: number;
+  autoMatchedHighConfidence: number;
+  fieldConflicts: number;
 };
 
 type TargetField = { key: string; label: string; required?: boolean };
@@ -62,6 +122,8 @@ type CommitResult = {
   householdsCreated: number;
   householdsUpdated: number;
   membersCreated: number;
+  /** V12.6：以個人資料 Excel 補足既有信眾空白欄位的筆數 */
+  membersUpdated?: number;
   ancestorsCreated: number;
   spiritsCreated: number;
   skippedCount: number;
@@ -78,6 +140,8 @@ const STATUS_LABEL: Record<RowStatus, string> = {
   FORMAT_ERROR: "格式錯誤",
   EXCLUDED: "不匯入",
   IMPORTED: "已匯入",
+  SUSPECTED_DUPLICATE: "疑似重複（需人工確認）",
+  HOUSEHOLD_UNCERTAIN: "待確認家戶",
 };
 
 // ⚠️ 顏色僅使用 tailwind.config.ts 實際定義的色階（yolk/blossom/mist/sage
@@ -88,6 +152,8 @@ const STATUS_BADGE_CLASS: Record<RowStatus, string> = {
   FORMAT_ERROR: "bg-blossom-200 text-ink",
   EXCLUDED: "bg-cream-200 text-ink-faint",
   IMPORTED: "bg-sage-200 text-ink",
+  SUSPECTED_DUPLICATE: "bg-yolk-200 text-ink",
+  HOUSEHOLD_UNCERTAIN: "bg-yolk-200 text-ink",
 };
 
 const dash = (v: string | null | undefined): string => (v && v.trim().length > 0 ? v : "—");
@@ -99,6 +165,9 @@ export default function DevoteeImportWizard() {
 
   // ---- 檔案（保留在瀏覽器記憶體，欄位對照調整後可以重新分析同一個檔案，不用重新上傳） ----
   const [file, setFile] = useState<File | null>(null);
+  /** V12.6 指令四：可選的第二份「個人資料 Excel」，用來補足成員欄位。 */
+  const [personFile, setPersonFile] = useState<File | null>(null);
+  const [personInfo, setPersonInfo] = useState<{ fileName: string | null; rowCount: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
   // ---- 分析結果 ----
@@ -122,6 +191,8 @@ export default function DevoteeImportWizard() {
   function resetAll() {
     setStep(1);
     setFile(null);
+    setPersonFile(null);
+    setPersonInfo(null);
     setFileError(null);
     setAnalyzing(false);
     setAnalyzeError(null);
@@ -165,6 +236,7 @@ export default function DevoteeImportWizard() {
     try {
       const form = new FormData();
       form.append("file", file);
+      if (personFile) form.append("personFile", personFile);
       form.append("operatorUserId", operatorUserId);
       if (useCurrentMapping) {
         form.append("mapping", JSON.stringify(mapping));
@@ -181,6 +253,7 @@ export default function DevoteeImportWizard() {
       setMapping(data.mapping ?? {});
       setSummary(data.summary ?? null);
       setRows(data.rows ?? []);
+      setPersonInfo({ fileName: data.personFileName ?? null, rowCount: data.personRowCount ?? 0 });
       setStep(useCurrentMapping ? 3 : 2);
     } catch {
       setAnalyzeError("無法連線到伺服器，請稍後再試");
@@ -282,19 +355,44 @@ export default function DevoteeImportWizard() {
             正式格式固定七欄：家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜家戶成員，一列代表一戶。
             支援 .xlsx、.xls、.csv，單次僅能上傳一個檔案，檔案大小上限 10MB。上傳後不會立即寫入任何正式資料。
           </p>
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-            className="text-sm text-ink"
-          />
+          <div>
+            <label className="mb-1 block text-xs text-ink-soft">① 家戶 Excel（必要）</label>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+              className="w-full text-sm text-ink"
+            />
+          </div>
+
+          {/* V12.6 指令四／五：可選的第二份個人資料 Excel */}
+          <div className="rounded-2xl bg-mist-50 p-4">
+            <label className="mb-1 block text-xs text-ink-soft">② 個人資料 Excel（選填）</label>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => setPersonFile(e.target.files?.[0] ?? null)}
+              className="w-full text-sm text-ink"
+            />
+            <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+              用來補足每位成員的手機／市話／Email／國曆生日／農曆生日／地址。
+              欄名沿用既有慣例（家戶編號、姓名、性別、手機、市話、Email、國曆生日、農曆生日、地址、備註），
+              不需要修改你現有的檔案格式。
+              <br />
+              這一份**不會單獨產生匯入資料**，只會依姓名（有填家戶編號時更精準）掛回家戶檔的成員上。
+              有了這些欄位，系統才能用「姓名＋電話／生日」多欄判斷是不是同一個人；
+              沒有上傳時，同名一律會被列為疑似重複交由你確認，不會自動合併。
+            </p>
+            {personFile && <p className="mt-1 text-xs text-ink-soft">已選擇：{personFile.name}</p>}
+          </div>
+
           {fileError && <p className="text-xs text-blossom-300">{fileError}</p>}
           {analyzeError && <p className="text-xs text-blossom-300">{analyzeError}</p>}
           <button
             type="button"
             disabled={!file || !operatorUserId || analyzing}
             onClick={() => runAnalyze(false)}
-            className="min-h-10 w-fit rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint"
+            className="min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint sm:w-fit"
           >
             {analyzing ? "分析中…" : "上傳並分析"}
           </button>
@@ -309,7 +407,7 @@ export default function DevoteeImportWizard() {
             系統已依欄位名稱自動猜測對應，請確認或手動調整每一欄要對應到哪個系統欄位；選「不匯入」的欄位不會被讀取。
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-left text-sm">
+            <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-xs text-ink-faint">
                   <th className="pb-2 pr-4">Excel 欄位名稱</th>
@@ -324,7 +422,7 @@ export default function DevoteeImportWizard() {
                       <select
                         value={mapping[col] ?? ""}
                         onChange={(e) => setMapping((prev) => ({ ...prev, [col]: e.target.value || null }))}
-                        className="min-h-9 w-full max-w-xs rounded-full border border-cream-200 bg-cream-50 px-3 text-sm text-ink"
+                        className="min-h-11 w-full rounded-full border border-cream-200 bg-cream-50 px-3 text-sm text-ink sm:max-w-xs"
                       >
                         <option value="">（不匯入）</option>
                         {targetFields.map((f) => (
@@ -341,11 +439,11 @@ export default function DevoteeImportWizard() {
             </table>
           </div>
           {analyzeError && <p className="text-xs text-blossom-300">{analyzeError}</p>}
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="min-h-10 rounded-full border border-cream-200 px-6 text-sm text-ink-soft"
+              className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft sm:w-auto"
             >
               ← 重新上傳
             </button>
@@ -365,12 +463,37 @@ export default function DevoteeImportWizard() {
       {step === 3 && summary && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第三步：預覽與統計</h3>
-          <div className="flex flex-wrap gap-3 text-xs">
+          {personInfo?.fileName && (
+            <p className="rounded-2xl bg-mist-50 px-4 py-2.5 text-xs text-ink-soft">
+              已套用個人資料 Excel：{personInfo.fileName}（{personInfo.rowCount} 筆），
+              成員比對會使用手機／市話／生日等欄位，判斷比只用姓名精準。
+            </p>
+          )}
+
+          {/* V12.6 指令六：預檢分類 */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
             <StatPill label="總筆數（戶）" value={summary.total} />
-            <StatPill label="可匯入" value={summary.readyToImport} tone="sage" />
-            <StatPill label="資料不完整" value={summary.incompleteData} tone="blossom" />
+            <StatPill label="可新增家戶" value={summary.householdsToCreate} tone="sage" />
+            <StatPill label="可更新家戶" value={summary.householdsToUpdate} tone="mist" />
+            <StatPill label="可新增信眾" value={summary.membersToCreate} tone="sage" />
+            <StatPill label="可更新信眾" value={summary.membersToUpdate} tone="mist" />
+            <StatPill label="高可信度自動配對" value={summary.autoMatchedHighConfidence} tone="mist" />
+            <StatPill label="疑似重複" value={summary.suspectedDuplicate} tone="yolk" />
+            <StatPill label="欄位衝突" value={summary.fieldConflicts} tone="yolk" />
             <StatPill label="格式錯誤" value={summary.formatError} tone="blossom" />
+            <StatPill label="必填缺漏" value={summary.incompleteData} tone="blossom" />
+            <StatPill label="已略過" value={summary.excluded} tone="cream" />
           </div>
+
+          {summary.suspectedDuplicate > 0 && (
+            <p className="rounded-2xl bg-yolk-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+              有 {summary.suspectedDuplicate} 列被判定為「疑似重複」，
+              <span className="text-ink">預設不會匯入</span>
+              。系統不會自動把同名的人合併，也不會自動把已經在別戶的人轉戶——
+              請在下方逐列檢視原因後，修改 Excel 或人工處理再重新上傳。
+            </p>
+          )}
+
           <p className="text-xs text-ink-faint">以下顯示前 20 筆資料預覽（統計數字為整份檔案，每一筆代表一戶）：</p>
           <div className="flex flex-col gap-3">
             {previewRows.map((r) => (
@@ -396,17 +519,105 @@ export default function DevoteeImportWizard() {
                 {r.spiritNames.length > 0 && (
                   <p className="mt-1 text-xs text-ink-soft">乙位正魂：{r.spiritNames.join("、")}</p>
                 )}
+                {/*
+                  V12.6 指令六：每一筆都要顯示「預計動作／系統既有資料／
+                  問題原因／可選處理方式」。手機版用縱向卡片，不使用表格，
+                  所以不會出現橫向捲動。
+                */}
+                {r.plan && (
+                  <div className="mt-3 flex flex-col gap-2 rounded-xl bg-cream-50 p-3">
+                    <p className="text-xs text-ink-soft">
+                      預計動作：
+                      <span className="text-ink">
+                        {r.plan.householdAction === "CREATE"
+                          ? "新增家戶"
+                          : r.plan.householdAction === "UPDATE"
+                            ? `更新既有家戶${r.plan.matchedHouseholdId ? `（${r.plan.matchedHouseholdId}）` : ""}`
+                            : "不會匯入"}
+                      </span>
+                      {r.plan.matchedViaAlias && (
+                        <span className="ml-1 rounded-full bg-mist-100 px-2 py-0.5 text-[11px]">
+                          透過舊編號對照
+                        </span>
+                      )}
+                    </p>
+
+                    {r.plan.existingHousehold && (
+                      <p className="text-xs text-ink-faint">
+                        系統既有：戶名 {dash(r.plan.existingHousehold.name)}／主要聯絡人{" "}
+                        {dash(r.plan.existingHousehold.contactName)}／地址{" "}
+                        {dash(r.plan.existingHousehold.address)}
+                      </p>
+                    )}
+
+                    {r.plan.fieldConflicts.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        {r.plan.fieldConflicts.map((c) => (
+                          <p key={c.field} className="text-xs text-ink-soft">
+                            ⚠️ 欄位衝突「{c.field}」：Excel「{c.excelValue}」↔ 系統「{c.existingValue}」
+                            <span className="text-ink-faint">　→ 匯入後以 Excel 為準</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {r.plan.keptExistingFields.length > 0 && (
+                      <p className="text-xs text-ink-faint">
+                        Excel 未填「{r.plan.keptExistingFields.join("、")}」→ 保留系統既有資料，不會被清空
+                      </p>
+                    )}
+
+                    {r.plan.members.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        {r.plan.members.map((m) => (
+                          <div key={m.name} className="text-xs">
+                            <span className="text-ink">{m.name}</span>
+                            <span
+                              className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${
+                                m.action === "CREATE"
+                                  ? "bg-sage-100 text-ink"
+                                  : m.action === "UPDATE"
+                                    ? "bg-mist-100 text-ink"
+                                    : m.action === "SKIP"
+                                      ? "bg-cream-200 text-ink-faint"
+                                      : "bg-yolk-200 text-ink"
+                              }`}
+                            >
+                              {m.action === "CREATE"
+                                ? "新增信眾"
+                                : m.action === "UPDATE"
+                                  ? "更新既有信眾"
+                                  : m.action === "SKIP"
+                                    ? "已存在，略過"
+                                    : "需人工確認"}
+                            </span>
+                            {m.action === "REVIEW" && (
+                              <>
+                                <span className="mt-0.5 block text-ink-soft">{m.reason}</span>
+                                <span className="mt-0.5 block text-ink-faint">
+                                  可選處理方式：① 保留原家戶（不動）② 轉入本戶（請用信眾詳情的「更換家戶」）
+                                  ③ 建立新人物（在 Excel 姓名加註區別，或補上手機／生日再匯入）④ 略過這一列
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {(r.errors.length > 0 || r.warnings.length > 0) && (
                   <p className="mt-2 text-xs text-blossom-300">{[...r.errors, ...r.warnings].join("；")}</p>
                 )}
               </div>
             ))}
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
             <button
               type="button"
               onClick={() => setStep(2)}
-              className="min-h-10 rounded-full border border-cream-200 px-6 text-sm text-ink-soft"
+              className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft sm:w-auto"
             >
               ← 回欄位對照
             </button>
@@ -416,7 +627,7 @@ export default function DevoteeImportWizard() {
                 setStep(4);
                 await loadCommitPreview();
               }}
-              className="min-h-10 rounded-full bg-ink px-6 text-sm text-cream-50"
+              className="min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 sm:w-auto"
             >
               下一步：確認匯入 →
             </button>
@@ -432,7 +643,7 @@ export default function DevoteeImportWizard() {
           {commitPreviewError && <p className="text-xs text-blossom-300">{commitPreviewError}</p>}
           {commitPreview && (
             <>
-              <div className="flex flex-wrap gap-3 text-xs">
+              <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:gap-3">
                 <StatPill label="即將新增家戶" value={commitPreview.newHouseholdCount} tone="sage" />
                 <StatPill label="即將更新家戶" value={commitPreview.updateHouseholdCount} tone="mist" />
                 <StatPill label="即將新增成員" value={commitPreview.newMemberCount} tone="sage" />
@@ -451,7 +662,7 @@ export default function DevoteeImportWizard() {
                 <button
                   type="button"
                   onClick={() => setStep(3)}
-                  className="min-h-10 rounded-full border border-cream-200 px-6 text-sm text-ink-soft"
+                  className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft sm:w-auto"
                 >
                   ← 回上一步
                 </button>
@@ -473,10 +684,11 @@ export default function DevoteeImportWizard() {
       {step === 5 && commitResult && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第五步：匯入結果</h3>
-          <div className="flex flex-wrap gap-3 text-xs">
+          <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:gap-3">
             <StatPill label="新增家戶" value={commitResult.householdsCreated} tone="sage" />
             <StatPill label="更新家戶" value={commitResult.householdsUpdated} tone="mist" />
-            <StatPill label="新增成員" value={commitResult.membersCreated} tone="sage" />
+            <StatPill label="新增信眾" value={commitResult.membersCreated} tone="sage" />
+            <StatPill label="更新信眾" value={commitResult.membersUpdated ?? 0} tone="mist" />
             <StatPill label="新增祖先" value={commitResult.ancestorsCreated} tone="sage" />
             <StatPill label="新增乙位正魂" value={commitResult.spiritsCreated} tone="sage" />
             <StatPill label="不處理" value={commitResult.skippedCount} />
@@ -497,11 +709,11 @@ export default function DevoteeImportWizard() {
               </ul>
             </div>
           )}
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
             <button
               type="button"
               onClick={downloadErrorCsv}
-              className="min-h-10 rounded-full border border-cream-200 px-6 text-sm text-ink-soft"
+              className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft sm:w-auto"
             >
               下載錯誤清單 CSV
             </button>
@@ -516,7 +728,7 @@ export default function DevoteeImportWizard() {
             <button
               type="button"
               onClick={resetAll}
-              className="min-h-10 rounded-full bg-ink px-6 text-sm text-cream-50"
+              className="min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 sm:w-auto"
             >
               匯入下一批
             </button>
@@ -531,7 +743,7 @@ export default function DevoteeImportWizard() {
   );
 }
 
-function StatPill({ label, value, tone }: { label: string; value: number; tone?: "sage" | "yolk" | "blossom" | "mist" }) {
+function StatPill({ label, value, tone }: { label: string; value: number; tone?: "sage" | "yolk" | "blossom" | "mist" | "cream" }) {
   const toneClass =
     tone === "sage"
       ? "bg-sage-100 text-ink"
