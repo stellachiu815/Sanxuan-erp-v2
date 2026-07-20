@@ -34,6 +34,7 @@ export type HouseholdView = {
   name: string;
   contactName: string | null;
   phone: string | null;
+  mobile: string | null;
   address: string | null;
   companyName: string | null;
   notes: string | null;
@@ -104,6 +105,7 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
     name: household.name,
     contactName: household.contactName,
     phone: household.phone,
+    mobile: household.mobile,
     address: household.address,
     companyName: household.companyName,
     notes: household.notes,

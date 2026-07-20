@@ -5,36 +5,84 @@ import { useRouter } from "next/navigation";
 import AddMemberModal from "./AddMemberModal";
 import EditHouseholdModal from "./EditHouseholdModal";
 import AddWorshipModal from "./AddWorshipModal";
+import AssignHeadModal from "./AssignHeadModal";
+import ArchiveHouseholdDialog from "./ArchiveHouseholdDialog";
+import MergeHouseholdWizard from "./MergeHouseholdWizard";
+import SplitHouseholdWizard from "./SplitHouseholdWizard";
+import TransferMembersWizard from "./TransferMembersWizard";
 import Modal from "@/components/Modal";
 import VersionHistoryPanel from "@/components/system/VersionHistoryPanel";
+import { OperatorProvider, useOperator } from "@/lib/operatorClient";
+import { canDevotee } from "@/lib/permissions";
+import OperatorBar from "@/components/system/OperatorBar";
 
-type ModalKind = "editHousehold" | "addMember" | "addWorship" | "versionHistory" | null;
+type ModalKind =
+  | "editHousehold"
+  | "addMember"
+  | "addWorship"
+  | "versionHistory"
+  | "assignHead"
+  | "archiveHousehold"
+  | "mergeHousehold"
+  | "splitHousehold"
+  | "transferMembers"
+  | null;
 
 type Props = {
   householdId: string;
   household: {
+    name: string;
     contactName: string | null;
     phone: string | null;
+    mobile: string | null;
     address: string | null;
     companyName: string | null;
     notes: string | null;
   };
+  members: { id: string; name: string; role: string }[];
+  worshipRecords: { id: string; type: "ANCESTOR_LINE" | "INDIVIDUAL"; displayName: string }[];
   /** V6.0：從搜尋結果帶進來的成員 id（已在 page.tsx 驗證過屬於這一戶），
    *  帶進「歷年紀錄」連結，時間軸頁面才能預設切到這位成員視角。 */
   focusedMemberId?: string | null;
 };
 
-// 這三個目前只做畫面，還沒有接功能（依需求，之後才會一個一個做）。
-// 「普渡」從 V3.0 起已經接上真正的登記畫面，不再放在這個清單裡。
+// 這兩個目前只做畫面，還沒有接功能（依需求，之後才會一個一個做）。
+// 「普渡」從 V3.0 起已經接上真正的登記畫面，「補印」從 V11.1 起已經接上
+// 全宮共用收據中心的補印功能，都不再放在這個清單裡。
 const COMING_SOON_ACTIONS = [
   { icon: "🏮", label: "年度燈", tone: "bg-yolk-50" },
   { icon: "🎉", label: "宮慶", tone: "bg-sage-50" },
-  { icon: "🖨", label: "補印", tone: "bg-mist-50" },
 ];
 
-export default function QuickActionsPanel({ householdId, household, focusedMemberId }: Props) {
+/**
+ * V12.1「家戶管理中心」擴充：這個面板原本沒有任何操作人員／權限概念
+ * （修改資料/新增家人/新增祭祀資料都是任何人都能按），這次補上：
+ * 1. 本地 <OperatorProvider>（呼應 src/components/devotee/
+ *    DevoteeCenterHomeCard.tsx 的既有作法——根 layout 沒有全站掛載
+ *    OperatorProvider，各自需要的元件樹要自己包一層）。
+ * 2. <OperatorBar/> 讓使用者先選出自己是誰。
+ * 3. 用 canDevotee(role, "updateProfile") 隱藏所有會修改資料的按鈕給
+ *    READONLY 角色看（前端隱藏只是體驗優化，真正把關在各 API 的
+ *    assertDevoteePermissionForOperator()）。
+ *
+ * AddMemberModal／AddWorshipModal 這次沒有修改，維持原本沒有 operatorUserId
+ * 的呼叫方式，不影響既有行為。
+ */
+export default function QuickActionsPanel(props: Props) {
+  return (
+    <OperatorProvider>
+      <QuickActionsPanelInner {...props} />
+    </OperatorProvider>
+  );
+}
+
+function QuickActionsPanelInner({ householdId, household, members, worshipRecords, focusedMemberId }: Props) {
   const router = useRouter();
+  const { operatorUser } = useOperator();
   const [openModal, setOpenModal] = useState<ModalKind>(null);
+
+  const canManage = operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false;
+  const activeMemberCount = members.length;
 
   function handleSuccess() {
     router.refresh();
@@ -46,6 +94,8 @@ export default function QuickActionsPanel({ householdId, household, focusedMembe
 
   return (
     <>
+      <OperatorBar />
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <button
           type="button"
@@ -78,38 +128,93 @@ export default function QuickActionsPanel({ householdId, household, focusedMembe
           </button>
         ))}
 
-        <button
-          type="button"
-          onClick={() => setOpenModal("editHousehold")}
-          className="flex flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
-                     shadow-soft transition hover:bg-cream-300/70"
-        >
-          <span className="text-2xl">✏️</span>
-          <span className="text-sm text-ink">修改資料</span>
-        </button>
+        {canManage && (
+          <>
+            <button
+              type="button"
+              onClick={() => setOpenModal("editHousehold")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-cream-300/70"
+            >
+              <span className="text-2xl">✏️</span>
+              <span className="text-sm text-ink">修改資料</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setOpenModal("addMember")}
-          className="flex flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
-                     shadow-soft transition hover:bg-sage-100"
-        >
-          <span className="text-2xl">➕</span>
-          <span className="text-sm text-ink">新增家人</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setOpenModal("addMember")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-sage-100"
+            >
+              <span className="text-2xl">➕</span>
+              <span className="text-sm text-ink">新增家人</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setOpenModal("addWorship")}
-          className="flex flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
-                     shadow-soft transition hover:bg-blossom-100"
-        >
-          <span className="text-2xl">➕</span>
-          <span className="text-sm text-ink">新增祭祀資料</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setOpenModal("addWorship")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-blossom-100"
+            >
+              <span className="text-2xl">➕</span>
+              <span className="text-sm text-ink">新增祭祀資料</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("assignHead")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-yolk-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-yolk-100"
+            >
+              <span className="text-2xl">👑</span>
+              <span className="text-sm text-ink">指定戶長</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("mergeHousehold")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-sage-100"
+            >
+              <span className="text-2xl">🔗</span>
+              <span className="text-sm text-ink">合併家戶</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("splitHousehold")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-mist-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-mist-100"
+            >
+              <span className="text-2xl">✂️</span>
+              <span className="text-sm text-ink">拆分家戶</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("transferMembers")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-blossom-100"
+            >
+              <span className="text-2xl">🔀</span>
+              <span className="text-sm text-ink">轉移成員</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("archiveHousehold")}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-cream-300/70"
+            >
+              <span className="text-2xl">🗄</span>
+              <span className="text-sm text-ink">封存空家戶</span>
+            </button>
+          </>
+        )}
 
         {/* V8.0「資料版本紀錄」：查看這個家戶資料本身的修改歷史（不含成員/
-            普渡登記，那兩個目前只能各自查看，見對應畫面）。 */}
+            普渡登記，那兩個目前只能各自查看，見對應畫面）。這是查看功能，
+            READONLY 也可以看，不受 canManage 限制。 */}
         <button
           type="button"
           onClick={() => setOpenModal("versionHistory")}
@@ -141,6 +246,49 @@ export default function QuickActionsPanel({ householdId, household, focusedMembe
           householdId={householdId}
           onClose={() => setOpenModal(null)}
           onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "assignHead" && (
+        <AssignHeadModal
+          householdId={householdId}
+          members={members}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "mergeHousehold" && (
+        <MergeHouseholdWizard
+          targetHouseholdId={householdId}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "splitHousehold" && (
+        <SplitHouseholdWizard
+          householdId={householdId}
+          members={members}
+          worshipRecords={worshipRecords}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "transferMembers" && (
+        <TransferMembersWizard
+          householdId={householdId}
+          members={members}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "archiveHousehold" && (
+        <ArchiveHouseholdDialog
+          householdId={householdId}
+          memberCount={activeMemberCount}
+          onClose={() => setOpenModal(null)}
+          onSuccess={() => {
+            handleSuccess();
+            router.push("/households");
+          }}
         />
       )}
       {openModal === "versionHistory" && (

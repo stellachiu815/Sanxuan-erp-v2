@@ -52,6 +52,7 @@ export default async function HouseholdPage({
           <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
             <InfoRow label="主要聯絡人" value={household.contactName} />
             <InfoRow label="電話" value={household.phone} />
+            <InfoRow label="手機" value={household.mobile} />
             <InfoRow label="地址" value={household.address} className="sm:col-span-2" />
           </dl>
         </section>
@@ -153,12 +154,20 @@ export default async function HouseholdPage({
               householdId={household.id}
               focusedMemberId={focusedMemberId}
               household={{
+                name: household.name,
                 contactName: household.contactName,
                 phone: household.phone,
+                mobile: household.mobile,
                 address: household.address,
                 companyName: household.companyName,
                 notes: household.notes,
               }}
+              members={household.members.map((m) => ({ id: m.id, name: m.name, role: m.role }))}
+              worshipRecords={household.worshipRecords.map((w) => ({
+                id: w.id,
+                type: w.type,
+                displayName: w.displayName,
+              }))}
             />
           </div>
         </section>

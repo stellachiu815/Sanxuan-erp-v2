@@ -74,6 +74,11 @@ export default async function HomePage() {
         >
           🗑 回收區 →
         </Link>
+        {/* V12.1「家戶管理中心」指令「二十二、導覽入口」：只新增這一個入口
+            連結，不調整上面既有連結的順序。 */}
+        <Link href="/households" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+          🏠 家戶管理中心 →
+        </Link>
       </div>
     </main>
   );

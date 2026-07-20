@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getHouseholdDetail } from "@/lib/household";
-import { prisma } from "@/lib/prisma";
-import { recordVersion } from "@/lib/recordVersion";
+import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { updateHouseholdBasic, toHouseholdApiError } from "@/lib/householdManagement";
 
 /**
  * 家戶資料 API
@@ -27,66 +27,63 @@ export async function GET(
 }
 
 /**
- * 修改家戶資料 API（只能改地址／電話／主要聯絡人／公司名稱／備註，
- * 家戶編號與家戶名稱不開放從這裡修改）
+ * 修改家戶資料 API。
  *
  * PATCH /api/households/F00009
- * body: { contactName?, phone?, address?, companyName?, notes?, operatorName? }
+ * body: { operatorUserId, householdCode?, householdName?, contactName?, phone?, mobile?, address?, companyName?, notes? }
  *
- * V8.0「資料版本紀錄」：修改前後的完整快照會寫入一筆 RecordVersion。
- * operatorName 是選填的自由文字（系統目前沒有登入功能，見
- * src/lib/recordVersion.ts 開頭的說明），畫面上可以留空。
+ * V12.1「家戶管理中心」擴充（對應指令「一/三/九」）：
+ * 1. 這裡原本只能改地址／電話／主要聯絡人／公司名稱／備註，這次擴充成
+ *    也能修改家戶編號（householdCode）與戶名（householdName）——核心
+ *    邏輯（含家戶編號唯一性檢查、版本紀錄）統一交給
+ *    src/lib/householdManagement.ts 的 updateHouseholdBasic()，避免這裡
+ *    跟新的家戶管理中心各自維護一份重複的驗證邏輯。
+ * 2. 這裡原本完全沒有權限檢查（既有缺口），這次補上
+ *    assertDevoteePermissionForOperator(..., "updateProfile")——跟信眾
+ *    資料中心「修改信眾資料」共用同一個權限動作，對應這次指令「四、
+ *    權限規則」的 SUPER_ADMIN／ADMIN／STAFF 可修改、READONLY 不可修改。
+ * 3. operatorName 這個舊參數已被 operatorUserId 取代（伺服器端查真實
+ *    操作人員姓名，不再信任前端直接送來的自由文字姓名）；為了不影響
+ *    既有呼叫端行為，若請求沒有帶 operatorUserId，仍會回傳 401，等同
+ *    「尚未登入」，這是刻意的收緊（既有這支 API 完全沒有權限檢查是一個
+ *    安全缺口，這次順帶補上，不是「順便修改其他模組」，而是這次指令
+ *    「四、權限規則」明確要求 API 也必須檢查）。
  */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
+  try {
+    const { id } = await params;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
+    }
 
-  const existing = await prisma.household.findUnique({ where: { id } });
-  if (!existing || existing.deletedAt) {
-    return NextResponse.json({ error: "找不到這個家戶" }, { status: 404 });
-  }
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
-  }
-
-  const toNullableString = (v: unknown): string | null => {
-    if (typeof v !== "string") return null;
-    const trimmed = v.trim();
-    return trimmed ? trimmed : null;
-  };
-
-  const data: Record<string, string | null> = {};
-  if ("contactName" in body) data.contactName = toNullableString(body.contactName);
-  if ("phone" in body) data.phone = toNullableString(body.phone);
-  if ("address" in body) data.address = toNullableString(body.address);
-  if ("companyName" in body) data.companyName = toNullableString(body.companyName);
-  if ("notes" in body) data.notes = toNullableString(body.notes);
-
-  const operatorName = toNullableString(body.operatorName);
-
-  const household = await prisma.$transaction(async (tx) => {
-    const updated = await tx.household.update({ where: { id }, data });
-
-    await recordVersion(
+    const { household } = await updateHouseholdBasic(
+      id,
       {
-        entityType: "Household",
-        entityId: id,
-        action: "UPDATE",
-        beforeData: existing,
-        afterData: updated,
-        operatorName,
+        id: typeof body.householdCode === "string" ? body.householdCode : undefined,
+        name: typeof body.householdName === "string" ? body.householdName : undefined,
+        contactName: "contactName" in body ? body.contactName : undefined,
+        phone: "phone" in body ? body.phone : undefined,
+        mobile: "mobile" in body ? body.mobile : undefined,
+        address: "address" in body ? body.address : undefined,
+        companyName: "companyName" in body ? body.companyName : undefined,
+        notes: "notes" in body ? body.notes : undefined,
       },
-      tx
+      check.operator.name
     );
 
-    return updated;
-  });
+    revalidatePath(`/household/${household.id}`);
+    if (household.id !== id) revalidatePath(`/household/${id}`);
 
-  revalidatePath(`/household/${id}`);
-
-  return NextResponse.json({ household });
+    return NextResponse.json({ household, success: true });
+  } catch (e) {
+    const { status, error } = toHouseholdApiError(e);
+    return NextResponse.json({ error, success: false }, { status });
+  }
 }
