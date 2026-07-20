@@ -260,6 +260,8 @@ export default function DevoteeImportWizard() {
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
+  /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
+  const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
   function resetAll() {
     setStep(1);
@@ -283,6 +285,7 @@ export default function DevoteeImportWizard() {
     setCommitPreviewError(null);
     setCommitError(null);
     setCommitResult(null);
+    setCommitProgress(null);
   }
 
   function handleFileChange(f: File | null) {
@@ -370,27 +373,82 @@ export default function DevoteeImportWizard() {
     }
   }
 
+  /**
+   * V12.7：確認匯入（支援任意筆數）。
+   *
+   * **使用者只按一次這顆按鈕。** 分批完全發生在這個函式內部：後端每次處理
+   * 一批（預設 100 戶）並回傳 `done` 與進度，`done === false` 就自動再呼叫
+   * 一次繼續下一批，直到全部完成。
+   *
+   * 為什麼要在前端迴圈、而不是後端一次跑完 869 戶：
+   *   - 單一 HTTP 請求跑兩萬多次資料庫往返會撞到 Render 的請求逾時
+   *   - 分批回傳才能即時顯示「123 / 869 戶」，讓行政人員知道系統沒當機
+   *
+   * 中途失敗時：該批已完整回滾，先前成功的批次保留；再按一次會從沒做完的
+   * 地方接續（後端以 row 狀態判斷，不會重複建立）。
+   */
   async function handleCommit() {
-    if (!batchId || !operatorUserId || committing) return; // 防止連點：commit 期間按鈕會被 disabled，這裡再做一層防呆
+    if (!batchId || !operatorUserId || committing) return; // 防止連點
     setCommitting(true);
     setCommitError(null);
+    setCommitProgress(null);
+
+    // 跨批次累加的統計數字（每一批只回傳該批的數量）
+    const totals = {
+      householdsCreated: 0,
+      householdsUpdated: 0,
+      membersCreated: 0,
+      membersUpdated: 0,
+      ancestorsCreated: 0,
+      spiritsCreated: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      failures: [] as CommitResult["failures"],
+      committedAt: new Date().toISOString(),
+    };
+
     try {
-      const res = await fetch(`/api/import/devotee-precheck/${batchId}/commit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operatorUserId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCommitError(data.error ?? "確認匯入失敗");
-        return;
+      // 安全上限：避免後端若出現異常狀態導致無限迴圈。
+      // 869 戶 ÷ 100 ≈ 9 批，1000 次已是極寬裕的裕度。
+      for (let guard = 0; guard < 1000; guard++) {
+        const res = await fetch(`/api/import/devotee-precheck/${batchId}/commit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ operatorUserId }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setCommitError(data.error ?? "確認匯入失敗");
+          return;
+        }
+
+        totals.householdsCreated += data.householdsCreated ?? 0;
+        totals.householdsUpdated += data.householdsUpdated ?? 0;
+        totals.membersCreated += data.membersCreated ?? 0;
+        totals.membersUpdated += data.membersUpdated ?? 0;
+        totals.ancestorsCreated += data.ancestorsCreated ?? 0;
+        totals.spiritsCreated += data.spiritsCreated ?? 0;
+        totals.failedCount += data.failedCount ?? 0;
+        if (Array.isArray(data.failures)) totals.failures.push(...data.failures);
+        // 略過筆數與完成時間以最後一批的回報為準（後端算的是整批的值）
+        totals.skippedCount = data.skippedCount ?? totals.skippedCount;
+        totals.committedAt = data.committedAt ?? totals.committedAt;
+
+        setCommitProgress({
+          processed: data.processedHouseholds ?? 0,
+          total: data.totalHouseholds ?? 0,
+        });
+
+        if (data.done) break;
       }
-      setCommitResult(data);
+
+      setCommitResult(totals);
       setStep(5);
     } catch {
-      setCommitError("無法連線到伺服器，請稍後再試");
+      setCommitError("無法連線到伺服器，請稍後再試。已完成的批次不會遺失，重新按一次即可從未完成的地方接續。");
     } finally {
       setCommitting(false);
+      setCommitProgress(null);
     }
   }
 
@@ -892,26 +950,59 @@ export default function DevoteeImportWizard() {
                   正式匯入已停用。請回到上一步，點「疑似重複」分類逐一選擇處理方式後再回來。
                 </p>
               )}
-              {commitPreview.overCap && (
-                <p className="rounded-2xl bg-blossom-100 p-4 text-sm text-blossom-300">{commitPreview.capMessage}</p>
-              )}
-              <p className="text-xs text-ink-faint">
+              <p className="text-xs leading-relaxed text-ink-faint">
                 只有狀態為「可匯入」的家戶會被處理；資料不完整、格式錯誤的列一律不會匯入。已經存在的家戶成員／歷代祖先／乙位正魂會保留原樣，不會被覆蓋或刪除，只會新增找不到的資料。
+                <br />
+                {/* V12.7：單次筆數上限已移除，改以分批交易處理任意筆數 */}
+                資料筆數沒有上限，按一次即可完成全部。系統會自動分批寫入並顯示進度，過程中請不要關閉頁面。
               </p>
-              {commitError && <p className="text-xs text-blossom-300">{commitError}</p>}
-              <div className="flex flex-wrap gap-3">
+              {commitError && (
+                <p className="rounded-2xl bg-blossom-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+                  {commitError}
+                </p>
+              )}
+
+              {/* V12.7：分批匯入進度，讓使用者知道系統沒有當機 */}
+              {committing && (
+                <div className="rounded-2xl bg-mist-50 px-4 py-3">
+                  <p className="text-sm text-ink">
+                    正在匯入…
+                    {commitProgress && commitProgress.total > 0 && (
+                      <span className="ml-2">
+                        {commitProgress.processed} / {commitProgress.total} 戶
+                      </span>
+                    )}
+                  </p>
+                  {commitProgress && commitProgress.total > 0 && (
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-cream-200">
+                      <div
+                        className="h-full rounded-full bg-sage-300 transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round((commitProgress.processed / commitProgress.total) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-ink-faint">
+                    系統正在分批寫入，請不要關閉或重新整理頁面。中途若中斷，已完成的部分不會遺失，重新按一次會從未完成的地方接續。
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
                 <button
                   type="button"
+                  disabled={committing}
                   onClick={() => setStep(3)}
-                  className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft sm:w-auto"
+                  className="min-h-11 w-full rounded-full border border-cream-200 px-6 text-sm text-ink-soft disabled:opacity-40 sm:w-auto"
                 >
                   ← 回上一步
                 </button>
                 <button
                   type="button"
-                  disabled={committing || commitPreview.overCap || (commitPreview.pendingResolutions ?? 0) > 0}
+                  disabled={committing || (commitPreview.pendingResolutions ?? 0) > 0}
                   onClick={handleCommit}
-                  className="min-h-10 rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint"
+                  className="min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint sm:w-auto"
                 >
                   {committing ? "匯入中，請稍候…" : "確認匯入"}
                 </button>

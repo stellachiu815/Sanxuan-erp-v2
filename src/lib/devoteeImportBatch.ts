@@ -53,8 +53,28 @@ import { syncMemberHouseholdReferences, describeSyncCounts } from "@/lib/househo
 
 export const DEVOTEE_IMPORT_KIND = "DEVOTEE_PRECHECK";
 
-export const MAX_TEST_IMPORT_MEMBERS = 30;
-export const MAX_TEST_IMPORT_HOUSEHOLDS = 10;
+/**
+ * V12.7：**單次匯入筆數上限已移除。**
+ *
+ * 舊值 MAX_TEST_IMPORT_HOUSEHOLDS = 10／MAX_TEST_IMPORT_MEMBERS = 30 是
+ * V11.3 試營運階段的保護，正式資料是 869 戶／1267 位信眾，那個上限會讓
+ * 使用者被迫手動切 Excel 分批匯入，不可接受。
+ *
+ * 取代方案是「分批交易」——使用者仍然只按一次【確認匯入】，後端把工作切成
+ * 每批 DEFAULT_COMMIT_CHUNK_SIZE 戶、各自獨立 transaction 完成，前端自動
+ * 續批並顯示進度。詳見 commitDevoteeImport()。
+ *
+ * ⚠️ 為什麼一定要分批，不能一個大 transaction 包住 869 戶：
+ *   1. Prisma 互動式交易預設 timeout 只有 5 秒（我們調高到 120 秒仍不夠）。
+ *   2. 每一戶大約 26 次資料庫往返（查家戶／別名／成員比對／建立／版本紀錄
+ *      …），869 戶就是兩萬次以上，單一交易會長時間持有大量列鎖。
+ *   3. Render 的 HTTP 請求也有逾時上限，單一請求跑完兩萬次查詢並不實際。
+ */
+export const DEFAULT_COMMIT_CHUNK_SIZE = 50;
+
+/** 交易 timeout（毫秒）。一批 50 戶約 1300 次查詢，給足裕度避免誤判失敗。 */
+export const COMMIT_TRANSACTION_TIMEOUT_MS = 120_000;
+export const COMMIT_TRANSACTION_MAX_WAIT_MS = 20_000;
 
 /** 上傳檔案大小上限（需求「第二步」：檔案大小需有限制）。 */
 export const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024;
@@ -675,8 +695,11 @@ export type CommitPreviewResult =
       skippedCount: number; // 資料不完整／格式錯誤，這次不會處理的列數
       /** V12.6 驗收修正：尚未完成人工確認的成員數，>0 時畫面必須停用正式匯入 */
       pendingResolutions: number;
+      /** V12.7：單次筆數上限已移除，這兩個欄位固定為 false／null（保留以相容既有型別） */
       overCap: boolean;
       capMessage: string | null;
+      /** V12.7：可匯入的家戶總數，供前端顯示「N / 總數」進度 */
+      totalHouseholds: number;
     }
   | { ok: false; error: string };
 
@@ -736,8 +759,6 @@ export async function getCommitPreview(batchId: string): Promise<CommitPreviewRe
     for (const n of bucket.spirits) if (!existingSpiritNames.has(n)) newSpiritCount++;
   }
 
-  const overCap = codes.length > MAX_TEST_IMPORT_HOUSEHOLDS || totalMemberNameCount > MAX_TEST_IMPORT_MEMBERS;
-
   return {
     ok: true,
     newHouseholdCount,
@@ -747,10 +768,13 @@ export async function getCommitPreview(batchId: string): Promise<CommitPreviewRe
     newSpiritCount,
     skippedCount: view.summary.incompleteData + view.summary.formatError,
     pendingResolutions: await countPendingResolutions(batchId),
-    overCap,
-    capMessage: overCap
-      ? `目前單次最多處理${MAX_TEST_IMPORT_HOUSEHOLDS}戶或${MAX_TEST_IMPORT_MEMBERS}位家戶成員，請縮小範圍分批匯入。`
-      : null,
+    // V12.7：單次筆數上限已移除，改用分批交易處理任意筆數（見
+    // DEFAULT_COMMIT_CHUNK_SIZE）。這兩個欄位保留成固定值，是為了不破壞
+    // 既有呼叫端與前端型別；下一次整理時可以一併移除。
+    overCap: false,
+    capMessage: null,
+    /** V12.7：這個批次總共要處理幾戶，供前端顯示進度分母 */
+    totalHouseholds: view.rows.filter((r) => r.status === "READY_TO_IMPORT").length,
   };
 }
 
@@ -772,13 +796,92 @@ export type CommitDevoteeImportResult =
       failedCount: number;
       failures: { rowNumber: number; householdName: string | null; error: string }[];
       committedAt: Date;
+      /** V12.7：這個批次是否已經全部處理完；false 代表前端要再呼叫一次繼續下一批 */
+      done: boolean;
+      /** V12.7：目前累計已處理的家戶數（分母是 totalHouseholds） */
+      processedHouseholds: number;
+      /** V12.7：這個匯入批次總共要處理幾戶 */
+      totalHouseholds: number;
+      /** V12.7：還剩幾戶沒處理 */
+      remainingHouseholds: number;
     }
   | { ok: false; status: number; error: string };
 
-export async function commitDevoteeImport(batchId: string, operatorName?: string | null): Promise<CommitDevoteeImportResult> {
-  const preview = await getCommitPreview(batchId);
-  if (!preview.ok) return { ok: false, status: 404, error: preview.error };
-  if (preview.overCap) return { ok: false, status: 400, error: preview.capMessage! };
+/**
+ * V12.7：全部批次都跑完之後的收尾。
+ *
+ * 只有在「沒有任何 READY_TO_IMPORT 的列」時才會真正收尾：
+ *   1. 把仍未匯入的列（資料不完整／格式錯誤／使用者選擇略過）凍結成 EXCLUDED
+ *   2. 把批次標成 COMMITTED
+ *
+ * 分批進行中重複呼叫是安全的——條件不成立就什麼都不做。
+ */
+async function finalizeBatchIfComplete(batchId: string): Promise<void> {
+  const stillPending = await prisma.importRow.count({
+    where: { batchId, status: "READY_TO_IMPORT" },
+  });
+  if (stillPending > 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.importRow.updateMany({
+      where: { batchId, status: { notIn: ["IMPORTED", "EXCLUDED"] } },
+      data: { status: "EXCLUDED" },
+    });
+    await tx.importBatch.updateMany({
+      where: { id: batchId, status: "PREVIEWED" },
+      data: { status: "COMMITTED", committedAt: new Date() },
+    });
+  });
+}
+
+/**
+ * 確認匯入（V12.7 起支援任意筆數）。
+ *
+ * ── 使用者體驗 ──
+ * 使用者永遠只按一次【確認匯入】。分批完全發生在系統內部：前端會自動
+ * 連續呼叫這支函式直到 `done === true`，中間依 `processedHouseholds /
+ * totalHouseholds` 顯示進度。
+ *
+ * ── 為什麼分批 ──
+ * 見 DEFAULT_COMMIT_CHUNK_SIZE 的說明（交易 timeout／鎖持有時間／HTTP 逾時）。
+ *
+ * ── 資料安全 ──
+ * **每一批都是一個完整的 Prisma transaction**：該批任何一戶失敗，整批回滾，
+ * 不會留下半戶資料。已成功的前幾批維持已寫入（這是分批交易的本質），
+ * 回傳值會明確標示已處理／剩餘筆數，失敗原因也會逐列列出。
+ *
+ * ── 續傳與冪等 ──
+ * 每批處理完會把該批的列標成 IMPORTED，下一次呼叫只會撈仍是
+ * READY_TO_IMPORT 的列。所以中途失敗後重新按一次，會從沒做完的地方接續，
+ * 不會重複建立已匯入的家戶。
+ */
+export async function commitDevoteeImport(
+  batchId: string,
+  operatorName?: string | null,
+  options: { chunkSize?: number } = {}
+): Promise<CommitDevoteeImportResult> {
+  const chunkSize = Math.max(1, options.chunkSize ?? DEFAULT_COMMIT_CHUNK_SIZE);
+
+  /**
+   * ⚠️ V12.7 效能：這裡刻意**不呼叫 getCommitPreview()**。
+   *
+   * getCommitPreview() 會逐戶查詢既有家戶／成員／牌位來估算「即將新增幾筆」，
+   * 對 869 戶而言是兩千多次查詢。分批匯入會呼叫 commitDevoteeImport() 十幾
+   * 次，如果每次都重算一遍預覽，整體就變成 O(n²)、慢到不可用。
+   *
+   * 這裡只需要「這個批次存在、而且還沒被標記完成」這個前提，用一次輕量
+   * 查詢就夠了。預覽數字由前端在按下確認之前取得一次即可。
+   */
+  const batchMeta = await prisma.importBatch.findUnique({
+    where: { id: batchId },
+    select: { id: true, importKind: true, status: true },
+  });
+  if (!batchMeta || batchMeta.importKind !== DEVOTEE_IMPORT_KIND) {
+    return { ok: false, status: 404, error: "找不到這個匯入批次" };
+  }
+  if (batchMeta.status === "COMMITTED") {
+    return { ok: false, status: 400, error: "這個批次已經確認匯入過了" };
+  }
 
   const view = await getDevoteeImportBatch(batchId);
   if (!view) return { ok: false, status: 404, error: "找不到這個匯入批次" };
@@ -797,8 +900,42 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
     };
   }
 
-  const readyRows = view.rows.filter((r) => r.status === "READY_TO_IMPORT");
-  if (readyRows.length === 0) return { ok: false, status: 400, error: "這個批次目前沒有可以匯入的家戶資料" };
+  /**
+   * V12.7：只取「這一批」要處理的列。
+   *
+   * 已經匯入過的列狀態是 IMPORTED，不會再被撈出來——這讓分批天然可以續傳，
+   * 而且重複按下確認匯入也不會重複建立資料。
+   */
+  const remainingRows = view.rows.filter((r) => r.status === "READY_TO_IMPORT");
+  const alreadyImported = view.rows.filter((r) => r.status === "IMPORTED").length;
+
+  if (remainingRows.length === 0) {
+    // 全部做完了（或這個批次本來就沒有可匯入的列）
+    if (alreadyImported > 0) {
+      await finalizeBatchIfComplete(batchId);
+      const committed = await prisma.importBatch.findUnique({ where: { id: batchId } });
+      return {
+        ok: true,
+        householdsCreated: 0,
+        householdsUpdated: 0,
+        membersCreated: 0,
+        membersUpdated: 0,
+        ancestorsCreated: 0,
+        spiritsCreated: 0,
+        skippedCount: view.rows.length - alreadyImported,
+        failedCount: 0,
+        failures: [],
+        committedAt: committed?.committedAt ?? new Date(),
+        done: true,
+        processedHouseholds: alreadyImported,
+        totalHouseholds: alreadyImported,
+        remainingHouseholds: 0,
+      };
+    }
+    return { ok: false, status: 400, error: "這個批次目前沒有可以匯入的家戶資料" };
+  }
+
+  const readyRows = remainingRows.slice(0, chunkSize);
 
   let householdsCreated = 0;
   let householdsUpdated = 0;
@@ -811,16 +948,27 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
   const importedRowIds: string[] = [];
 
   try {
-    await prisma.$transaction(async (tx) => {
-      // 防止重複送出（按鈕連點或兩個分頁同時按下確認匯入）：用「WHERE status
-      // = PREVIEWED 才更新」搶佔這個批次，先搶到的那個會把狀態改成
-      // COMMITTED，晚到的那個 claimed.count 會是 0，直接中止、整批回滾。
-      const claimed = await tx.importBatch.updateMany({
-        where: { id: batchId, status: "PREVIEWED" },
-        data: { status: "COMMITTED", committedAt: new Date() },
+    await prisma.$transaction(
+      async (tx) => {
+      /**
+       * V12.7：防重複送出的機制改變。
+       *
+       * 舊做法是「第一次進來就把批次標成 COMMITTED」搶佔，但分批匯入時
+       * 第一批就標記完成會讓後續批次全部被擋掉。改成 **row-level 冪等**：
+       *
+       *   - 每批只處理仍是 READY_TO_IMPORT 的列，處理完立刻標成 IMPORTED
+       *   - 兩個分頁同時送出時，各自搶到不同的列；重疊的部分因為狀態已經
+       *     不是 READY_TO_IMPORT，第二個交易的 updateMany 會更新 0 筆，
+       *     不會重複建立資料
+       *   - 全部列都處理完之後，才由 finalizeBatchIfComplete() 把批次標成
+       *     COMMITTED
+       */
+      const claimed = await tx.importRow.updateMany({
+        where: { id: { in: readyRows.map((r) => r.id) }, status: "READY_TO_IMPORT" },
+        data: { status: "IMPORTED" },
       });
       if (claimed.count === 0) {
-        throw new Error("這個批次已經確認匯入過了（可能是重複送出），請重新整理頁面查看結果，不會重複建立資料");
+        throw new Error("這一批資料已經被其他視窗匯入了，請重新整理頁面查看目前進度，不會重複建立資料");
       }
 
       // 需求指定的建立順序：Household → Member → Ancestor → Spirit。
@@ -1149,16 +1297,9 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
         importedRowIds.push(r.id);
       }
 
-      if (importedRowIds.length > 0) {
-        await tx.importRow.updateMany({ where: { id: { in: importedRowIds } }, data: { status: "IMPORTED" } });
-      }
-      // 確認匯入時仍然不匯入的列（資料不完整／格式錯誤），一律凍結成
-      // EXCLUDED，符合「已完成匯入的批次，結果不會被日後資料庫內容改變
-      // 影響」——原始的錯誤原因仍保留在 errors 欄位，不會遺失。
-      const excludedRowIds = view.rows.filter((r) => !importedRowIds.includes(r.id)).map((r) => r.id);
-      if (excludedRowIds.length > 0) {
-        await tx.importRow.updateMany({ where: { id: { in: excludedRowIds } }, data: { status: "EXCLUDED" } });
-      }
+      // V12.7：列狀態已在交易開頭 claim 成 IMPORTED，這裡不需要再更新。
+      // 「資料不完整／格式錯誤」的列改由 finalizeBatchIfComplete() 在全部
+      // 批次跑完之後一次凍結成 EXCLUDED，避免每一批都重複掃全表。
 
       /**
        * V12.6 指令七：匯入完成後必須執行既有同步服務——**呼叫既有共用
@@ -1195,17 +1336,46 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
         }
       }
 
+      // V12.7：分批累加（不是覆蓋），才能反映跨批次的累計進度。
       await tx.importBatch.update({
         where: { id: batchId },
-        data: { importedRowCount: importedRowIds.length },
+        data: { importedRowCount: { increment: importedRowIds.length } },
       });
-    });
+      },
+      {
+        // V12.7：Prisma 互動式交易預設只有 5 秒，一批 100 戶約 2600 次查詢
+        // 必定超時。這裡放寬到 2 分鐘，並允許較長的取得連線等待時間。
+        timeout: COMMIT_TRANSACTION_TIMEOUT_MS,
+        maxWait: COMMIT_TRANSACTION_MAX_WAIT_MS,
+      }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "確認匯入時發生錯誤";
-    return { ok: false, status: 400, error: `匯入失敗，整批交易已回滾，沒有任何資料寫入：${message}` };
+    /**
+     * V12.7：分批交易下的失敗語意要說清楚。
+     *
+     * 「這一批」整批回滾，沒有留下半戶資料；但**前面已經成功的批次維持
+     * 已寫入**（這是分批交易的本質，也是能處理 869 戶的前提）。訊息明確
+     * 標示已完成幾戶，讓行政人員知道現況、可以直接重按繼續。
+     */
+    return {
+      ok: false,
+      status: 400,
+      error:
+        `匯入中斷：這一批（第 ${alreadyImported + 1}–${alreadyImported + readyRows.length} 戶）已完整回滾，沒有寫入任何資料。` +
+        `${alreadyImported > 0 ? `先前已成功匯入的 ${alreadyImported} 戶維持不變。` : ""}` +
+        `原因：${message}　請修正後再按一次【確認匯入】，系統會從未完成的地方接續，不會重複建立。`,
+    };
   }
 
+  // V12.7：這一批做完後，若已經沒有待處理的列就收尾（標成 COMMITTED）。
+  await finalizeBatchIfComplete(batchId);
+
   const committedBatch = await prisma.importBatch.findUnique({ where: { id: batchId } });
+  const stillRemaining = await prisma.importRow.count({
+    where: { batchId, status: "READY_TO_IMPORT" },
+  });
+  const processed = alreadyImported + importedRowIds.length;
 
   return {
     ok: true,
@@ -1215,10 +1385,14 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
     membersUpdated,
     ancestorsCreated,
     spiritsCreated,
-    skippedCount: view.rows.length - readyRows.length,
+    skippedCount: view.rows.length - remainingRows.length - alreadyImported,
     failedCount: failures.length,
     failures,
     committedAt: committedBatch?.committedAt ?? new Date(),
+    done: stillRemaining === 0,
+    processedHouseholds: processed,
+    totalHouseholds: processed + stillRemaining,
+    remainingHouseholds: stillRemaining,
   };
 }
 
