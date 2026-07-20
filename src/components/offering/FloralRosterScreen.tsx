@@ -10,6 +10,7 @@ import {
 } from "@/components/household/formStyles";
 import { offeringPaymentStatusLabel } from "@/lib/labels";
 import type { MemberSearchResult } from "./types";
+import { useStoredOperatorUserId } from "@/lib/operatorClient";
 
 type RosterRow = {
   floralSlotId: string;
@@ -37,6 +38,7 @@ export default function FloralRosterScreen({
   activityOfferingId: string;
   initialRoster: RosterRow[];
 }) {
+
   const [roster, setRoster] = useState(initialRoster);
   const unclaimedCount = roster.filter((r) => r.sponsorName === "（尚未認捐）").length;
   const unpaidCount = roster.filter((r) => r.paymentStatus === "未收款" || r.paymentStatus === "部分收款").length;
@@ -164,6 +166,11 @@ function FloralClaimForm({
   onDone: (row: RosterRow) => void;
   onCancel: () => void;
 }) {
+  // V12.2 指令「五」：GET /api/search 這次補上了信眾 view 權限檢查，這裡
+  // 沿用**同一個**既有身分來源把 operatorUserId 帶上（見
+  // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
+  const operatorUserId = useStoredOperatorUserId();
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MemberSearchResult[]>([]);
   const [selected, setSelected] = useState<MemberSearchResult | null>(null);
@@ -177,7 +184,7 @@ function FloralClaimForm({
       setResults([]);
       return;
     }
-    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
     const data = await res.json();
     setResults((data.results ?? []).filter((r: MemberSearchResult) => r.memberId));
   }

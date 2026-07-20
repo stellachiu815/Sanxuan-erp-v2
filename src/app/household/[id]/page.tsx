@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getHouseholdDetail } from "@/lib/household";
 import { worshipTypeLabel, activityTypeLabel, memberRoleLabel } from "@/lib/labels";
-import SearchBar from "@/components/SearchBar";
+import HeaderSearchBar from "@/components/HeaderSearchBar";
 import QuickActionsPanel from "@/components/household/QuickActionsPanel";
 
 export default async function HouseholdPage({
@@ -36,7 +36,7 @@ export default async function HouseholdPage({
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-4">
           <span className="whitespace-nowrap text-sm text-ink-soft">三玄宮行政系統</span>
-          <SearchBar variant="compact" />
+          <HeaderSearchBar />
         </div>
       </header>
 

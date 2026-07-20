@@ -108,6 +108,44 @@ export function useOperator(): OperatorContextValue {
   return ctx;
 }
 
+/**
+ * 「目前操作人員」的無 Context 版讀取器（V12.2 新增）。
+ *
+ * ⚠️ 這**不是**第二套身分機制——它讀的就是上面 OperatorProvider 寫入的
+ * 同一個 localStorage key，是同一個單一來源，只是不需要元件樹上有
+ * <OperatorProvider>。真正的權限驗證一律仍在伺服器端用這個 userId 重新查
+ * 資料庫（見 src/lib/operator.ts），這裡跟 useOperator() 一樣都只是負責
+ * 「把使用者選過的身分帶給 API」。
+ *
+ * 為什麼需要它：V12.2 依指令「五」把 GET /api/search 補上了信眾 view 權限
+ * 檢查，但這支 API 除了首頁搜尋框之外，還有 6 個既有元件在用它做「挑一個
+ * 人」的搜尋——收款中心快速收款、祭改報名、活動主畫面、爐主登錄、鮮花
+ * 名冊、供品認捐。這些模組屬於本次指令「九、明確不做」的範圍外模組，不應該
+ * 為了這件事去重構它們的元件樹（有些是深層的 Server Component 結構）；但
+ * 如果放著不管，補上權限後這 6 個畫面的搜尋會對所有人回 401，等於用一個
+ * 安全修正換掉六個正在用的功能。
+ *
+ * 折衷作法就是這個讀取器：那 6 個元件只要多一行就能帶上身分，不需要改動
+ * 它們的結構，也不需要在那些畫面上新增操作人員選單（使用者只要在首頁或
+ * 任一個既有的 OperatorBar 選過一次，這裡就讀得到）。
+ */
+export function readStoredOperatorUserId(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function useStoredOperatorUserId(): string | null {
+  const [id, setId] = useState<string | null>(null);
+  // localStorage 只能在瀏覽器端讀取，用 effect 避免 SSR/CSR 內容不一致。
+  useEffect(() => {
+    setId(readStoredOperatorUserId());
+  }, []);
+  return id;
+}
+
 /** 角色顯示名稱（跟 src/lib/permissions.ts 的 Role 保持一致）。 */
 export const roleLabel: Record<string, string> = {
   SUPER_ADMIN: "最高管理員",

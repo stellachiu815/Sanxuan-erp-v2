@@ -1,25 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { MemberRole } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { validateLunarBirthdayInput } from "@/lib/lunar";
-import { memberRoleLabel } from "@/lib/labels";
-import { recordVersion } from "@/lib/recordVersion";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import {
+  createMemberForHousehold,
+  normalizeCreateMemberInput,
+  findDuplicatesForExistingHousehold,
+} from "@/lib/memberCreate";
+import { toHouseholdApiError } from "@/lib/householdManagement";
 
 /**
- * 新增家人 API
+ * 新增家人 API —— **系統唯一的正式新增家戶成員（信眾）入口**
+ * （V12.2 指令「三、統一新增 API 實作」裁決事項 2）。
  *
  * POST /api/households/F00009/members
  *
  * body 範例：
  * {
+ *   "operatorUserId": "user_xxx",   // 必填，權限驗證用
  *   "name": "王小美",
  *   "gender": "女",
  *   "role": "DAUGHTER",
  *   "isPrimaryContact": false,
  *   "isDeceased": false,
  *   "notes": "備註",
+ *   "mobile": "0912345678",        // V12.2 新增：個人手機 → DevoteeProfile.mobile
  *   "birthdayType": "solar",       // "solar" | "lunar" | "none"
  *   "solarBirthDate": "1990-05-10",
  *   // 或者
@@ -29,124 +33,76 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
  *   "lunarBirthDay": 20,
  *   "lunarIsLeapMonth": false
  * }
+ *
+ * 實際的驗證與寫入邏輯全部在 src/lib/memberCreate.ts，這支 route 只負責
+ * 「權限檢查 → 呼叫 service → 包裝回應」。V12.0 另外複製的
+ * /api/devotee-center/[memberId]/household-members 已改為薄轉接同一個
+ * service，兩支 route 不再各自持有 Prisma create。
+ *
+ * 權限（V12.1 補上、V12.2 維持不變）：沿用
+ * assertDevoteePermissionForOperator(..., "updateProfile")，沒有帶
+ * operatorUserId 回 401、角色不足回 403。版本紀錄的操作人一律採用伺服器端
+ * 查到的真實姓名，不接受前端送來的自由文字。
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: householdId } = await params;
+  try {
+    const { id: householdId } = await params;
 
-  const household = await prisma.household.findFirst({
-    where: { id: householdId, deletedAt: null },
-  });
-  if (!household) {
-    return NextResponse.json({ success: false, error: "找不到這個家戶" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
-  }
-
-  // V12.1 一次性修正指令「二之4」：這支 API 原本完全沒有權限檢查（既有
-  // 缺口）。沿用既有 assertDevoteePermissionForOperator(..., "updateProfile")
-  // ——跟修改家戶資料（PATCH /api/households/[id]）、新增家戶
-  // （POST /api/households）同一個權限動作，不另外建立第二套權限機制。
-  // 沒有帶 operatorUserId 回傳 401，角色不足回傳 403。
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
-  if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
-
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) {
-    return NextResponse.json({ success: false, error: "請輸入姓名" }, { status: 400 });
-  }
-
-  const role = typeof body.role === "string" ? body.role : "OTHER";
-  if (!(role in memberRoleLabel)) {
-    return NextResponse.json({ success: false, error: "身份選項不正確" }, { status: 400 });
-  }
-
-  const gender = typeof body.gender === "string" && body.gender ? body.gender : null;
-  const isPrimaryContact = Boolean(body.isPrimaryContact);
-  const isDeceased = Boolean(body.isDeceased);
-  const notes = typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null;
-
-  let solarBirthDate: Date | null = null;
-  let lunarBirthYear: number | null = null;
-  let lunarBirthMonth: number | null = null;
-  let lunarBirthDay: number | null = null;
-  let lunarIsLeapMonth = false;
-
-  const birthdayType = body.birthdayType;
-
-  if (birthdayType === "solar") {
-    const raw = typeof body.solarBirthDate === "string" ? body.solarBirthDate : "";
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-    if (!match) {
-      return NextResponse.json({ success: false, error: "國曆生日格式不正確" }, { status: 400 });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
-    const [, y, m, d] = match;
-    solarBirthDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-  } else if (birthdayType === "lunar") {
-    const y = Number(body.lunarBirthYear);
-    const m = Number(body.lunarBirthMonth);
-    const d = Number(body.lunarBirthDay);
-    const leap = Boolean(body.lunarIsLeapMonth);
-    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
-      return NextResponse.json({ success: false, error: "農曆生日請完整輸入年、月、日" }, { status: 400 });
-    }
-    const error = validateLunarBirthdayInput(y, m, d, leap);
-    if (error) {
-      return NextResponse.json({ success: false, error }, { status: 400 });
-    }
-    lunarBirthYear = y;
-    lunarBirthMonth = m;
-    lunarBirthDay = d;
-    lunarIsLeapMonth = leap;
-  }
-  // birthdayType === "none"（或沒填）就整組留空，之後可以再補資料
 
-  // V8.0「資料版本紀錄」：新增也留一筆版本紀錄（修改前＝null），這樣「修改
-  // 紀錄」畫面才能完整看到這位成員從建立以來的所有異動，不是只有之後的修改。
-  // 建立資料跟寫入版本紀錄放在同一個交易裡，避免只成功一半。
-  // V12.1 一次性修正指令「二之4」：既然這支 API 現在會驗證操作人員身分，
-  // 版本紀錄的操作人就改用伺服器端查到的真實姓名（check.operator.name），
-  // 不再信任前端送來的自由文字 operatorName——跟 PATCH /api/households/[id]
-  // 等既有已補權限的 API 一致。
-  const operatorName = check.operator.name;
-  const member = await prisma.$transaction(async (tx) => {
-    const created = await tx.member.create({
-      data: {
-        householdId,
-        name,
-        gender,
-        role: role as MemberRole,
-        isPrimaryContact,
-        isDeceased,
-        notes,
-        solarBirthDate,
-        lunarBirthYear,
-        lunarBirthMonth,
-        lunarBirthDay,
-        lunarIsLeapMonth,
-      },
-    });
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
-    await recordVersion(
-      {
-        entityType: "Member",
-        entityId: created.id,
-        action: "CREATE",
-        afterData: created,
-        operatorName,
-      },
-      tx
+    // ---- 建立前疑似重複比對（V12.2 最後一個缺口）----
+    //
+    // 這條「家戶詳情頁 →新增家人」流程原本完全沒有比對，等於可以繞過 V12.2
+    // 的重複保護。現在跟 POST /api/devotee-center/create 走**完全相同**的三條
+    // 規則與同一份實作（findDuplicatesForExistingHousehold → 既有的
+    // findPreCreateDuplicates → 既有的 findDuplicateMatches），沒有第二套演算法。
+    //
+    // ⚠️ 嚴格布林：只有 `=== true` 才算已確認。字串 "false"／"0"／任何非空
+    // 字串在 JS 都是 truthy，用 `!body.confirmedDuplicates` 會被整個跳過。
+    const hasConfirmedDuplicates = body.confirmedDuplicates === true;
+
+    if (!hasConfirmedDuplicates) {
+      // 先做欄位正規化（含生日解析），比對要用正規化後的值才會跟既有資料
+      // 的 birthdayKey 對得起來。這一步不會寫入任何資料。
+      const normalized = normalizeCreateMemberInput(body);
+      const duplicates = await findDuplicatesForExistingHousehold(householdId, normalized);
+
+      if (duplicates.length > 0) {
+        // 命中且未確認：立即 return，下方的 createMemberForHousehold() 完全
+        // 不會執行——沒有建立成員、沒有修改家戶、沒有任何資料庫寫入。
+        return NextResponse.json(
+          {
+            success: false,
+            needsDuplicateConfirmation: true,
+            duplicates,
+            error: "偵測到疑似重複的信眾，請確認後再決定是否繼續建立",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const { member } = await createMemberForHousehold(
+      householdId,
+      body,
+      check.operator.name,
+      "家戶管理：新增家人"
     );
 
-    return created;
-  });
+    revalidatePath(`/household/${householdId}`);
 
-  revalidatePath(`/household/${householdId}`);
-
-  return NextResponse.json({ success: true, data: { member } }, { status: 201 });
+    return NextResponse.json({ success: true, data: { member } }, { status: 201 });
+  } catch (e) {
+    const { status, error } = toHouseholdApiError(e);
+    return NextResponse.json({ success: false, error }, { status });
+  }
 }

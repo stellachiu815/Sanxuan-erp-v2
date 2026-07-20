@@ -11,6 +11,7 @@ import {
 } from "@/components/household/formStyles";
 import BirthdayField, { createEmptyBirthdayValue, type BirthdayValue } from "@/components/birthday/BirthdayField";
 import { purificationPaymentStatusOptions } from "@/lib/labels";
+import { useStoredOperatorUserId } from "@/lib/operatorClient";
 
 type SearchResult = { memberId: string | null; name: string; householdId: string };
 
@@ -32,6 +33,11 @@ type Props = {
  * 編號由系統自動編列，這裡不提供編號欄位。
  */
 export default function RegisterEntrantModal({ purificationYearId, onClose, onRegistered }: Props) {
+  // V12.2 指令「五」：GET /api/search 這次補上了信眾 view 權限檢查，這裡
+  // 沿用**同一個**既有身分來源把 operatorUserId 帶上（見
+  // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
+  const operatorUserId = useStoredOperatorUserId();
+
   const [mode, setMode] = useState<"member" | "temporary">("member");
 
   // 一般報名：信眾搜尋
@@ -74,7 +80,7 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
     setSearching(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
         const data = await res.json();
         setResults((data.results ?? []).filter((r: SearchResult) => r.memberId));
       } catch {
@@ -84,7 +90,8 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query, mode]);
+    // operatorUserId 見 ActivityHomeScreen 同樣位置的說明（掛載後才讀得到）。
+  }, [query, mode, operatorUserId]);
 
   useEffect(() => {
     const q = householdQuery.trim();
@@ -95,7 +102,7 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
     setHouseholdSearching(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
         const data = await res.json();
         // 家戶搜尋不限定要不要對到特定成員，重複的家戶編號只留一筆。
         const seen = new Set<string>();

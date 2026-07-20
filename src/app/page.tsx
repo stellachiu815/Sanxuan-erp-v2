@@ -1,5 +1,5 @@
 import Link from "next/link";
-import SearchBar from "@/components/SearchBar";
+import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
 import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
@@ -13,10 +13,16 @@ export default async function HomePage() {
       <div className="text-center">
         <h1 className="text-3xl font-medium tracking-wide text-ink">台北三玄宮行政系統</h1>
         <p className="mt-2 text-sm text-ink-soft">
-          搜尋姓名、電話、地址或家戶編號，開啟整戶資料
+          搜尋姓名、電話、地址、家戶編號或戶名，或直接新增一位信眾
         </p>
       </div>
-      <SearchBar variant="hero" />
+      {/*
+        V12.2「信眾建立與查詢中心」指令「五、搜尋權限漏洞」＋「一」：
+        搜尋與新增信眾是整套 ERP 最高頻的兩個操作，放在首頁最上方、所有
+        模組卡片之前。搜尋 API 這次補上權限檢查，需要操作人身分，所以這一段
+        改由 <DevoteeQuickActions/> 統一處理（內含 OperatorProvider）。
+      */}
+      <DevoteeQuickActions />
       <DashboardOverviewCard />
       {/*
         V12 指令「一、首頁與主要導覽順序」：信眾中心 → 收款中心 → 活動中心 →

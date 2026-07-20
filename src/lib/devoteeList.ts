@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { composeDevoteeSummary, DEVOTEE_SUMMARY_INCLUDE, type DevoteeSummary } from "@/lib/devoteeProfile";
 import { solarToLunar } from "@/lib/lunar";
+import { memberSearchOrConditions } from "@/lib/devoteeSearchFields";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -93,19 +94,18 @@ export function buildDevoteeWhere(query: DevoteeListQuery, now: Date = new Date(
 
   const q = query.q?.trim();
   if (q) {
+    // V12.2 指令「七、搜尋邏輯收斂」：共同的信眾／家戶欄位改用單一規格
+    // memberSearchOrConditions()（見 src/lib/devoteeSearchFields.ts），
+    // 讓首頁快速搜尋、信眾名單、全宮搜尋不會再各自分歧。
+    //
+    // 下面三個是「信眾名單專屬」的額外欄位（Email／LINE ID／標籤）——名單頁
+    // 本來就有標籤篩選與聯絡方式欄位，這些不屬於三套搜尋的共同基準，所以
+    // 疊加在共用規格之上，不反向塞進共用檔案裡影響另外兩套。
     andConditions.push({
       OR: [
-        { name: { contains: q } },
-        { household: { phone: { contains: q } } },
-        { household: { address: { contains: q } } },
-        { household: { id: { contains: q } } },
-        { household: { name: { contains: q } } },
-        { household: { contactName: { contains: q } } },
-        { household: { companyName: { contains: q } } },
-        { devoteeProfile: { is: { mobile: { contains: q } } } },
+        ...memberSearchOrConditions(q),
         { devoteeProfile: { is: { email: { contains: q } } } },
         { devoteeProfile: { is: { lineId: { contains: q } } } },
-        { devoteeProfile: { is: { companyName: { contains: q } } } },
         { devoteeProfile: { is: { tagAssignments: { some: { tag: { name: { contains: q } } } } } } },
       ],
     });

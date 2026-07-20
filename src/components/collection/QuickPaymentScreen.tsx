@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { paymentMethodTypeOptions, receivableSourceTypeLabel } from "@/lib/labels";
 import type { UniversalReceivableViewJSON } from "./types";
+import { useStoredOperatorUserId } from "@/lib/operatorClient";
 
 type MemberSearchResult = { memberId: string; name: string; householdId: string };
 type BasketItem = { sourceType: string; sourceId: string; label: string; amount: number };
@@ -13,6 +14,11 @@ type BasketItem = { sourceType: string; sourceId: string; label: string; amount:
  * PaymentAllocation。也支援直接建立「其他臨時應收項目」後立刻加入購物籃。
  */
 export default function QuickPaymentScreen({ currentYear }: { currentYear: number }) {
+  // V12.2 指令「五」：GET /api/search 這次補上了信眾 view 權限檢查，這裡
+  // 沿用**同一個**既有身分來源把 operatorUserId 帶上（見
+  // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
+  const operatorUserId = useStoredOperatorUserId();
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MemberSearchResult[]>([]);
   const [selected, setSelected] = useState<MemberSearchResult | null>(null);
@@ -51,7 +57,7 @@ export default function QuickPaymentScreen({ currentYear }: { currentYear: numbe
       setResults([]);
       return;
     }
-    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
     const data = await res.json();
     setResults(data.results ?? []);
   }

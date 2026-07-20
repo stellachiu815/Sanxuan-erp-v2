@@ -11,6 +11,7 @@ import {
   primaryButtonClass,
   secondaryButtonClass,
 } from "@/components/household/formStyles";
+import { useStoredOperatorUserId } from "@/lib/operatorClient";
 
 type SearchResult = { memberId: string | null; name: string; householdId: string };
 
@@ -59,6 +60,7 @@ type Tab = "OVERVIEW" | "PARTICIPANTS" | "IMPORT" | "EXPENSES";
  * 完整畫面，普渡沿用既有的家戶頁面登記流程，不會出現在這裡）。
  */
 export default function ActivityHomeScreen({ templeEventId, initialHome, initialParticipants, initialExpenses }: Props) {
+
   const router = useRouter();
   const searchParams = useSearchParams();
   // 注意：URL 參數 tab=import 是小寫，跟 Tab 型別本身的大寫字面值
@@ -193,6 +195,11 @@ function ParticipantsPanel({
   showToast: (m: string) => void;
   onChanged: () => void;
 }) {
+  // V12.2 指令「五」：GET /api/search 這次補上了信眾 view 權限檢查，這裡
+  // 沿用**同一個**既有身分來源把 operatorUserId 帶上（見
+  // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
+  const operatorUserId = useStoredOperatorUserId();
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selected, setSelected] = useState<{ id: string; label: string } | null>(null);
@@ -208,7 +215,7 @@ function ParticipantsPanel({
       return;
     }
     const timer = setTimeout(async () => {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
       const data = await res.json();
       const seen = new Set<string>();
       const deduped: SearchResult[] = [];
@@ -220,7 +227,10 @@ function ParticipantsPanel({
       setResults(deduped);
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+    // operatorUserId 要放進相依陣列：它是在掛載後的 effect 才讀到
+    // localStorage，第一次 render 是 null，沒有列進來的話會停在「還沒帶
+    // 身分」的那一次查詢結果上。
+  }, [query, operatorUserId]);
 
   async function handleAdd() {
     setError(null);

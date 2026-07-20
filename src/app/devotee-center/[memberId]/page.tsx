@@ -152,6 +152,17 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
               {b.solarBirthDate || b.lunarBirthDisplay || "無生日資料"}
               {b.zodiac ? `・生肖 ${b.zodiac}` : ""}
             </p>
+            {/* V12.2「信眾建立與查詢中心」指令「六、信眾與家戶互相導覽」：
+                這一頁原本完全沒有連回所屬家戶的連結（頁面上有家戶資料但不能
+                點）。這裡補上明顯的入口，連到既有的 /household/[id]，不新增
+                第二個家戶頁。反向（家戶頁 → 信眾詳情）在 V12.1 已經做好。 */}
+            <Link
+              href={`/household/${b.householdId}`}
+              className="mt-2 inline-flex min-h-11 items-center rounded-full bg-mist-100 px-4 py-2 text-xs
+                         text-ink transition hover:bg-mist-200"
+            >
+              🏠 查看所屬家戶（{b.householdId}）→
+            </Link>
           </div>
           <div className="flex flex-wrap items-center gap-1">
             {overview.tags.map((t) => (

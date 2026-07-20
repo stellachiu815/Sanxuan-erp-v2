@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { memberSearchOrConditions, householdSearchOrConditions } from "@/lib/devoteeSearchFields";
 
 /**
  * V12.0「全宮整合搜尋」（對應指令「十二」）。
@@ -130,12 +131,9 @@ async function searchDevotees(q: string): Promise<DevoteeSearchResult[]> {
     where: {
       deletedAt: null,
       household: { deletedAt: null },
-      OR: [
-        { name: { contains: q } },
-        { household: { phone: { contains: q } } },
-        { household: { address: { contains: q } } },
-        { devoteeProfile: { is: { mobile: { contains: q } } } },
-      ],
+      // V12.2 指令「七」：改用共用欄位規格，原本這裡只搜 4 個欄位，
+      // 造成「用家戶編號或戶名搜尋時，搜不到該戶的信眾」。
+      OR: memberSearchOrConditions(q),
     },
     include: { household: { select: { id: true, name: true } } },
     take: PER_CATEGORY_LIMIT,
@@ -150,19 +148,20 @@ async function searchDevotees(q: string): Promise<DevoteeSearchResult[]> {
   }));
 }
 
-/** 家戶編號/家戶名稱/電話/地址/公司名稱/主要聯絡人 */
+/**
+ * 家戶編號/家戶名稱/電話/手機/地址/公司名稱/主要聯絡人
+ *
+ * ⚠️ 這是 devoteeSearch.ts 的**區域**函式，跟
+ * householdManagement.ts 匯出的同名 searchHouseholds(params) 是完全不同的
+ * 兩個東西，全宮搜尋正在使用這一個，清理程式碼時不得誤刪（V12.1／V12.2
+ * 兩輪盤點都特別標記過這個陷阱）。
+ */
 async function searchHouseholds(q: string): Promise<DevoteeSearchResult[]> {
   const households = await prisma.household.findMany({
     where: {
       deletedAt: null,
-      OR: [
-        { id: { contains: q } },
-        { name: { contains: q } },
-        { phone: { contains: q } },
-        { address: { contains: q } },
-        { companyName: { contains: q } },
-        { contactName: { contains: q } },
-      ],
+      // V12.2 指令「七」：改用共用欄位規格（多涵蓋了家戶手機）。
+      OR: householdSearchOrConditions(q),
     },
     take: PER_CATEGORY_LIMIT,
   });

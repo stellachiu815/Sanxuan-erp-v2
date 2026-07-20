@@ -8,6 +8,7 @@ import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
 import { canDevotee } from "@/lib/permissions";
 import CreateHouseholdModal from "@/components/household/CreateHouseholdModal";
+import CreateDevoteeModal from "@/components/devotee/CreateDevoteeModal";
 import HouseholdActionsMenu from "@/components/household/HouseholdActionsMenu";
 
 type DevoteeRow = {
@@ -65,6 +66,7 @@ function DevoteeListInner() {
   // V12.1「家戶管理中心」驗收修正輪：直接整合進信眾名單頁，不另外開頁面。
   const canManage = operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false;
   const [showCreateHousehold, setShowCreateHousehold] = useState(false);
+  const [showCreateDevotee, setShowCreateDevotee] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
   // 對應指令「五、待補資料」：從首頁統計數字點進來時，網址會帶
   // ?filters=NO_BIRTHDAY 這類參數，這裡讀出來當作篩選的初始值，讓「點擊
@@ -133,23 +135,34 @@ function DevoteeListInner() {
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-3xl bg-white/70 p-5 shadow-card">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="搜尋姓名/戶名/電話/地址/家戶編號/主要聯絡人/公司名稱/Email/LINE ID/標籤"
-            className="min-w-0 flex-1 rounded-full border border-cream-200 bg-cream-50 px-4 py-2 text-sm text-ink"
+            className="min-h-11 w-full min-w-0 rounded-full border border-cream-200 bg-cream-50 px-4 py-2 text-sm text-ink sm:w-auto sm:flex-1"
           />
-          {/* V12.1「家戶管理中心」驗收修正輪：「新增家戶」直接放在信眾名單
-              搜尋框旁邊，沿用既有 CreateHouseholdModal，不另外開一個頁面。 */}
+          {/* V12.2「信眾建立與查詢中心」指令「一」：「新增信眾」是整套 ERP
+              最高頻的操作，放在最前面、比「新增家戶」更顯眼。兩者都保留：
+              新增信眾＝建立一個人（可順帶開新家戶）；新增家戶＝只開一個空戶。
+              手機版兩個按鈕各自佔滿一行、min-h-11 觸控尺寸，不需要橫向捲動。 */}
           {canManage && (
-            <button
-              type="button"
-              onClick={() => setShowCreateHousehold(true)}
-              className="min-h-9 whitespace-nowrap rounded-full bg-ink-soft px-5 py-2 text-sm text-cream-50 transition hover:bg-ink"
-            >
-              ➕ 新增家戶
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={() => setShowCreateDevotee(true)}
+                className="min-h-11 w-full whitespace-nowrap rounded-full bg-sage-200 px-5 py-2 text-sm text-ink transition hover:bg-sage-300 sm:w-auto"
+              >
+                ➕ 新增信眾
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateHousehold(true)}
+                className="min-h-11 w-full whitespace-nowrap rounded-full bg-ink-soft px-5 py-2 text-sm text-cream-50 transition hover:bg-ink sm:w-auto"
+              >
+                ➕ 新增家戶
+              </button>
+            </div>
           )}
         </div>
 
@@ -194,8 +207,69 @@ function DevoteeListInner() {
 
       {error && <div className="rounded-3xl bg-blossom-100 p-4 text-sm text-ink">{error}</div>}
 
+      {/* V12.2 指令「八、手機版」：小螢幕改用卡片列表，不需要橫向捲動就能
+          看到最重要的辨識資訊並點進詳情；桌面版（sm 以上）維持既有的完整
+          13 欄表格，一欄都沒有拿掉。 */}
       {data && (
-        <div className="overflow-x-auto rounded-3xl bg-white/70 p-4 shadow-card">
+        <div className="flex flex-col gap-3 sm:hidden">
+          {data.rows.map((r) => (
+            <div key={r.memberId} className="rounded-2xl bg-white/70 p-4 shadow-card">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base text-ink">{r.name}</span>
+                <Link
+                  href={`/household/${r.householdId}`}
+                  className="rounded-full bg-cream-100 px-2.5 py-0.5 text-xs text-ink-soft"
+                >
+                  {r.householdName}（{r.householdId}）
+                </Link>
+              </div>
+              <p className="mt-1.5 text-xs text-ink-soft">
+                {[r.mobile || r.householdPhone, r.solarBirthDate || r.lunarBirthDisplay]
+                  .filter(Boolean)
+                  .join("・") || "尚未填寫聯絡資料"}
+              </p>
+              {r.householdAddress && (
+                <p className="mt-0.5 text-xs text-ink-faint">{r.householdAddress}</p>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {r.isDeceased && (
+                  <span className="rounded-full bg-cream-300 px-2 py-0.5 text-xs text-ink-soft">已往生</span>
+                )}
+                {r.isDisabled && (
+                  <span className="rounded-full bg-blossom-200 px-2 py-0.5 text-xs text-ink-soft">停用</span>
+                )}
+                {r.tags.map((t) => (
+                  <span key={t} className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink-soft">
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Link
+                  href={`/devotee-center/${r.memberId}${detailQueryString}`}
+                  className="min-h-11 rounded-full bg-mist-100 px-4 py-2 text-xs text-ink transition hover:bg-mist-200"
+                >
+                  查看／編輯 →
+                </Link>
+                {canManage && (
+                  <HouseholdActionsMenu
+                    householdId={r.householdId}
+                    onChanged={() => setReloadTick((t) => t + 1)}
+                  />
+                )}
+              </div>
+            </div>
+          ))}
+          {data.rows.length === 0 && (
+            <p className="rounded-2xl bg-white/70 px-4 py-8 text-center text-sm text-ink-faint shadow-card">
+              沒有符合條件的信眾。
+            </p>
+          )}
+        </div>
+      )}
+
+      {data && (
+        <div className="hidden overflow-x-auto rounded-3xl bg-white/70 p-4 shadow-card sm:block">
           <table className="w-full min-w-[1150px] text-left text-sm">
             <thead>
               <tr className="text-xs text-ink-faint">
@@ -338,6 +412,12 @@ function DevoteeListInner() {
       )}
 
       {showCreateHousehold && <CreateHouseholdModal onClose={() => setShowCreateHousehold(false)} />}
+      {showCreateDevotee && (
+        <CreateDevoteeModal
+          onClose={() => setShowCreateDevotee(false)}
+          onCreated={() => setReloadTick((t) => t + 1)}
+        />
+      )}
     </div>
   );
 }
