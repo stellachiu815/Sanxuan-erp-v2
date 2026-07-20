@@ -16,6 +16,7 @@
  *     兩欄都填的話，這一列會建立兩筆祭祀資料，陽上姓名/安奉位置兩筆共用
  */
 import { getZodiacByLunarYear, solarToLunar } from "./lunar";
+import { toSafeCalendarDate } from "./devoteeImportNormalize";
 
 export const IMPORT_COLUMNS = [
   "家戶編號",
@@ -104,34 +105,58 @@ function parseBoolean(s: string, errors: string[], fieldLabel: string): boolean 
   return false;
 }
 
-/** 國曆生日：接受 Excel 日期儲存格，或 yyyy-MM-dd / yyyy/MM/dd 文字 */
-function parseSolarDate(raw: ImportRawRow, errors: string[]): Date | null {
+/**
+ * 國曆生日：接受 Excel 日期儲存格，或 yyyy-MM-dd / yyyy/MM/dd 文字。
+ *
+ * ⚠️ V12.9 Bug 修正（正式匯入當機的根因就在這裡）：
+ *
+ * 舊版是
+ *
+ *   if (rawValue instanceof Date) {
+ *     return new Date(Date.UTC(rawValue.getFullYear(), rawValue.getMonth(), rawValue.getDate()));
+ *   }
+ *
+ * **完全沒有檢查這個 Date 物件本身是否有效。** Excel 只要有一格損壞或
+ * 格式怪異的日期，解析出來就是 Invalid Date；此時 getFullYear() 回傳
+ * NaN，Date.UTC(NaN, NaN, NaN) 也是 NaN，最後 new Date(NaN) 產生
+ * Invalid Date 並被原封不動送進 Prisma，觸發
+ * 「Provided Date object is invalid」而讓**整批匯入中止**。
+ *
+ * 現在統一交給 toSafeCalendarDate()——任何無效輸入都回傳 null，
+ * 絕不可能產生 Invalid Date。
+ *
+ * ⚠️ 日期問題改列為 **warning 而非 error**：依需求「日期錯誤不要中止整批，
+ * 該筆生日設為 null，其他資料照常完成匯入」。生日不是必填欄位，不該讓
+ * 一格打錯的生日擋掉整戶的姓名、地址與牌位資料。
+ */
+function parseSolarDate(raw: ImportRawRow, warnings: string[]): Date | null {
   const rawValue = raw["國曆生日"];
+
   if (rawValue instanceof Date) {
-    return new Date(Date.UTC(rawValue.getFullYear(), rawValue.getMonth(), rawValue.getDate()));
+    const safe = toSafeCalendarDate(rawValue);
+    if (!safe) {
+      warnings.push("「國曆生日」這一格的日期無效，已略過生日欄位，其餘資料照常匯入");
+    }
+    return safe;
   }
+
   const s = cell(raw, "國曆生日");
   if (!s) return null;
-  const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (!m) {
-    errors.push(`「國曆生日」格式看不懂「${s}」，請用 yyyy-MM-dd（例如 1958-03-12）`);
+
+  const safe = toSafeCalendarDate(s);
+  if (!safe) {
+    warnings.push(
+      `「國曆生日」格式看不懂或日期不存在「${s}」，已略過生日欄位，其餘資料照常匯入（正確格式：yyyy-MM-dd，例如 1958-03-12）`
+    );
     return null;
   }
-  const [, y, mo, d] = m;
-  const year = Number(y);
-  const month = Number(mo);
-  const day = Number(d);
-  if (month < 1 || month > 12 || day < 1 || day > 31) {
-    errors.push(`「國曆生日」日期不合理「${s}」`);
-    return null;
-  }
-  return new Date(Date.UTC(year, month - 1, day));
+  return safe;
 }
 
 /** 農曆生日：yyyy-MM-dd 或 yyyy/MM/dd，閏月請在後面加 (閏) */
 function parseLunarDate(
   raw: ImportRawRow,
-  errors: string[]
+  warnings: string[]
 ): { year: number; month: number; day: number; isLeapMonth: boolean } | null {
   const s = cell(raw, "農曆生日");
   if (!s) return null;
@@ -139,15 +164,27 @@ function parseLunarDate(
   const cleaned = s.replace(/[（(]?閏[）)]?/g, "").trim();
   const m = cleaned.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (!m) {
-    errors.push(`「農曆生日」格式看不懂「${s}」，請用 yyyy-MM-dd，閏月請加「(閏)」`);
+    // V12.9：同 parseSolarDate，改為 warning，不阻擋整列。
+    warnings.push(
+      `「農曆生日」格式看不懂「${s}」，已略過生日欄位，其餘資料照常匯入（正確格式：yyyy-MM-dd，閏月請加「(閏)」）`
+    );
     return null;
   }
   const [, y, mo, d] = m;
   const year = Number(y);
   const month = Number(mo);
   const day = Number(d);
-  if (month < 1 || month > 12 || day < 1 || day > 30) {
-    errors.push(`「農曆生日」日期不合理「${s}」`);
+  // V12.9：補上 NaN 防護（理論上正則已保證是數字，但不依賴這個假設）
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 30
+  ) {
+    warnings.push(`「農曆生日」日期不合理「${s}」，已略過生日欄位，其餘資料照常匯入`);
     return null;
   }
   return { year, month, day, isLeapMonth };
@@ -172,10 +209,17 @@ export function parseImportRow(raw: ImportRawRow, rowNumber: number): ParsedRow 
   if (!householdName) errors.push("「家戶名稱」不能空白");
   if (!memberName) errors.push("「家戶成員姓名」不能空白");
 
-  const solarBirthDate = parseSolarDate(raw, errors);
-  const lunar = parseLunarDate(raw, errors);
+  // V12.9：生日相關問題一律走 warnings，不阻擋整列匯入。
+  const solarBirthDate = parseSolarDate(raw, warnings);
+  const lunar = parseLunarDate(raw, warnings);
+  /**
+   * V12.9：兩種生日都有填時，明確以國曆為準並**實際忽略農曆**。
+   * （先前的訊息說「農曆欄位略過」但程式仍然兩個都寫入，訊息與行為不一致。
+   *   既有系統本來就會由國曆自動換算農曆，保留 Excel 的農曆值只會製造分歧。）
+   */
+  const effectiveLunar = solarBirthDate && lunar ? null : lunar;
   if (solarBirthDate && lunar) {
-    errors.push("「國曆生日」與「農曆生日」請只填一種，不要兩個都填");
+    warnings.push("「國曆生日」與「農曆生日」兩者都有填，已以國曆為準（農曆由系統自動換算），Excel 的農曆值不採用");
   }
 
   const isDeceased = parseBoolean(cell(raw, "是否已辭世"), errors, "是否已辭世");
@@ -210,10 +254,10 @@ export function parseImportRow(raw: ImportRawRow, rowNumber: number): ParsedRow 
     ? {
         name: memberName,
         solarBirthDate,
-        lunarBirthYear: lunar?.year ?? null,
-        lunarBirthMonth: lunar?.month ?? null,
-        lunarBirthDay: lunar?.day ?? null,
-        lunarIsLeapMonth: lunar?.isLeapMonth ?? false,
+        lunarBirthYear: effectiveLunar?.year ?? null,
+        lunarBirthMonth: effectiveLunar?.month ?? null,
+        lunarBirthDay: effectiveLunar?.day ?? null,
+        lunarIsLeapMonth: effectiveLunar?.isLeapMonth ?? false,
         isDeceased,
         yangshangName: isDeceased ? yangshangName : null,
         notes: toNullable(cell(raw, "備註")),

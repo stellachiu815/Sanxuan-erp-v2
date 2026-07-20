@@ -1,4 +1,4 @@
-import { normalizeName, toNullableText, toHalfWidthDigits } from "@/lib/devoteeImportNormalize";
+import { normalizeName, toNullableText, toHalfWidthDigits, toSafeCalendarDate } from "@/lib/devoteeImportNormalize";
 
 /**
  * V12.6「Excel 匯入中心正式版」指令四：個人資料 Excel。
@@ -59,37 +59,27 @@ function cell(raw: Record<string, unknown>, ...keys: string[]): unknown {
 }
 
 /**
- * 解析日期儲存格：接受 Excel 日期物件、yyyy-MM-dd、yyyy/MM/dd。
- * 看不懂就回 null 並附上錯誤訊息（不丟例外）。
+ * 解析日期儲存格 → yyyy-MM-dd 字串（看不懂就回 null 並附上錯誤訊息）。
+ *
+ * ⚠️ V12.9：日期是否有效一律交給共用的 toSafeCalendarDate() 判斷，
+ * 這裡不再自己寫一套。理由是正式匯入曾經因為某一支自行判斷的日期解析
+ * 漏掉「Invalid Date 物件」而把 Invalid Date 送進 Prisma、導致整批中止；
+ * 全部收斂到同一支之後，就不可能有某一條路徑漏掉檢查。
  */
 function parseDateCell(raw: unknown, label: string, errors: string[]): string | null {
   if (raw === null || raw === undefined) return null;
-  if (raw instanceof Date) {
-    if (Number.isNaN(raw.getTime())) {
-      errors.push(`「${label}」日期不合理`);
-      return null;
-    }
-    // Excel 日期一律當成「日曆日」，用 UTC 欄位避免時區偏移造成差一天。
-    const y = raw.getUTCFullYear();
-    const m = String(raw.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(raw.getUTCDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
-  const s = toHalfWidthDigits(String(raw)).trim().replace(/\//g, "-");
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
-  if (!m) {
-    errors.push(`「${label}」格式看不懂「${s}」，請用 yyyy-MM-dd`);
+  if (typeof raw === "string" && raw.trim() === "") return null;
+
+  const safe = toSafeCalendarDate(raw);
+  if (!safe) {
+    errors.push(`「${label}」日期無效或格式看不懂，已略過這個欄位（正確格式：yyyy-MM-dd）`);
     return null;
   }
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
-    errors.push(`「${label}」不是存在的日期「${s}」`);
-    return null;
-  }
-  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  // 統一輸出 yyyy-MM-dd（UTC 曆法欄位，與 toSafeCalendarDate 的建構方式一致）
+  const y = safe.getUTCFullYear();
+  const m = String(safe.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(safe.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 /** 農曆生日：yyyy-MM-dd，閏月在後面加「(閏)」或「（閏）」，沿用舊版慣例。 */

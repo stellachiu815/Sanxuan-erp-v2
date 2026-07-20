@@ -165,6 +165,67 @@ export function forwardFillAndGroupHouseholdRows(
   };
 }
 
+/**
+ * V12.9：**唯一安全的「日曆日期」建構器。**
+ *
+ * ── 這支存在的原因（正式匯入的當機來源）──
+ * Prisma 收到 `new Date("Invalid Date")` 會直接拋
+ * `PrismaClientValidationError: Provided Date object is invalid`，
+ * 導致整批匯入中止。實際發生的路徑是：Excel 儲存格解析出一個
+ * **Invalid Date 物件**（損壞或格式怪異的日期格），程式沒有檢查就呼叫
+ * `rawValue.getFullYear()` → 得到 NaN → `Date.UTC(NaN, NaN, NaN)` → NaN
+ * → `new Date(NaN)` → Invalid Date → 送進 Prisma → 整批爆掉。
+ *
+ * ── 規則 ──
+ * 任何無法構成「真實存在的日曆日」的輸入，一律回傳 **null**，絕不回傳
+ * Invalid Date。涵蓋：空白／null／undefined／NaN／Invalid Date 物件／
+ * 0000-00-00／2 月 30 日這種不存在的日期／年份明顯不合理。
+ *
+ * 呼叫端只要一律用這支，就不可能再把 Invalid Date 送進 Prisma。
+ */
+export function toSafeCalendarDate(raw: unknown): Date | null {
+  if (raw === null || raw === undefined) return null;
+
+  // ① Excel 直接給 Date 物件（cellDates: true 時的常見情況）
+  if (raw instanceof Date) {
+    // ⚠️ 關鍵防線：Invalid Date 物件的 getTime() 是 NaN。少了這一行，
+    // 後面所有欄位取出來都會是 NaN，最後組出 Invalid Date。
+    if (Number.isNaN(raw.getTime())) return null;
+    const y = raw.getUTCFullYear();
+    const m = raw.getUTCMonth();
+    const d = raw.getUTCDate();
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    const built = new Date(Date.UTC(y, m, d));
+    return Number.isNaN(built.getTime()) ? null : built;
+  }
+
+  // ② 數字（Excel 序列日期）不在正式格式的支援範圍，一律視為無效，
+  //    避免把 0 或隨機數字誤解成 1899 年之類的假日期。
+  if (typeof raw === "number") return null;
+
+  // ③ 文字：只接受 yyyy-MM-dd / yyyy/MM/dd
+  const s = toHalfWidthDigits(String(raw)).trim().replace(/\//g, "-");
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  // 0000-00-00 這種「格式對、內容不存在」的值在這裡被擋下
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+
+  const built = new Date(Date.UTC(y, mo - 1, d));
+  if (Number.isNaN(built.getTime())) return null;
+  // 回讀確認沒有被自動進位（例如 2/30 會變成 3/2），且年份沒有被
+  // Date.UTC 的「0–99 視為 1900+」規則悄悄改掉
+  if (built.getUTCFullYear() !== y || built.getUTCMonth() !== mo - 1 || built.getUTCDate() !== d) {
+    return null;
+  }
+  return built;
+}
+
 /** 姓名／戶名前後空白（含全形空白）。 */
 export function normalizeName(raw: unknown): string {
   if (raw === null || raw === undefined) return "";

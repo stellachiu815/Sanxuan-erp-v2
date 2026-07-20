@@ -6,7 +6,7 @@ import {
   type NormalizedDevoteeRow,
   type NormalizedHouseholdFields,
 } from "@/lib/devoteeImportValidate";
-import { forwardFillAndGroupHouseholdRows } from "@/lib/devoteeImportNormalize";
+import { forwardFillAndGroupHouseholdRows, toSafeCalendarDate } from "@/lib/devoteeImportNormalize";
 import {
   parsePersonSheet,
   buildPersonLookup,
@@ -1174,8 +1174,15 @@ export async function commitDevoteeImport(
                 data: {
                   householdId: household.id,
                   name: pm.name,
-                  ...(pm.personData?.solarBirthDate
-                    ? { solarBirthDate: new Date(`${pm.personData.solarBirthDate}T00:00:00.000Z`) }
+                  /**
+                   * V12.9：一律經過 toSafeCalendarDate()，任何無效日期都變成
+                   * null 而不是 Invalid Date。舊寫法直接把字串拼上
+                   * "T00:00:00.000Z" 丟給 new Date()，字串一旦不是
+                   * yyyy-MM-dd 就會產生 Invalid Date，送進 Prisma 會拋
+                   * 「Provided Date object is invalid」並中止整批匯入。
+                   */
+                  ...(toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)
+                    ? { solarBirthDate: toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)! }
                     : {}),
                   ...(pm.personData?.lunarBirthYear
                     ? {
@@ -1216,8 +1223,10 @@ export async function commitDevoteeImport(
             if (!existing) continue;
 
             const patch: Prisma.MemberUpdateInput = {};
-            if (!existing.solarBirthDate && pm.personData.solarBirthDate) {
-              patch.solarBirthDate = new Date(`${pm.personData.solarBirthDate}T00:00:00.000Z`);
+            // V12.9：同上，無效日期一律略過（維持 null），不送 Invalid Date。
+            const safeSolar = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
+            if (!existing.solarBirthDate && safeSolar) {
+              patch.solarBirthDate = safeSolar;
             }
             if (!existing.lunarBirthYear && pm.personData.lunarBirthYear) {
               patch.lunarBirthYear = pm.personData.lunarBirthYear;
