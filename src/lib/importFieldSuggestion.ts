@@ -80,9 +80,30 @@ const DEVOTEE_PRECHECK_FIELDS: TargetFieldDef[] = [
   { key: "householdName", label: "戶名", required: true },
   { key: "primaryContact", label: "主要聯絡人" },
   { key: "address", label: "地址" },
-  { key: "householdMembers", label: "家戶成員", required: true },
-  { key: "ancestors", label: "歷代祖先" },
-  { key: "spirits", label: "乙位正魂" },
+
+  /**
+   * V12.6 驗收修正：正式家戶 Excel 的實際格式是「所有成員」一欄混合三種
+   * 資料（一般家戶成員／歷代祖先／乙位正魂），以逗號分隔，由系統依名稱
+   * 內容自動分類（見 devoteeImportValidate.ts classifyAllMembers()）。
+   * 這是目前正式檔案的主要來源欄位。
+   */
+  { key: "allMembers", label: "所有成員（混合：成員／歷代祖先／乙位正魂）" },
+
+  /**
+   * 以下兩個數量欄位**僅供驗證**，不會寫入任何資料：系統會把「所有成員」
+   * 解析出來的筆數跟這兩個數字比對，對不上就在預檢提出警告，方便及早
+   * 發現 Excel 內容被截斷或分隔符打錯。
+   */
+  { key: "memberCount", label: "家庭成員（數量，僅驗證）" },
+  { key: "tabletCount", label: "普渡牌位資料筆數（數量，僅驗證）" },
+
+  /**
+   * 以下三欄保留給「已經拆成獨立欄位」的舊檔案，維持向下相容——舊檔案
+   * 照樣可以匯入，不需要重做。有「所有成員」時以「所有成員」為準。
+   */
+  { key: "householdMembers", label: "家戶成員（舊格式：僅一般成員）" },
+  { key: "ancestors", label: "歷代祖先（舊格式：獨立欄）" },
+  { key: "spirits", label: "乙位正魂（舊格式：獨立欄）" },
 ];
 
 export function getTargetFields(importKind: ImportKind): TargetFieldDef[] {
@@ -126,9 +147,19 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   householdCode: ["家戶編號", "戶號", "編號"],
   householdName: ["戶名", "家戶名稱", "家戶"],
   primaryContact: ["主要聯絡人", "聯絡人"],
-  householdMembers: ["家戶成員", "家庭成員", "成員"],
-  ancestors: ["歷代祖先", "祖先"],
-  spirits: ["乙位正魂", "個人乙位正魂"],
+  /**
+   * V12.6 驗收修正：正式檔案的「所有成員」混合欄。
+   * ⚠️ 別名不含「家庭成員」——那是數量欄，不是名單欄（見 memberCount）。
+   */
+  allMembers: ["所有成員", "全部成員", "成員名單", "所有成員名單"],
+  /** 僅驗證用的數量欄位，不會寫入資料 */
+  memberCount: ["家庭成員", "家庭成員數", "家庭成員（數量）", "成員數", "成員人數"],
+  tabletCount: ["普渡牌位資料筆數", "牌位資料筆數", "普渡牌位筆數", "牌位筆數"],
+
+  // 舊格式（已拆成獨立欄）的別名，維持向下相容。
+  householdMembers: ["家戶成員", "成員"],
+  ancestors: ["歷代祖先", "祖先", "歷代祖先牌位", "祖先牌位", "歷代"],
+  spirits: ["乙位正魂", "個人乙位正魂", "正魂", "乙位", "乙位正魂牌位", "個人牌位"],
 };
 
 export function normalizeColumnName(name: string): string {
@@ -153,14 +184,50 @@ export function suggestColumnMappingPure(
   const fields = getTargetFields(importKind);
   const result: Record<string, string | null> = {};
 
+  /**
+   * V12.6 驗收修正：**同一個系統欄位不可以被兩個 Excel 欄位同時佔用。**
+   *
+   * 問題現象：正式 Excel 同時有「歷代祖先」與「乙位正魂」兩欄，但使用者
+   * 看到的卻像是「只能二選一」。根因有兩個，這裡一起處理：
+   *
+   *   1. applyMapping() 是 `mapped[target] = value`——兩個 Excel 欄位若對應
+   *      到同一個 target，後者會**靜默覆蓋**前者，其中一欄等於整個消失。
+   *   2. 欄位對應記憶（ImportFieldMapping）優先於別名比對，而且沒有任何
+   *      防重複。只要曾經誤把某一欄存成 ancestors，之後每次上傳都會沿用，
+   *      把真正的「歷代祖先」欄擠掉。
+   *
+   * 修正方式：先用別名做精準比對（別名是系統定義的權威對照），再用記憶
+   * 補上別名沒命中的欄位；任何一個 target 一旦被佔用就不再分配給第二欄，
+   * 剩下的留空由使用者自行選擇。這樣「歷代祖先」與「乙位正魂」一定會各自
+   * 對到自己的欄位，不會互相覆蓋。
+   */
+  const usedTargets = new Set<string>();
+
+  // 第一輪：別名精準比對（優先權最高，因為這是系統定義的正確對照）
   for (const rawCol of sourceColumns) {
     const col = normalizeColumnName(rawCol);
-    if (remembered[col]) {
-      result[rawCol] = remembered[col];
+    const aliasHit = fields.find(
+      (f) => !usedTargets.has(f.key) && FIELD_ALIASES[f.key]?.some((alias) => alias === col)
+    );
+    if (aliasHit) {
+      result[rawCol] = aliasHit.key;
+      usedTargets.add(aliasHit.key);
+    }
+  }
+
+  // 第二輪：別名沒命中的欄位，才採用使用者過去的手動對應記憶，
+  // 且同樣不可佔用已被別名認領的 target。
+  for (const rawCol of sourceColumns) {
+    if (result[rawCol]) continue;
+    const col = normalizeColumnName(rawCol);
+    const rememberedTarget = remembered[col];
+    if (rememberedTarget && !usedTargets.has(rememberedTarget)) {
+      result[rawCol] = rememberedTarget;
+      usedTargets.add(rememberedTarget);
       continue;
     }
-    const aliasHit = fields.find((f) => FIELD_ALIASES[f.key]?.some((alias) => alias === col));
-    result[rawCol] = aliasHit ? aliasHit.key : null;
+    result[rawCol] = null;
   }
+
   return result;
 }

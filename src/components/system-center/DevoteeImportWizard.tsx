@@ -503,7 +503,9 @@ export default function DevoteeImportWizard() {
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第一步：上傳檔案</h3>
           <p className="text-xs text-ink-faint">
-            正式格式固定七欄：家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜家戶成員，一列代表一戶。
+            正式格式一列代表一戶，「所有成員」欄以逗號分隔，內含一般家戶成員、歷代祖先與乙位正魂三種資料，
+            系統會依名稱自動分類（含「歷代祖先」→ 歷代祖先牌位；含「乙位正魂」→ 乙位正魂牌位；其餘 → 一般成員）。
+            「家庭成員」與「普渡牌位資料筆數」兩個數量欄僅供核對，不會寫入資料。
             支援 .xlsx、.xls、.csv，單次僅能上傳一個檔案，檔案大小上限 10MB。上傳後不會立即寫入任何正式資料。
           </p>
           <div>
@@ -570,18 +572,31 @@ export default function DevoteeImportWizard() {
                   <tr key={col} className="border-t border-cream-200">
                     <td className="py-2 pr-4 text-ink">{col}</td>
                     <td className="py-2">
+                      {/*
+                        V12.6 驗收修正：同一個系統欄位不可以被兩個 Excel 欄位
+                        佔用——applyMapping() 會靜默覆蓋，其中一欄的資料會整個
+                        消失（正式 Excel 的「歷代祖先」與「乙位正魂」就是踩到
+                        這個）。這裡把已被其他欄位選走的選項標示並停用，
+                        使用者不可能再選到重複的目標欄位。
+                      */}
                       <select
                         value={mapping[col] ?? ""}
                         onChange={(e) => setMapping((prev) => ({ ...prev, [col]: e.target.value || null }))}
                         className="min-h-11 w-full rounded-full border border-cream-200 bg-cream-50 px-3 text-sm text-ink sm:max-w-xs"
                       >
                         <option value="">（不匯入）</option>
-                        {targetFields.map((f) => (
-                          <option key={f.key} value={f.key}>
-                            {f.label}
-                            {f.required ? "（必填）" : ""}
-                          </option>
-                        ))}
+                        {targetFields.map((f) => {
+                          const takenBy = Object.entries(mapping).find(
+                            ([otherCol, target]) => target === f.key && otherCol !== col
+                          )?.[0];
+                          return (
+                            <option key={f.key} value={f.key} disabled={Boolean(takenBy)}>
+                              {f.label}
+                              {f.required ? "（必填）" : ""}
+                              {takenBy ? `（已由「${takenBy}」使用）` : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </td>
                   </tr>
@@ -673,18 +688,29 @@ export default function DevoteeImportWizard() {
                 </div>
                 <p className="mt-2 text-sm text-ink">
                   家戶：{dash(r.household.name)}（編號 {dash(r.household.code)}） / 主要聯絡人：
-                  {dash(r.household.contactName)} / 家庭成員：{r.memberNames.length}人 / 祖先：
-                  {r.ancestorNames.length}筆 / 乙位正魂：{r.spiritNames.length}筆
+                  {dash(r.household.contactName)} / 家戶成員：{r.memberNames.length} 人 / 歷代祖先：
+                  {r.ancestorNames.length} 筆 / 乙位正魂：{r.spiritNames.length} 筆
                 </p>
                 {r.household.address && <p className="mt-1 text-xs text-ink-soft">地址：{r.household.address}</p>}
+                {/*
+                  V12.6 驗收修正：正式 Excel 的「所有成員」是一欄混合資料，
+                  由系統依名稱分類。這裡把分類結果分三行列出，讓行政人員
+                  一眼確認「哪些被當成一般成員、哪些被當成牌位」。
+                */}
                 {r.memberNames.length > 0 && (
-                  <p className="mt-1 text-xs text-ink-soft">家戶成員：{r.memberNames.join("、")}</p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    一般家戶成員（{r.memberNames.length}）：{r.memberNames.join("、")}
+                  </p>
                 )}
                 {r.ancestorNames.length > 0 && (
-                  <p className="mt-1 text-xs text-ink-soft">歷代祖先：{r.ancestorNames.join("、")}</p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    歷代祖先（{r.ancestorNames.length}）：{r.ancestorNames.join("、")}
+                  </p>
                 )}
                 {r.spiritNames.length > 0 && (
-                  <p className="mt-1 text-xs text-ink-soft">乙位正魂：{r.spiritNames.join("、")}</p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    乙位正魂（{r.spiritNames.length}）：{r.spiritNames.join("、")}
+                  </p>
                 )}
                 {/*
                   V12.6 指令六：每一筆都要顯示「預計動作／系統既有資料／

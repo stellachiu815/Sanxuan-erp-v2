@@ -1,22 +1,26 @@
 import { applyMapping } from "@/lib/smartImport";
-import { normalizeName, toNullableText, splitMultiValue } from "@/lib/devoteeImportNormalize";
+import { normalizeName, toNullableText, splitMultiValue, toHalfWidthDigits } from "@/lib/devoteeImportNormalize";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——單列（＝一戶）資料驗證。
  *
- * 正式 Excel 固定只有七欄，一列＝一戶（需求「三玄宮 ERP V11.3 家戶匯入
- * 正式版（依正式 Excel 格式）」）：
+ * 一列＝一戶。這個檔案只做「這一列本身資料乾不乾淨」的判斷，完全不查
+ * 資料庫——正式建立／更新 Household、Member、WorshipRecord（歷代祖先／
+ * 乙位正魂）的邏輯在 devoteeImportBatch.ts。
  *
- *   家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先（逗號分隔）｜乙位正魂（逗號分隔）｜家戶成員（逗號分隔）
+ * ⚠️ V12.6 驗收修正：正式家戶 Excel 的實際格式是
  *
- * 這個檔案只做「這一列本身資料乾不乾淨」的判斷，完全不查資料庫——正式
- * 建立／更新 Household、Member、WorshipRecord（歷代祖先／乙位正魂）的邏輯
- * 在 devoteeImportBatch.ts。
+ *   家戶編號｜戶名｜主要聯絡人｜地址｜家庭成員(數量)｜普渡牌位資料筆數(數量)｜所有成員
  *
- * ⚠️ 舊版（彈性欄位、姓名必填）已經完全被取代，不是並存的第二套格式
- * （使用者已明確選擇「完全改成只支援這七欄」）：
- *   - 不再要求「姓名」為必填欄位，也不會再顯示「缺少必填欄位：姓名」。
- *   - 改為檢查「家戶成員」是否存在，若存在就自動拆解成多筆姓名。
+ * 其中「所有成員」一欄以逗號分隔，**混合**三種資料：一般家戶成員、歷代
+ * 祖先、乙位正魂。系統依名稱內容自動分類（見 classifyAllMembers()）：
+ *
+ *   含「歷代祖先」→ 歷代祖先牌位／含「乙位正魂」→ 乙位正魂牌位／其餘 → 一般成員
+ *
+ * 兩個數量欄位僅供核對，不會寫入任何資料，對不上只會產生警告。
+ *
+ * ⚠️ 向下相容：舊檔案若已經把成員／歷代祖先／乙位正魂拆成三個獨立欄位，
+ * 照樣可以匯入（沒有「所有成員」時自動退回舊路徑），不需要重做檔案。
  */
 
 export type NormalizedHouseholdFields = {
@@ -55,6 +59,65 @@ function dedupeKeepOrder(names: string[]): string[] {
   return out;
 }
 
+/**
+ * V12.6 驗收修正：正式家戶 Excel 的「所有成員」欄位分類。
+ *
+ * 正式檔案把三種資料混在同一欄，以逗號分隔，例如：
+ *
+ *   周財寶,陳秀珍,王姓歷代祖先,周晉萬 乙位正魂
+ *
+ * 分類規則（使用者明確指定，不自行擴充）：
+ *   1. 名稱包含「歷代祖先」→ 歷代祖先牌位（WorshipRecord type = ANCESTOR_LINE）
+ *   2. 名稱包含「乙位正魂」→ 乙位正魂牌位（WorshipRecord type = INDIVIDUAL）
+ *   3. 其餘                → 一般家戶成員（Member）
+ *
+ * ⚠️ 順序很重要：先判斷歷代祖先、再判斷乙位正魂，最後才是一般成員。
+ * 名稱同時包含兩個關鍵字時（實務上不應發生）歸為歷代祖先，行為可預測。
+ *
+ * ⚠️ 分類後的名稱**保持原樣**，不會把「歷代祖先」「乙位正魂」字樣移除——
+ * 那些字本來就是牌位名稱的一部分（例如「王姓歷代祖先」），既有系統的
+ * WorshipRecord.displayName 存的就是完整名稱，去重也是比對完整名稱。
+ */
+export function classifyAllMembers(rawValue: unknown): {
+  memberNames: string[];
+  ancestorNames: string[];
+  spiritNames: string[];
+} {
+  const all = splitMultiValue(rawValue);
+  const memberNames: string[] = [];
+  const ancestorNames: string[] = [];
+  const spiritNames: string[] = [];
+
+  for (const name of all) {
+    if (name.includes("歷代祖先")) ancestorNames.push(name);
+    else if (name.includes("乙位正魂")) spiritNames.push(name);
+    else memberNames.push(name);
+  }
+
+  return {
+    memberNames: dedupeKeepOrder(memberNames),
+    ancestorNames: dedupeKeepOrder(ancestorNames),
+    spiritNames: dedupeKeepOrder(spiritNames),
+  };
+}
+
+/**
+ * 把數量欄位轉成整數；不是數字就回 null（僅驗證用，不影響匯入）。
+ *
+ * ⚠️ 兩個容易踩到的地方，都已處理：
+ *   1. 全形數字「３」要先轉半形，否則會被當成沒有數字。
+ *   2. 純文字（例如「abc」或「無」）去掉非數字後是空字串，
+ *      而 Number("") === 0 且 isFinite(0) 為真——不先擋掉的話會誤判成 0，
+ *      進而跳出「數量欄為 0 但實際有 N 筆」這種假警告。
+ */
+function toCount(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const cleaned = toHalfWidthDigits(String(raw)).replace(/[^\d-]/g, "");
+  if (!cleaned || cleaned === "-") return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 export function normalizeAndValidateDevoteeRow(
   raw: Record<string, unknown>,
   mapping: Record<string, string | null>,
@@ -80,15 +143,54 @@ export function normalizeAndValidateDevoteeRow(
   const contactName = toNullableText(mapped.primaryContact);
   const address = toNullableText(mapped.address);
 
-  // 需求明確指示：不要再驗證「姓名」，改為檢查「家戶成員」是否存在；
-  // 存在的話自動拆解姓名（依「、」或「，」拆開，見 splitMultiValue）。
-  const memberNames = dedupeKeepOrder(splitMultiValue(mapped.householdMembers));
-  if (memberNames.length === 0) {
-    missingFieldErrors.push("缺少必填欄位「家戶成員」");
+  /**
+   * V12.6 驗收修正：成員／牌位的來源有兩種格式，優先採用正式檔案的
+   * 「所有成員」混合欄，沒有時才退回舊格式的三個獨立欄位（向下相容，
+   * 舊檔案不需要重做）。
+   */
+  let memberNames: string[];
+  let ancestorNames: string[];
+  let spiritNames: string[];
+
+  const allMembersRaw = mapped.allMembers;
+  const hasAllMembers = splitMultiValue(allMembersRaw).length > 0;
+
+  if (hasAllMembers) {
+    // 正式格式：一欄混合，依名稱內容分類
+    const classified = classifyAllMembers(allMembersRaw);
+    memberNames = classified.memberNames;
+    ancestorNames = classified.ancestorNames;
+    spiritNames = classified.spiritNames;
+  } else {
+    // 舊格式：三個獨立欄位
+    memberNames = dedupeKeepOrder(splitMultiValue(mapped.householdMembers));
+    ancestorNames = dedupeKeepOrder(splitMultiValue(mapped.ancestors));
+    spiritNames = dedupeKeepOrder(splitMultiValue(mapped.spirits));
   }
 
-  const ancestorNames = dedupeKeepOrder(splitMultiValue(mapped.ancestors));
-  const spiritNames = dedupeKeepOrder(splitMultiValue(mapped.spirits));
+  // 三種資料全部都沒有，才算「這一列沒有任何成員資料」。
+  if (memberNames.length === 0 && ancestorNames.length === 0 && spiritNames.length === 0) {
+    missingFieldErrors.push("缺少必填欄位「所有成員」");
+  }
+
+  /**
+   * 「家庭成員」與「普渡牌位資料筆數」**僅供驗證**，不寫入任何資料。
+   * 數量對不上時只提出警告，不阻擋匯入——Excel 的數量欄常常是人工維護、
+   * 未必即時更新，但對不上通常代表名單被截斷或分隔符打錯，值得提醒。
+   */
+  const expectedMemberCount = toCount(mapped.memberCount);
+  const expectedTabletCount = toCount(mapped.tabletCount);
+
+  if (expectedMemberCount !== null && expectedMemberCount !== memberNames.length) {
+    warnings.push(
+      `「家庭成員」數量欄為 ${expectedMemberCount}，但從「所有成員」實際解析出 ${memberNames.length} 位一般成員，請確認名單是否完整。`
+    );
+  }
+  if (expectedTabletCount !== null && expectedTabletCount !== ancestorNames.length + spiritNames.length) {
+    warnings.push(
+      `「普渡牌位資料筆數」為 ${expectedTabletCount}，但實際解析出 ${ancestorNames.length + spiritNames.length} 筆牌位（歷代祖先 ${ancestorNames.length}、乙位正魂 ${spiritNames.length}），請確認名單是否完整。`
+    );
+  }
 
   const household: NormalizedHouseholdFields = { code, name, contactName, address };
 
