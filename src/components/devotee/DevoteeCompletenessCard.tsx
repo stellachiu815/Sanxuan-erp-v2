@@ -38,7 +38,9 @@ export default function DevoteeCompletenessCard(props: DevoteeCompletenessInput)
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-base tracking-widest text-yolk-500" aria-hidden>
+          {/* yolk 色階只到 300（見 tailwind.config.ts），不可使用 yolk-500——
+              那個 class 不存在，星星會沒有顏色。 */}
+          <span className="text-base tracking-widest text-yolk-300" aria-hidden>
             {"★".repeat(stars)}
             <span className="text-ink-faint">{"☆".repeat(5 - stars)}</span>
           </span>
