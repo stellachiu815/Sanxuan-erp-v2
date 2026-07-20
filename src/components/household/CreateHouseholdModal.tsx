@@ -52,11 +52,13 @@ export default function CreateHouseholdModal({ onClose }: Props) {
     e.preventDefault();
     if (submitting) return;
 
+    // V12.1 一次性修正指令「二之1」：家戶編號留空時交給後端自動產生
+    // （src/lib/householdManagement.ts 的 createHousehold()／
+    // findNextAutoHouseholdCode()，格式 F00001）。這裡不再擋空白，也不在
+    // 前端另外產生一組編號——編號規則只有後端那一套，避免出現第二套規則。
+    // 有輸入編號時維持既有行為：原樣送出，由後端 validateHouseholdCode()
+    // 檢查是否重複，重複時回傳錯誤並顯示在下方。
     const trimmedCode = householdCode.trim();
-    if (!trimmedCode) {
-      setError("家戶編號不可空白");
-      return;
-    }
 
     setSubmitting(true);
     setError(null);
@@ -67,7 +69,9 @@ export default function CreateHouseholdModal({ onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           operatorUserId,
-          householdCode: trimmedCode,
+          // 留空時不送這個欄位，讓後端 createHousehold() 走自動產生分支
+          // （後端判斷依據是 input.id 為 falsy）。
+          ...(trimmedCode ? { householdCode: trimmedCode } : {}),
           householdName,
           primaryContact,
           phone,
@@ -102,10 +106,12 @@ export default function CreateHouseholdModal({ onClose }: Props) {
             className={inputClass}
             value={householdCode}
             onChange={(e) => setHouseholdCode(e.target.value)}
-            placeholder="例如 F00021"
+            placeholder="留空自動產生，例如 F00021"
             autoFocus
           />
-          <p className="mt-1 text-xs text-ink-faint">建立前會檢查是否與其他家戶重複，重複時不會建立。</p>
+          <p className="mt-1 text-xs text-ink-faint">
+            留空會自動接續目前最大的編號產生（例如 F00021）。自行輸入時，建立前會檢查是否與其他家戶重複，重複時不會建立。
+          </p>
         </div>
         <div>
           <label className={labelClass}>戶名</label>
@@ -142,7 +148,7 @@ export default function CreateHouseholdModal({ onClose }: Props) {
           <button type="button" className={secondaryButtonClass} onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting || !householdCode.trim()}>
+          <button type="submit" className={primaryButtonClass} disabled={submitting}>
             {submitting ? "建立中…" : "建立家戶"}
           </button>
         </div>

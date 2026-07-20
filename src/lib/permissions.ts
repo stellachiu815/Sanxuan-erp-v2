@@ -410,6 +410,13 @@ export type SystemAction =
   | "manageBackupSchedule" // 修改備份排程與保留政策
   | "manageDataImport" // V11.3「信眾資料匯入預檢中心」新增：上傳/欄位對照/預覽/
   // 疑似重複人工確認/測試匯入。
+  | "purgeRecycleBin" // V12.1 一次性修正指令「二之4」新增：從回收區永久刪除
+  // 一筆資料（POST /api/recycle-bin/purge）。這支 API 原本完全沒有權限檢查，
+  // 但 src/app/api/recycle-bin/purge/route.ts 既有註解本來就寫明「需求
+  // 『九、權限』要求只有 SUPER_ADMIN 能永久刪除…目前只能靠畫面提示」，
+  // 所以這裡不是新訂規則，而是把既有已寫明的規則真正落實到後端，維持
+  // SUPER_ADMIN 專屬。保留期限（30 天）的判斷不變，仍由
+  // src/lib/recycleBin.ts 的 canPurgeOf() 負責，兩者是獨立的兩道關卡。
   | "manageUsers"; // V12「信眾資料中心正式建置」指令「九、其他使用者帳號」新增：
 // 建立操作人員／修改姓名／啟用停用／指定角色，見下方 SYSTEM_PERMISSIONS
 // 對這個動作的角色說明。
@@ -424,6 +431,7 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
     "manageBackupSchedule",
     "manageDataImport",
     "manageUsers",
+    "purgeRecycleBin",
   ],
   // V12「信眾資料中心正式建置」指令「九」逐字定義：「ADMIN＝全部功能／可進
   // 系統管理／可匯入／可新增修改刪除」。使用者已明確確認（AskUserQuestion）
@@ -664,6 +672,8 @@ export function getFullPermissionSnapshot() {
     // ——只補齊清單，不改變任何角色實際的權限判斷邏輯。
     "manageDataImport",
     "manageUsers",
+    // V12.1 一次性修正指令「二之4」新增的動作，一併列進這份權限快照清單。
+    "purgeRecycleBin",
   ];
   const devoteeActions: DevoteeAction[] = [
     "view",

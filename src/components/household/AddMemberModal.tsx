@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Modal from "@/components/Modal";
 import { memberRoleOptions } from "@/lib/labels";
+import { useOperator } from "@/lib/operatorClient";
 import BirthdayField, { createEmptyBirthdayValue, type BirthdayValue } from "@/components/birthday/BirthdayField";
 import {
   inputClass,
@@ -20,6 +21,11 @@ type Props = {
 };
 
 export default function AddMemberModal({ householdId, onClose, onSuccess }: Props) {
+  // V12.1 一次性修正指令「二之4」：POST /api/households/[id]/members 這次
+  // 補上了權限檢查，所以這裡必須帶目前操作人員。這個 Modal 只會在已經包了
+  // <OperatorProvider> 的 QuickActionsPanel 底下開啟，沿用既有 useOperator()，
+  // 不另外做一套身分傳遞。
+  const { operatorUserId } = useOperator();
   const [name, setName] = useState("");
   const [gender, setGender] = useState("");
   const [role, setRole] = useState("OTHER");
@@ -46,6 +52,7 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
     setError(null);
 
     const payload: Record<string, unknown> = {
+      operatorUserId,
       name: name.trim(),
       gender: gender || null,
       role,

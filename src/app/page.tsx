@@ -74,10 +74,12 @@ export default async function HomePage() {
         >
           🗑 回收區 →
         </Link>
-        {/* V12.1「家戶管理中心」指令「二十二、導覽入口」：只新增這一個入口
-            連結，不調整上面既有連結的順序。 */}
-        <Link href="/households" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🏠 家戶管理中心 →
+        {/* V12.1「家戶管理中心」驗收修正輪：家戶管理（新增家戶／指定戶長／
+            合併／拆分／轉移／封存）這次直接整合進「信眾名單」頁面，不是
+            另一個獨立入口，所以這裡改成直接指向信眾名單，不調整上面既有
+            連結的順序。 */}
+        <Link href="/devotee-center/list" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+          🏠 家戶管理中心（信眾名單）→
         </Link>
       </div>
     </main>

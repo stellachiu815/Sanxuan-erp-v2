@@ -6,6 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
+import { canDevotee } from "@/lib/permissions";
+import CreateHouseholdModal from "@/components/household/CreateHouseholdModal";
+import HouseholdActionsMenu from "@/components/household/HouseholdActionsMenu";
 
 type DevoteeRow = {
   memberId: string;
@@ -58,7 +61,11 @@ const QUICK_FILTER_OPTIONS: { value: string; label: string }[] = [
 ];
 
 function DevoteeListInner() {
-  const { operatorUserId } = useOperator();
+  const { operatorUserId, operatorUser } = useOperator();
+  // V12.1「家戶管理中心」驗收修正輪：直接整合進信眾名單頁，不另外開頁面。
+  const canManage = operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false;
+  const [showCreateHousehold, setShowCreateHousehold] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
   // 對應指令「五、待補資料」：從首頁統計數字點進來時，網址會帶
   // ?filters=NO_BIRTHDAY 這類參數，這裡讀出來當作篩選的初始值，讓「點擊
   // 數字直接看到對應名單」真的成立，不是只有停在空白的名單頁。
@@ -104,7 +111,7 @@ function DevoteeListInner() {
         setError(null);
       })
       .catch((e) => setError(e.message));
-  }, [operatorUserId, debouncedQ, filters, page, pageSize]);
+  }, [operatorUserId, debouncedQ, filters, page, pageSize, reloadTick]);
 
   const totalPages = useMemo(() => (data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1), [data]);
 
@@ -126,12 +133,25 @@ function DevoteeListInner() {
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-3xl bg-white/70 p-5 shadow-card">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋姓名/戶名/電話/地址/家戶編號/主要聯絡人/公司名稱/Email/LINE ID/標籤"
-          className="w-full rounded-full border border-cream-200 bg-cream-50 px-4 py-2 text-sm text-ink"
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="搜尋姓名/戶名/電話/地址/家戶編號/主要聯絡人/公司名稱/Email/LINE ID/標籤"
+            className="min-w-0 flex-1 rounded-full border border-cream-200 bg-cream-50 px-4 py-2 text-sm text-ink"
+          />
+          {/* V12.1「家戶管理中心」驗收修正輪：「新增家戶」直接放在信眾名單
+              搜尋框旁邊，沿用既有 CreateHouseholdModal，不另外開一個頁面。 */}
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => setShowCreateHousehold(true)}
+              className="min-h-9 whitespace-nowrap rounded-full bg-ink-soft px-5 py-2 text-sm text-cream-50 transition hover:bg-ink"
+            >
+              ➕ 新增家戶
+            </button>
+          )}
+        </div>
 
         {/* 對應指令「六」：全部／缺出生年月日／缺地址／缺電話／資料完整，
             放在搜尋框正下方最顯眼的位置。 */}
@@ -176,7 +196,7 @@ function DevoteeListInner() {
 
       {data && (
         <div className="overflow-x-auto rounded-3xl bg-white/70 p-4 shadow-card">
-          <table className="w-full min-w-[1050px] text-left text-sm">
+          <table className="w-full min-w-[1150px] text-left text-sm">
             <thead>
               <tr className="text-xs text-ink-faint">
                 <th className="px-3 py-2">姓名</th>
@@ -195,6 +215,7 @@ function DevoteeListInner() {
                     分開各自一欄，不合併也不覆蓋既有欄位。 */}
                 <th className="px-3 py-2">資料狀態</th>
                 <th className="px-3 py-2"></th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -205,8 +226,26 @@ function DevoteeListInner() {
                 return (
                   <tr key={r.memberId} className="border-t border-cream-200">
                     <td className="px-3 py-2 text-ink">{r.name}</td>
-                    <td className="px-3 py-2 text-ink-soft">{r.householdId}</td>
-                    <td className="px-3 py-2 text-ink-soft">{r.householdName}</td>
+                    {/* V12.1 一次性修正指令「二之2」：家戶編號與戶名直接連到
+                        既有的家戶完整詳情頁（src/app/household/[id]/page.tsx，
+                        既有 Route，沒有新增第二個詳情頁），不必再先點進成員頁
+                        才能繞到家戶。 */}
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/household/${r.householdId}`}
+                        className="text-ink-soft underline-offset-4 hover:text-ink hover:underline"
+                      >
+                        {r.householdId}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/household/${r.householdId}`}
+                        className="text-ink-soft underline-offset-4 hover:text-ink hover:underline"
+                      >
+                        {r.householdName}
+                      </Link>
+                    </td>
                     <td className="px-3 py-2 text-ink-soft">
                       {r.solarBirthDate || r.lunarBirthDisplay || "—"}
                       {r.zodiac && <span className="ml-1 text-xs text-ink-faint">（{r.zodiac}）</span>}
@@ -243,6 +282,18 @@ function DevoteeListInner() {
                       >
                         查看／編輯 →
                       </Link>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {/* V12.1「家戶管理中心」驗收修正輪：這一列右側的「更多
+                          操作」——指定戶長／成員轉移／合併家戶／拆分家戶／
+                          封存家戶，全部是上一輪已經做好、只是完全沒有入口的
+                          既有 Modal／Wizard，這裡只是補上入口。 */}
+                      {canManage && (
+                        <HouseholdActionsMenu
+                          householdId={r.householdId}
+                          onChanged={() => setReloadTick((t) => t + 1)}
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -285,6 +336,8 @@ function DevoteeListInner() {
           </div>
         </div>
       )}
+
+      {showCreateHousehold && <CreateHouseholdModal onClose={() => setShowCreateHousehold(false)} />}
     </div>
   );
 }

@@ -11,6 +11,15 @@ import { updateHouseholdBasic, toHouseholdApiError } from "@/lib/householdManage
  *
  * 回傳家戶基本資料、成員（含換算後的國曆/農曆生日、生肖、虛歲）、
  * 祭祀資料、歷史活動紀錄、備註。
+ *
+ * V12.1 一次性修正指令「二之5」：這支家戶詳情 API 原本直接回傳裸物件
+ * （成功時是 household 本身、失敗時是 { error }），跟同一個模組其餘所有
+ * 家戶 API（POST /api/households、archive、head、merge、split、transfer…）
+ * 使用的 { success, data } / { success, error } 信封格式不一致，前端因此
+ * 要為這一支寫特例。這次統一成既有多數派的信封格式，沒有新增第二個
+ * endpoint，也沒有改變 getHouseholdDetail() 回傳的資料內容本身——只是
+ * 外層包裝一致化。使用端（src/components/household/HouseholdActionsMenu.tsx）
+ * 已同步修改。
  */
 export async function GET(
   _request: NextRequest,
@@ -20,10 +29,10 @@ export async function GET(
   const household = await getHouseholdDetail(id);
 
   if (!household) {
-    return NextResponse.json({ error: "找不到這個家戶" }, { status: 404 });
+    return NextResponse.json({ success: false, error: "找不到這個家戶" }, { status: 404 });
   }
 
-  return NextResponse.json(household);
+  return NextResponse.json({ success: true, data: household });
 }
 
 /**
@@ -57,11 +66,11 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
     const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
-    if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+    if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     const { household } = await updateHouseholdBasic(
       id,
@@ -81,9 +90,11 @@ export async function PATCH(
     revalidatePath(`/household/${household.id}`);
     if (household.id !== id) revalidatePath(`/household/${id}`);
 
-    return NextResponse.json({ household, success: true });
+    // V12.1 一次性修正指令「二之5」：統一成 { success, data } 信封，
+    // 跟同模組其餘家戶 API 一致（原本是 { household, success }）。
+    return NextResponse.json({ success: true, data: { household } });
   } catch (e) {
     const { status, error } = toHouseholdApiError(e);
-    return NextResponse.json({ error, success: false }, { status });
+    return NextResponse.json({ success: false, error }, { status });
   }
 }

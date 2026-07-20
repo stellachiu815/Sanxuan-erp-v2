@@ -65,8 +65,11 @@ const COMING_SOON_ACTIONS = [
  *    READONLY 角色看（前端隱藏只是體驗優化，真正把關在各 API 的
  *    assertDevoteePermissionForOperator()）。
  *
- * AddMemberModal／AddWorshipModal 這次沒有修改，維持原本沒有 operatorUserId
- * 的呼叫方式，不影響既有行為。
+ * V12.1 一次性修正指令「二之4」更新：AddMemberModal／AddWorshipModal 對應的
+ * 兩支 API（POST /api/households/[id]/members、/worship）原本完全沒有權限
+ * 檢查，這次已補上，因此這兩個 Modal 也改成用 useOperator() 帶
+ * operatorUserId 送出——它們只會在這個面板（已包 OperatorProvider）底下、
+ * 且 canManage 為真時開啟，所以一定拿得到操作人員身分。
  */
 export default function QuickActionsPanel(props: Props) {
   return (
@@ -287,7 +290,11 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
           onClose={() => setOpenModal(null)}
           onSuccess={() => {
             handleSuccess();
-            router.push("/households");
+            // V12.1 一次性修正指令「二之3」：原本導向 /households，該路由在
+            // 這次驗收修正輪已經改成只做 redirect 到信眾名單（見
+            // src/app/households/page.tsx），這裡直接指向目前正式使用中的
+            // 家戶管理／信眾中心入口，少一次沒必要的轉址。
+            router.push("/devotee-center/list");
           }}
         />
       )}

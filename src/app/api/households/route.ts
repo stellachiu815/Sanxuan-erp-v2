@@ -12,6 +12,19 @@ import {
  * GET  /api/households?query=xxx&page=1&pageSize=20
  * POST /api/households  body: { operatorUserId, householdCode, householdName, primaryContact, address, phone, mobile, companyName, notes }
  *
+ * ⚠️ V12.1 一次性修正指令「二之6（清理孤兒程式碼）」盤點結論：GET 這一支
+ * （家戶為主體的搜尋／列表，底層是 householdManagement.searchHouseholds()）
+ * 目前確實沒有任何前端呼叫端——上一輪驗收把家戶列表整合進信眾名單之後，
+ * 家戶搜尋是走信眾中心那條路。但它**沒有被移除**，理由是本次指令第四節
+ * 驗收清單明確要求「家戶搜尋正常」，這支 API 就是該功能的正式實作；依指令
+ * 「若仍有正式引用，不得刪除，改為接回目前正式流程」，這裡保留原狀等待
+ * 之後接回入口，不在這一輪擅自刪除。
+ *
+ * ⚠️ 注意：src/lib/devoteeSearch.ts 裡另有一個同名的區域函式
+ * searchHouseholds(q)，那是全宮搜尋／信眾搜尋正在使用的共用邏輯，與這裡
+ * 的 householdManagement.searchHouseholds() 是不同的兩個東西，清理時
+ * 千萬不要誤刪。
+ *
  * 查詢（GET）不需要權限檢查——沿用既有信眾中心/家戶頁「查看」不設防的
  * 一貫作法（見 src/lib/operator.ts 說明：系統目前沒有登入/session，
  * 「查看」層級的資料本來就沒有伺服器端門檻，只有會寫入資料的操作才檢查

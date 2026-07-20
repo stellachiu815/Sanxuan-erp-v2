@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Modal from "@/components/Modal";
 import { worshipTypeOptions } from "@/lib/labels";
+import { useOperator } from "@/lib/operatorClient";
 import {
   inputClass,
   labelClass,
@@ -18,6 +19,10 @@ type Props = {
 };
 
 export default function AddWorshipModal({ householdId, onClose, onSuccess }: Props) {
+  // V12.1 一次性修正指令「二之4」：POST /api/households/[id]/worship 這次
+  // 補上了權限檢查，這裡必須帶目前操作人員。同 AddMemberModal，只在已包
+  // <OperatorProvider> 的 QuickActionsPanel 底下開啟，沿用既有 useOperator()。
+  const { operatorUserId } = useOperator();
   const [type, setType] = useState<"ANCESTOR_LINE" | "INDIVIDUAL">("ANCESTOR_LINE");
   const [displayName, setDisplayName] = useState("");
   const [yangshangName, setYangshangName] = useState("");
@@ -42,6 +47,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          operatorUserId,
           type,
           displayName: displayName.trim(),
           yangshangName: yangshangName.trim() || null,

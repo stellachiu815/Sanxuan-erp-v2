@@ -6,6 +6,9 @@ import ConfirmDialog from "@/components/system/ConfirmDialog";
 import Toast from "@/components/ritual/Toast";
 import { inputClass, labelClass } from "@/components/household/formStyles";
 import type { RecycleBinEntityType } from "@/lib/recycleBin";
+import { OperatorProvider, useOperator } from "@/lib/operatorClient";
+import OperatorBar from "@/components/system/OperatorBar";
+import { canSystem } from "@/lib/permissions";
 
 // entityType 直接沿用 @/lib/recycleBin.ts 的權威定義（之前這裡自己重複宣告了
 // 一份只有 4 種舊類型的字面聯集，跟後來新增的 AdditionalPrintItem／
@@ -25,8 +28,29 @@ type RecycleBinItem = {
 
 type PendingAction = { kind: "restore" | "purge"; item: RecycleBinItem };
 
+/**
+ * V12.1 一次性修正指令「二之4」：永久刪除（POST /api/recycle-bin/purge）
+ * 這次補上了後端權限檢查（SystemAction "purgeRecycleBin"，僅 SUPER_ADMIN），
+ * 所以這個畫面必須改成能取得真正的操作人員身分，否則永久刪除會對所有人
+ * 回 401。沿用既有的 <OperatorProvider>／<OperatorBar/>（同
+ * QuickActionsPanel／系統管理中心的作法），不另做一套身分選擇。
+ *
+ * 原本那個自由文字「操作人姓名」欄位保留給「還原」使用——還原 API
+ * （/api/recycle-bin/restore）這次沒有修改，仍然吃 operatorName 字串，
+ * 不在本次指令範圍內，避免動到未被要求的既有行為。
+ */
 export default function RecycleBinScreen({ initialItems }: { initialItems: RecycleBinItem[] }) {
+  return (
+    <OperatorProvider>
+      <RecycleBinScreenInner initialItems={initialItems} />
+    </OperatorProvider>
+  );
+}
+
+function RecycleBinScreenInner({ initialItems }: { initialItems: RecycleBinItem[] }) {
   const router = useRouter();
+  const { operatorUserId, operatorUser } = useOperator();
+  const canPurgeByRole = operatorUser?.role ? canSystem(operatorUser.role, "purgeRecycleBin") : false;
   const [items, setItems] = useState(initialItems);
   const [operatorName, setOperatorName] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -74,6 +98,7 @@ export default function RecycleBinScreen({ initialItems }: { initialItems: Recyc
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            operatorUserId,
             entityType: pending.item.entityType,
             entityId: pending.item.entityId,
           }),
@@ -102,12 +127,12 @@ export default function RecycleBinScreen({ initialItems }: { initialItems: Recyc
           被移入回收區的資料至少保留 30 天，管理者可以還原；超過保留期限才能永久刪除。
         </p>
         <p className="mt-2 rounded-xl bg-mist-50 px-4 py-2.5 text-xs text-ink-soft">
-          ⚠️
-          系統目前沒有登入/session
-          機制，這個頁面暫時對所有使用者開放——依需求，還原與永久刪除本來應該只
-          有超級管理員可以操作，等系統做出登入功能後，會補上真正的後端權限檢查。
+          ⚠️ 永久刪除只有最高管理員可以操作（後端會再次驗證）。「還原」目前仍未做
+          後端權限檢查，等系統做出登入功能後會一併補上。
         </p>
       </div>
+
+      <OperatorBar />
 
       <div>
         <label className={labelClass}>操作人姓名（選填，用於下方「還原」時記錄）</label>
@@ -163,9 +188,20 @@ export default function RecycleBinScreen({ initialItems }: { initialItems: Recyc
                   >
                     還原
                   </button>
+                  {/* V12.1 一次性修正指令「二之4」：永久刪除現在有兩道獨立的
+                      關卡——保留期限（item.canPurge，滿 30 天）與角色權限
+                      （canPurgeByRole，僅 SUPER_ADMIN）。前端停用只是體驗
+                      優化，真正的把關在 API。 */}
                   <button
                     type="button"
-                    disabled={!item.canPurge}
+                    disabled={!item.canPurge || !canPurgeByRole}
+                    title={
+                      !item.canPurge
+                        ? "還沒超過 30 天保留期限"
+                        : !canPurgeByRole
+                          ? "只有最高管理員可以永久刪除"
+                          : undefined
+                    }
                     className="rounded-full bg-blossom-100 px-4 py-2 text-xs text-ink transition
                                hover:bg-blossom-200 disabled:cursor-not-allowed disabled:opacity-40"
                     onClick={() => setPending({ kind: "purge", item })}

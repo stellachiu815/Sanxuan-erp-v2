@@ -184,47 +184,92 @@ export async function updateHouseholdBasic(
 }
 
 /**
- * 新增家戶（對應指令「八、新增家戶」）。只建立 Household 本身；家戶成員
- * 由呼叫端另外用既有的「新增家人」流程（src/app/api/households/[id]/
- * members/route.ts，本次沒有修改）逐一加入，避免這裡重複實作一套加入
- * 成員的邏輯（同一個 Transaction 內完成的需求改成：先建立家戶，同一支
- * API 若同時帶了初始成員清單，會在同一個 Transaction 內一併寫入，見下方
- * createHouseholdWithMembers）。
+ * 家戶編號格式沿用既有種子/實際資料的慣例（見 F00009 王家範例）：
+ * 字母 F ＋ 5 位數字，例如 F00010。這裡只在「自動產生」時使用這個格式
+ * 當作預設建議值，使用者仍然可以自行輸入任何 ≤10 字元的編號（既有
+ * validateHouseholdCode() 的規則不變，不因為有自動產生功能而收緊）。
+ */
+const AUTO_HOUSEHOLD_CODE_PATTERN = /^F(\d{5})$/;
+
+async function findNextAutoHouseholdCode(): Promise<string> {
+  const rows = await prisma.household.findMany({
+    where: { id: { startsWith: "F" } },
+    select: { id: true },
+  });
+  let maxNum = 0;
+  for (const row of rows) {
+    const match = AUTO_HOUSEHOLD_CODE_PATTERN.exec(row.id);
+    if (match) {
+      const n = Number(match[1]);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  return `F${String(maxNum + 1).padStart(5, "0")}`;
+}
+
+/**
+ * 新增家戶（對應指令「八、新增家戶」及「驗收修正-1」新增的自動產生編號
+ * 需求）。只建立 Household 本身；家戶成員由呼叫端另外用既有的「新增
+ * 家人」流程（src/app/api/households/[id]/members/route.ts，本次沒有
+ * 修改）逐一加入，避免這裡重複實作一套加入成員的邏輯。
+ *
+ * 家戶編號留空時自動產生（見 findNextAutoHouseholdCode()）；有填寫時
+ * 沿用既有 validateHouseholdCode() 檢查唯一性，行為不變。自動產生的
+ * 編號理論上不會跟既有資料重複，但為了保守起見（例如極少數同時新增的
+ * 情況），若寫入時真的撞到唯一鍵衝突，會自動往下一個號碼重試，最多
+ * 重試 5 次，仍失敗才回報錯誤，不會讓使用者看到原始 Prisma 錯誤。
  */
 export async function createHousehold(rawInput: HouseholdBasicInput, operatorName: string | null) {
   const input = normalizeHouseholdBasicInput(rawInput);
-  if (!input.id) throw new HouseholdManagementError("請輸入家戶編號");
-  const codeError = await validateHouseholdCode(input.id);
-  if (codeError) throw new HouseholdManagementError(codeError);
 
-  const household = await prisma.$transaction(async (tx) => {
-    const created = await tx.household.create({
-      data: {
-        id: input.id!,
-        name: input.name ?? "",
-        contactName: input.contactName ?? null,
-        address: input.address ?? null,
-        phone: input.phone ?? null,
-        mobile: input.mobile ?? null,
-        companyName: input.companyName ?? null,
-        notes: input.notes ?? null,
-      },
-    });
-    await recordVersion(
-      {
-        entityType: "Household",
-        entityId: created.id,
-        action: "CREATE",
-        afterData: created,
-        operatorName,
-        changeNote: "家戶管理中心：新增家戶",
-      },
-      tx
-    );
-    return created;
-  });
+  const autoGenerate = !input.id;
+  if (!autoGenerate) {
+    const codeError = await validateHouseholdCode(input.id!);
+    if (codeError) throw new HouseholdManagementError(codeError);
+  }
 
-  return { household };
+  const maxAttempts = autoGenerate ? 5 : 1;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const id = autoGenerate ? await findNextAutoHouseholdCode() : input.id!;
+    try {
+      const household = await prisma.$transaction(async (tx) => {
+        const created = await tx.household.create({
+          data: {
+            id,
+            name: input.name ?? "",
+            contactName: input.contactName ?? null,
+            address: input.address ?? null,
+            phone: input.phone ?? null,
+            mobile: input.mobile ?? null,
+            companyName: input.companyName ?? null,
+            notes: input.notes ?? null,
+          },
+        });
+        await recordVersion(
+          {
+            entityType: "Household",
+            entityId: created.id,
+            action: "CREATE",
+            afterData: created,
+            operatorName,
+            changeNote: autoGenerate ? "家戶管理中心：新增家戶（自動產生編號）" : "家戶管理中心：新增家戶",
+          },
+          tx
+        );
+        return created;
+      });
+      return { household };
+    } catch (e) {
+      lastError = e;
+      const isUniqueConflict = e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+      if (!autoGenerate || !isUniqueConflict) throw e;
+      // 自動產生的編號撞到唯一鍵衝突：往下一個號碼重試。
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new HouseholdManagementError("自動產生家戶編號失敗，請稍後再試一次或自行輸入編號", 500);
 }
 
 // ============================================================
