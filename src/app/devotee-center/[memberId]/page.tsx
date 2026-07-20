@@ -7,6 +7,9 @@ import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee } from "@/lib/permissions";
 import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
+import DevoteeCompletenessCard from "@/components/devotee/DevoteeCompletenessCard";
+import ChangeHouseholdModal from "@/components/devotee/ChangeHouseholdModal";
+import { checkDevoteeDataQuality, type QualityIssue } from "@/lib/devoteeDataQuality";
 import { DEVOTEE_INTERACTION_TYPE_LABEL } from "@/components/devotee/labels";
 import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOptions } from "@/lib/labels";
 
@@ -81,6 +84,7 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
   const urlParams = useSearchParams();
   const listQueryString = urlParams.toString(); // 原封不動轉送給 neighbors API 跟 上一位/下一位連結
   const [neighbors, setNeighbors] = useState<{ prevMemberId: string | null; nextMemberId: string | null } | null>(null);
+  const [showChangeHousehold, setShowChangeHousehold] = useState(false);
 
   useEffect(() => {
     if (!operatorUserId) return;
@@ -111,6 +115,11 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
 
   const b = overview.basic;
   const detailHref = (id: string) => `/devotee-center/${id}${listQueryString ? `?${listQueryString}` : ""}`;
+  // V12.5 指令五：更換家戶背後是 transferMember 權限（V12.3 起 STAFF 沒有）。
+  // 前端隱藏只是體驗優化，真正把關在 /api/households/members/transfer。
+  const canChangeHousehold = operatorUser?.role
+    ? canDevotee(operatorUser.role, "transferMember")
+    : false;
 
   return (
     <div className="flex flex-col gap-6">
@@ -158,13 +167,27 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
                 第二個家戶頁。反向（家戶頁 → 信眾詳情）在 V12.1 已經做好。 */}
             {/* V12.4 指令五：所屬家戶必須可點擊，並提供明顯的「回家戶」按鈕，
                 直接開啟既有的 Household Detail（/household/[id]）。 */}
-            <Link
-              href={`/household/${b.householdId}`}
-              className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full
-                         bg-mist-100 px-4 py-2 text-sm text-ink transition hover:bg-mist-200 sm:w-auto"
-            >
-              🏠 回家戶：{b.householdName}（{b.householdId}）→
-            </Link>
+            <div id="field-household" className="mt-2 flex flex-col gap-2 rounded-2xl transition sm:flex-row sm:items-center">
+              <Link
+                href={`/household/${b.householdId}`}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full
+                           bg-mist-100 px-4 py-2 text-sm text-ink transition hover:bg-mist-200 sm:w-auto"
+              >
+                🏠 回家戶：{b.householdName}（{b.householdId}）→
+              </Link>
+              {/* V12.5 指令五：快速更換家戶。實際搬遷交給既有的
+                  POST /api/households/members/transfer，不另做一套。 */}
+              {canChangeHousehold && (
+                <button
+                  type="button"
+                  onClick={() => setShowChangeHousehold(true)}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-cream-200
+                             px-4 py-2 text-sm text-ink-soft transition hover:bg-cream-300 hover:text-ink sm:w-auto"
+                >
+                  🔀 更換家戶
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-1">
             {overview.tags.map((t) => (
@@ -232,6 +255,17 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
           />
         )}
       </section>
+
+      {showChangeHousehold && (
+        <ChangeHouseholdModal
+          memberId={memberId}
+          memberName={b.name}
+          currentHouseholdId={b.householdId}
+          currentHouseholdName={b.householdName}
+          onClose={() => setShowChangeHousehold(false)}
+          onChanged={() => setReloadTick((t) => t + 1)}
+        />
+      )}
     </div>
   );
 }
@@ -349,6 +383,16 @@ function OverviewTab({
   const ds = overview.donationStats;
   return (
     <div className="flex flex-col gap-4">
+      {/* V12.5 指令二：資料完整度卡片放在最上面；手機版 sticky 置頂，
+          捲動填寫時仍看得到還缺哪些欄位。 */}
+      <DevoteeCompletenessCard
+        mobile={overview.basic.mobile}
+        email={overview.basic.email}
+        address={overview.household.address}
+        solarBirthDate={overview.basic.solarBirthDate}
+        lunarBirthDisplay={overview.basic.lunarBirthDisplay}
+        householdId={overview.basic.householdId}
+      />
       {canEdit && (
         <BaseEditForm
           memberId={memberId}
@@ -501,6 +545,60 @@ function BaseEditForm({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * V12.5 指令六：資料品質提醒（電話／生日格式、重複地址）。
+   * 規則來自共用的 src/lib/devoteeDataQuality.ts，前後端同一份。
+   * ⚠️ 只提醒，不阻止儲存——save() 完全不看這個結果。
+   */
+  const qualityIssues: QualityIssue[] = checkDevoteeDataQuality({
+    phone,
+    solarBirthDate: birthdayMode === "solar" ? solarBirthDate : null,
+    lunarBirthYear: birthdayMode === "lunar" ? Number(lunarBirthYear) || null : null,
+    lunarBirthMonth: birthdayMode === "lunar" ? Number(lunarBirthMonth) || null : null,
+    lunarBirthDay: birthdayMode === "lunar" ? Number(lunarBirthDay) || null : null,
+    address,
+    // ⚠️ 刻意不比對「同戶其他成員的地址」——目前地址是整戶共用一份
+    // （Household.address），同戶必然相同，比對出來是必然成立的雜訊。
+    // 真正有意義的是「別的家戶也用同一個地址」，見下方 duplicateAddressHouseholds。
+  });
+
+  /**
+   * V12.5 指令六：重複地址提示。
+   *
+   * 有意義的訊號是「其他家戶登記了完全相同的地址」——那通常代表同一戶被
+   * 重複建立成兩戶。這裡沿用既有的家戶搜尋端點
+   * GET /api/devotee-center/household-options（搜尋欄位含地址），
+   * **不新增第二支 API**。
+   */
+  const [duplicateAddressHouseholds, setDuplicateAddressHouseholds] = useState<
+    { id: string; name: string }[]
+  >([]);
+
+  useEffect(() => {
+    const a = address.trim();
+    if (a.length < 6) {
+      setDuplicateAddressHouseholds([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: a });
+        if (operatorUserId) params.set("operatorUserId", operatorUserId);
+        const res = await fetch(`/api/devotee-center/household-options?${params.toString()}`);
+        const json = await res.json();
+        if (!res.ok) return;
+        const others = (json.data?.households ?? []).filter(
+          (h: { id: string; address: string | null }) =>
+            h.id !== household.id && (h.address ?? "").trim() === a
+        );
+        setDuplicateAddressHouseholds(others.map((h: { id: string; name: string }) => ({ id: h.id, name: h.name })));
+      } catch {
+        setDuplicateAddressHouseholds([]);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [address, operatorUserId, household.id]);
+
   async function save() {
     if (!operatorUserId) return;
     if (!name.trim()) {
@@ -563,15 +661,15 @@ function BaseEditForm({
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           姓名 *
-          <input value={name} onChange={(e) => setName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          <input value={name} onChange={(e) => setName(e.target.value)} className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           性別
-          <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="男 / 女" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="男 / 女" className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           與戶主關係
-          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
             {memberRoleOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -581,7 +679,7 @@ function BaseEditForm({
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           出生時辰
-          <select value={birthHour} onChange={(e) => setBirthHour(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
+          <select value={birthHour} onChange={(e) => setBirthHour(e.target.value)} className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
             <option value="">未填寫</option>
             {birthHourOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -592,7 +690,7 @@ function BaseEditForm({
         </label>
       </div>
 
-      <div className="mt-3">
+      <div id="field-birthday" className="mt-3 rounded-2xl transition">
         <p className="text-xs text-ink-faint">出生年月日（國曆或農曆擇一登記）</p>
         <div className="mt-1 flex flex-wrap gap-3 text-sm text-ink-soft">
           <label className="flex items-center gap-1">
@@ -610,14 +708,14 @@ function BaseEditForm({
             type="date"
             value={solarBirthDate}
             onChange={(e) => setSolarBirthDate(e.target.value)}
-            className="mt-2 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+            className="mt-2 min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
           />
         )}
         {birthdayMode === "lunar" && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input type="number" placeholder="年（西元）" value={lunarBirthYear} onChange={(e) => setLunarBirthYear(e.target.value)} className="w-28 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
-            <input type="number" placeholder="月" value={lunarBirthMonth} onChange={(e) => setLunarBirthMonth(e.target.value)} className="w-20 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
-            <input type="number" placeholder="日" value={lunarBirthDay} onChange={(e) => setLunarBirthDay(e.target.value)} className="w-20 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <input type="number" placeholder="年（西元）" value={lunarBirthYear} onChange={(e) => setLunarBirthYear(e.target.value)} className="min-h-11 w-28 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <input type="number" placeholder="月" value={lunarBirthMonth} onChange={(e) => setLunarBirthMonth(e.target.value)} className="min-h-11 w-20 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <input type="number" placeholder="日" value={lunarBirthDay} onChange={(e) => setLunarBirthDay(e.target.value)} className="min-h-11 w-20 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
             <label className="flex items-center gap-1 text-sm text-ink-soft">
               <input type="checkbox" checked={lunarIsLeapMonth} onChange={(e) => setLunarIsLeapMonth(e.target.checked)} /> 閏月
             </label>
@@ -634,7 +732,7 @@ function BaseEditForm({
           type="date"
           value={deceasedAt}
           onChange={(e) => setDeceasedAt(e.target.value)}
-          className="mt-2 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          className="mt-2 min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
         />
       )}
       <label className="mt-2 flex items-center gap-2 text-sm text-ink-soft">
@@ -655,24 +753,91 @@ function BaseEditForm({
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           戶名 *
-          <input value={householdName} onChange={(e) => setHouseholdName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          <input value={householdName} onChange={(e) => setHouseholdName(e.target.value)} className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           主要聯絡人
-          <input value={contactName} onChange={(e) => setContactName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          <input value={contactName} onChange={(e) => setContactName(e.target.value)} className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
-          電話
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          市話（家戶電話）
+          <input
+            id="field-phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint sm:col-span-2">
           地址
-          <input value={address} onChange={(e) => setAddress(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          <input
+            id="field-address"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
         </label>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button disabled={saving} onClick={save} className="rounded-full bg-sage-200 px-5 py-2 text-sm font-medium text-ink disabled:opacity-40">
+      {/*
+        V12.5 指令三：一鍵帶入家戶地址。
+
+        ⚠️ 誠實說明目前的資料模型：系統只有 Household.address 一份地址，
+        DevoteeProfile 沒有個人地址欄位（依本輪裁決不新增）。所以這個欄位
+        編輯的就是「整戶的地址」——「一鍵複製」在這裡的意義是「把已被改動的
+        輸入框還原成家戶目前的地址」，而不是把家戶地址複製到另一個個人欄位。
+        同理，覆蓋提示提醒的是「這次修改會影響同戶所有人」。
+      */}
+      {household.address && address.trim() !== (household.address ?? "").trim() && (
+        <div className="mt-2 flex flex-col gap-2 rounded-2xl bg-yolk-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-relaxed text-ink-soft">
+            地址已被修改。這個欄位是<span className="text-ink">整戶共用的家戶地址</span>，儲存後同戶
+            {household.members.length} 位成員的地址都會一起變更。
+            <br />
+            <span className="text-ink-faint">家戶目前地址：{household.address}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setAddress(household.address ?? "")}
+            className="min-h-11 whitespace-nowrap rounded-full bg-white/80 px-4 py-2 text-xs text-ink-soft
+                       shadow-soft transition hover:bg-white hover:text-ink sm:min-h-0 sm:py-1.5"
+          >
+            還原為家戶地址
+          </button>
+        </div>
+      )}
+      {!household.address && (
+        <p className="mt-2 rounded-2xl bg-mist-50 px-4 py-2.5 text-xs text-ink-soft">
+          這一戶尚未登記地址。在此填寫後，同戶 {household.members.length} 位成員都會套用這個地址。
+        </p>
+      )}
+
+      {/* V12.5 指令六：資料品質提醒。僅提醒，不阻止儲存。 */}
+      {(qualityIssues.length > 0 || duplicateAddressHouseholds.length > 0) && (
+        <ul className="mt-3 flex flex-col gap-1 rounded-2xl bg-blossom-50 px-4 py-3">
+          {qualityIssues.map((i) => (
+            <li key={`${i.field}-${i.message}`} className="text-xs leading-relaxed text-ink-soft">
+              ⚠️ {i.message}
+            </li>
+          ))}
+          {duplicateAddressHouseholds.length > 0 && (
+            <li className="text-xs leading-relaxed text-ink-soft">
+              ⚠️ 這個地址與其他 {duplicateAddressHouseholds.length} 個家戶相同（
+              {duplicateAddressHouseholds.slice(0, 3).map((h) => `${h.name}（${h.id}）`).join("、")}
+              ）。請確認是否為重複建立的家戶。
+            </li>
+          )}
+          <li className="mt-1 text-xs text-ink-faint">以上僅為提醒，仍可直接儲存。</li>
+        </ul>
+      )}
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <button
+          disabled={saving}
+          onClick={save}
+          className="min-h-11 w-full rounded-full bg-sage-200 px-5 py-2 text-sm font-medium text-ink disabled:opacity-40 sm:w-auto"
+        >
           {saving ? "儲存中…" : "儲存基本資料"}
         </button>
         {saved && <span className="text-xs text-ink-faint">已儲存</span>}
@@ -707,6 +872,10 @@ function ProfileEditForm({
   const [disabledReason, setDisabledReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // V12.5 指令六：手機／Email 格式提醒，規則來自共用的 devoteeDataQuality。
+  // ⚠️ 只提醒，save() 不看這個結果。
+  const profileQualityIssues: QualityIssue[] = checkDevoteeDataQuality({ mobile, email });
   const [saved, setSaved] = useState(false);
 
   async function save() {
@@ -742,12 +911,60 @@ function ProfileEditForm({
   return (
     <div className="rounded-2xl bg-cream-100 p-4">
       <h3 className="text-sm font-medium text-ink">信眾延伸資料</h3>
+      {/* V12.5 指令一／七：欄位加上標籤與 id（供完整度卡片跳轉），
+          手機單欄、sm 以上兩欄，輸入框 min-h-11 方便觸控。 */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="手機" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
-        <input value={lineId} onChange={(e) => setLineId(e.target.value)} placeholder="LINE ID" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
-        <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="公司名稱" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          手機
+          <input
+            id="field-mobile"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            inputMode="tel"
+            placeholder="例如 0912345678"
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          Email
+          <input
+            id="field-email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+            placeholder="例如 abc@example.com"
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          LINE ID
+          <input
+            value={lineId}
+            onChange={(e) => setLineId(e.target.value)}
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          公司名稱
+          <input
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
+        </label>
       </div>
+
+      {/* V12.5 指令六：手機／Email 格式提醒。僅提醒，不阻止儲存。 */}
+      {profileQualityIssues.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1 rounded-2xl bg-blossom-50 px-4 py-3">
+          {profileQualityIssues.map((i) => (
+            <li key={`${i.field}-${i.message}`} className="text-xs leading-relaxed text-ink-soft">
+              ⚠️ {i.message}
+            </li>
+          ))}
+          <li className="mt-1 text-xs text-ink-faint">以上僅為提醒，仍可直接儲存。</li>
+        </ul>
+      )}
       <textarea
         value={personalNote}
         onChange={(e) => setPersonalNote(e.target.value)}
@@ -764,11 +981,11 @@ function ProfileEditForm({
           value={disabledReason}
           onChange={(e) => setDisabledReason(e.target.value)}
           placeholder="停用原因"
-          className="mt-2 w-full rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+          className="mt-2 min-h-11 w-full rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
         />
       )}
-      <div className="mt-3 flex items-center gap-3">
-        <button disabled={saving} onClick={save} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <button disabled={saving} onClick={save} className="min-h-11 w-full rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40 sm:w-auto">
           {saving ? "儲存中…" : "儲存"}
         </button>
         {saved && <span className="text-xs text-ink-faint">已儲存</span>}
@@ -1088,7 +1305,7 @@ function AddHouseholdMemberForm({
       </div>
       <p className="mt-2 text-xs text-ink-faint">出生年月日等其他資料可以在新增後，點進這位成員的信眾完整資料編輯頁再補齊。</p>
       <div className="mt-3 flex items-center gap-3">
-        <button disabled={saving || !name.trim()} onClick={submit} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+        <button disabled={saving || !name.trim()} onClick={submit} className="min-h-11 w-full rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40 sm:w-auto">
           {saving ? "新增中…" : "新增"}
         </button>
         <button onClick={() => setOpen(false)} className="text-xs text-ink-faint hover:underline">
@@ -1161,7 +1378,7 @@ function AddWorshipRecordForm({
         <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="安奉地（選填）" className="w-40 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
       </div>
       <div className="mt-3 flex items-center gap-3">
-        <button disabled={saving || !displayName.trim()} onClick={submit} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+        <button disabled={saving || !displayName.trim()} onClick={submit} className="min-h-11 w-full rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40 sm:w-auto">
           {saving ? "新增中…" : "新增"}
         </button>
         <button onClick={() => setOpen(false)} className="text-xs text-ink-faint hover:underline">
@@ -1229,7 +1446,7 @@ function InteractionsTab({
           <button
             disabled={submitting || !content.trim()}
             onClick={submit}
-            className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40"
+            className="min-h-11 w-full rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40 sm:w-auto"
           >
             新增互動紀錄
           </button>
