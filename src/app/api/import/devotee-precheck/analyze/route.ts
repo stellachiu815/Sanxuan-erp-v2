@@ -124,7 +124,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const { batchId, summary, rows: analyzedRows } = await analyzeDevoteeImport(
+  const { batchId, summary, rows: analyzedRows, sheetPreparation } = await analyzeDevoteeImport(
     fileName,
     rows,
     mapping,
@@ -136,6 +136,8 @@ export async function POST(request: Request) {
     fileName,
     personFileName,
     personRowCount: personRows?.length ?? 0,
+    // V12.8：合併儲存格前處理結果
+    sheetPreparation,
     columns,
     mapping,
     targetFields: getTargetFields(DEVOTEE_IMPORT_KIND),

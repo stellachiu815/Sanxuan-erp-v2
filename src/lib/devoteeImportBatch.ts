@@ -6,6 +6,7 @@ import {
   type NormalizedDevoteeRow,
   type NormalizedHouseholdFields,
 } from "@/lib/devoteeImportValidate";
+import { forwardFillAndGroupHouseholdRows } from "@/lib/devoteeImportNormalize";
 import {
   parsePersonSheet,
   buildPersonLookup,
@@ -303,8 +304,25 @@ export async function analyzeDevoteeImport(
    * 列為疑似重複交人工確認（而不是自動略過或自動建立）。
    */
   personRawRows?: Record<string, unknown>[]
-): Promise<{ batchId: string; summary: DevoteeImportSummary; rows: AnalyzedDevoteeRow[] }> {
-  const normalizedRows = rawRows.map((r, i) => normalizeAndValidateDevoteeRow(r, mapping, i + 2));
+): Promise<{
+  batchId: string;
+  summary: DevoteeImportSummary;
+  rows: AnalyzedDevoteeRow[];
+  /** V12.8：合併儲存格前處理的結果，供畫面說明「N 列合併成 M 戶」 */
+  sheetPreparation: { excelRowCount: number; householdRowCount: number; mergedRowCount: number };
+}> {
+  /**
+   * V12.8：**所有驗證之前**先做合併儲存格前處理。
+   *
+   * 正式家戶 Excel 用合併儲存格，一戶橫跨多列、家戶層級欄位只有第一列有值。
+   * 這裡先 forward fill 家戶層級欄位，並把同一戶的多列合併成一列，讓後面
+   * 的欄位驗證／預檢分類／人工確認／正式匯入完全沿用既有的「一列＝一戶」
+   * 流程，不需要任何改動。詳見 forwardFillAndGroupHouseholdRows() 的說明。
+   */
+  const prepared = forwardFillAndGroupHouseholdRows(rawRows, mapping);
+  const normalizedRows = prepared.rows.map((p) =>
+    normalizeAndValidateDevoteeRow(p.raw, mapping, p.rowNumber)
+  );
 
   // ---- 個人 Excel（可選）----
   const personRows = personRawRows?.length ? parsePersonSheet(personRawRows) : [];
@@ -618,7 +636,16 @@ export async function analyzeDevoteeImport(
     };
   });
 
-  return { batchId: batch.id, summary, rows };
+  return {
+    batchId: batch.id,
+    summary,
+    rows,
+    sheetPreparation: {
+      excelRowCount: rawRows.length,
+      householdRowCount: prepared.rows.length,
+      mergedRowCount: prepared.mergedRowCount,
+    },
+  };
 }
 
 // ============================================================

@@ -233,6 +233,12 @@ export default function DevoteeImportWizard() {
   /** V12.6 指令四：可選的第二份「個人資料 Excel」，用來補足成員欄位。 */
   const [personFile, setPersonFile] = useState<File | null>(null);
   const [personInfo, setPersonInfo] = useState<{ fileName: string | null; rowCount: number } | null>(null);
+  /** V12.8：合併儲存格前處理結果（Excel 列數 → 家戶數） */
+  const [sheetPrep, setSheetPrep] = useState<{
+    excelRowCount: number;
+    householdRowCount: number;
+    mergedRowCount: number;
+  } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
   // ---- 分析結果 ----
@@ -268,6 +274,7 @@ export default function DevoteeImportWizard() {
     setFile(null);
     setPersonFile(null);
     setPersonInfo(null);
+    setSheetPrep(null);
     setFileError(null);
     setAnalyzing(false);
     setAnalyzeError(null);
@@ -334,6 +341,7 @@ export default function DevoteeImportWizard() {
       setSummary(data.summary ?? null);
       setRows(data.rows ?? []);
       setPersonInfo({ fileName: data.personFileName ?? null, rowCount: data.personRowCount ?? 0 });
+      setSheetPrep(data.sheetPreparation ?? null);
       setFilterKey("ALL");
       setVisibleCount(20);
       // 尚未確認的成員數＝所有 REVIEW 且沒有 resolution 的成員
@@ -687,6 +695,18 @@ export default function DevoteeImportWizard() {
       {step === 3 && summary && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第三步：預覽與統計</h3>
+          {/* V12.8：合併儲存格前處理說明 */}
+          {sheetPrep && sheetPrep.mergedRowCount > 0 && (
+            <p className="rounded-2xl bg-sage-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+              偵測到合併儲存格格式：Excel 共 {sheetPrep.excelRowCount} 列，已依家戶編號合併成{" "}
+              <span className="text-ink">{sheetPrep.householdRowCount} 戶</span>
+              （{sheetPrep.mergedRowCount} 列被併入上方家戶）。
+              <br />
+              家戶編號／戶名／主要聯絡人／主要地址／數量欄位空白時自動沿用上一列；「所有成員」則是把同一戶各列的名單串接起來，
+              不會把同一個人重複建立。
+            </p>
+          )}
+
           {personInfo?.fileName && (
             <p className="rounded-2xl bg-mist-50 px-4 py-2.5 text-xs text-ink-soft">
               已套用個人資料 Excel：{personInfo.fileName}（{personInfo.rowCount} 筆），
