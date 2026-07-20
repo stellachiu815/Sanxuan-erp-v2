@@ -520,7 +520,23 @@ export type DevoteeAction =
   | "createInteraction" // 新增互動紀錄（SUPER_ADMIN + ADMIN）
   | "manageInteractions" // 修改/軟刪除互動紀錄（SUPER_ADMIN 專屬）
   | "manageCareList" // 正式標記/取消關懷狀態（SUPER_ADMIN 專屬）
-  | "mergeDevotees"; // 執行疑似重複信眾合併——指令明確規定本次不開放，見上方說明 6，目前沒有任何角色擁有、也沒有對應 API
+  | "mergeDevotees" // 執行疑似重複信眾合併——指令明確規定本次不開放，見上方說明 6，目前沒有任何角色擁有、也沒有對應 API
+  // ────────────────────────────────────────────────────────────
+  // V12.3「家戶管理完整強化」指令四：家戶結構性調整的權限分級。
+  //
+  // 在 V12.3 之前，合併／拆分／轉移／改編號／封存**全部**跟「改一個電話號碼」
+  // 共用同一個 updateProfile 權限，而 updateProfile 是連 STAFF 都有的——
+  // 等於一般工作人員可以合併或拆分家戶。這五個動作都會改變家戶結構、影響
+  // 歷史資料歸屬，且不易復原，因此獨立成各自的動作，只開放給
+  // SUPER_ADMIN 與 ADMIN。
+  //
+  // ⚠️ 沿用既有的 DevoteeAction／DEVOTEE_PERMISSIONS／canDevotee()／
+  // assertDevoteePermissionForOperator() 這一套，**不是第二套權限系統**。
+  | "mergeHousehold" // 合併兩個家戶
+  | "splitHousehold" // 拆分家戶
+  | "transferMember" // 轉移成員至其他家戶
+  | "changeHouseholdCode" // 修改家戶編號（會連動所有關聯表的主鍵）
+  | "archiveHousehold"; // 封存家戶
 
 // ============================================================
 // V12「信眾資料中心正式建置」指令「九、其他使用者帳號」對權限矩陣的更新
@@ -569,6 +585,12 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "createInteraction",
     "manageInteractions",
     "manageCareList",
+    // V12.3：家戶結構性調整，僅 SUPER_ADMIN／ADMIN。
+    "mergeHousehold",
+    "splitHousehold",
+    "transferMember",
+    "changeHouseholdCode",
+    "archiveHousehold",
   ],
   ADMIN: [
     "view",
@@ -582,6 +604,12 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "createInteraction",
     "manageInteractions",
     "manageCareList",
+    // V12.3：家戶結構性調整，僅 SUPER_ADMIN／ADMIN。
+    "mergeHousehold",
+    "splitHousehold",
+    "transferMember",
+    "changeHouseholdCode",
+    "archiveHousehold",
   ],
   STAFF: ["view", "viewFinancialSummary", "createProfile", "updateProfile", "applyTag", "createInteraction"],
   READONLY: ["view", "viewFinancialSummary"],
@@ -688,6 +716,12 @@ export function getFullPermissionSnapshot() {
     "manageInteractions",
     "manageCareList",
     "mergeDevotees",
+    // V12.3 新增的家戶結構性動作，一併列進權限快照清單。
+    "mergeHousehold",
+    "splitHousehold",
+    "transferMember",
+    "changeHouseholdCode",
+    "archiveHousehold",
   ];
 
   return {

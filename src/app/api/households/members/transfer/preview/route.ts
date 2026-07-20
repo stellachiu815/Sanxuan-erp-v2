@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "transferMember");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     if (!Array.isArray(body.memberIds) || typeof body.targetHouseholdId !== "string") {

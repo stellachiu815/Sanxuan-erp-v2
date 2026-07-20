@@ -107,7 +107,7 @@ export default function HouseholdActionsMenu({ householdId, onChanged }: Props) 
         type="button"
         onClick={() => setOpen((o) => !o)}
         disabled={loadingDetail}
-        className="min-h-9 rounded-full bg-cream-100 px-3 py-1.5 text-xs text-ink-soft transition hover:bg-cream-200 disabled:opacity-50"
+        className="min-h-11 rounded-full bg-cream-100 px-3 py-1.5 text-xs text-ink-soft transition hover:bg-cream-200 disabled:opacity-50"
       >
         {loadingDetail ? "載入中…" : "更多操作 ▾"}
       </button>
@@ -163,7 +163,7 @@ function MenuItem({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="block w-full rounded-xl px-3 py-2 text-left text-ink-soft transition hover:bg-cream-100 hover:text-ink"
+      className="block min-h-11 w-full rounded-xl px-3 py-2 text-left text-ink-soft transition hover:bg-cream-100 hover:text-ink"
     >
       {label}
     </button>

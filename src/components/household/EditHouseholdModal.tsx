@@ -99,7 +99,7 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         <div>
           <label className={labelClass}>家戶編號</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={householdCode}
             onChange={(e) => setHouseholdCode(e.target.value)}
             autoFocus
@@ -109,7 +109,7 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         <div>
           <label className={labelClass}>戶名</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={householdName}
             onChange={(e) => setHouseholdName(e.target.value)}
           />
@@ -117,23 +117,23 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         <div>
           <label className={labelClass}>主要聯絡人</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={contactName}
             onChange={(e) => setContactName(e.target.value)}
           />
         </div>
         <div>
           <label className={labelClass}>電話</label>
-          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>手機</label>
-          <input className={inputClass} value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>地址</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
           />
@@ -141,7 +141,7 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         <div>
           <label className={labelClass}>公司名稱</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
           />
@@ -149,7 +149,7 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         <div>
           <label className={labelClass}>備註</label>
           <textarea
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -159,10 +159,10 @@ export default function EditHouseholdModal({ householdId, initial, onClose, onSu
         {error && <p className={errorTextClass}>{error}</p>}
 
         <div className="mt-2 flex justify-end gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={onClose} disabled={submitting}>
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting}>
+          <button type="submit" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} disabled={submitting}>
             {submitting ? "儲存中…" : "儲存"}
           </button>
         </div>

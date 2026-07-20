@@ -53,7 +53,21 @@ export type HouseholdView = {
     year: number | null;
     note: string | null;
     createdAt: Date;
+    /**
+     * V12.3「家戶管理完整強化」指令一.B：這筆紀錄原本屬於哪一戶。
+     *
+     * null＝就是本戶自己的紀錄；有值＝來自已合併進本戶的來源家戶。
+     * 純家戶層級的歷史（Activity／RitualRecord）在合併時**刻意不改寫**
+     * householdId——一來要保留歷史發生當下的原始家戶，二來 RitualRecord 有
+     * @@unique([householdId, year, activityType])，直接搬移會唯一鍵衝突。
+     * 所以改成查詢時合併，並在畫面標示「原家戶」，避免使用者誤以為這些紀錄
+     * 是合併之後才產生的。
+     */
+    originHouseholdId: string | null;
+    originHouseholdName: string | null;
   }[];
+  /** V12.3：已經合併進本戶的來源家戶清單（供畫面說明歷史資料來源）。 */
+  mergedFromHouseholds: { id: string; name: string; mergedAt: Date | null }[];
 };
 
 /**
@@ -73,6 +87,29 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
   });
 
   if (!household) return null;
+
+  /**
+   * V12.3 指令一.B：把「已合併進本戶的來源家戶」的家戶層級歷史一併查出來。
+   *
+   * 只往下找一層就夠——合併時來源戶自己原有的別名會一併改指向目標戶
+   * （見 householdManagement.mergeHouseholds），而且已合併的家戶不可再被
+   * 當成合併目標（assertHouseholdNotMerged），所以不會出現多層鏈或循環。
+   */
+  const mergedSources = await prisma.household.findMany({
+    where: { mergedIntoHouseholdId: household.id },
+    select: { id: true, name: true, mergedAt: true },
+    orderBy: { mergedAt: "asc" },
+  });
+
+  const mergedSourceActivities =
+    mergedSources.length > 0
+      ? await prisma.activity.findMany({
+          where: { householdId: { in: mergedSources.map((h) => h.id) } },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+
+  const sourceNameById = new Map(mergedSources.map((h) => [h.id, h.name]));
 
   const members: MemberView[] = household.members.map((m) => {
     const birthday = deriveBirthdayInfo({
@@ -111,6 +148,19 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
     notes: household.notes,
     members,
     worshipRecords: household.worshipRecords,
-    activities: household.activities,
+    // 本戶自己的活動 ＋ 已合併來源戶的活動，依時間合併排序；來源戶的標上原家戶。
+    activities: [
+      ...household.activities.map((a) => ({
+        ...a,
+        originHouseholdId: null,
+        originHouseholdName: null,
+      })),
+      ...mergedSourceActivities.map((a) => ({
+        ...a,
+        originHouseholdId: a.householdId,
+        originHouseholdName: sourceNameById.get(a.householdId) ?? null,
+      })),
+    ].sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime()),
+    mergedFromHouseholds: mergedSources,
   };
 }

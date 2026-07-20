@@ -170,8 +170,67 @@ export async function analyzeDevoteeImport(
 ): Promise<{ batchId: string; summary: DevoteeImportSummary; rows: AnalyzedDevoteeRow[] }> {
   const normalizedRows = rawRows.map((r, i) => normalizeAndValidateDevoteeRow(r, mapping, i + 2));
 
+  /**
+   * V12.3 指令七.5：預檢階段就要標示家戶編號的狀況，不能等到正式匯入才爆炸。
+   *
+   * 對每一列的家戶編號先做一次解析：
+   *   - 命中別名（改過編號／已被合併）→ 加一則提醒，告知會更新到哪一戶
+   *   - 命中已封存、且沒有合併也沒有別名的家戶 → 標示為衝突（錯誤），
+   *     要求人工決定恢復／改編號／略過，避免正式匯入時撞主鍵 P2002
+   *
+   * 這裡只做查詢，不寫入任何資料；正式 Excel 七欄格式完全沒有改變。
+   */
+  const codes = Array.from(new Set(normalizedRows.map((n) => n.household.code).filter(Boolean)));
+  const [existingHouseholds, aliases] = await Promise.all([
+    codes.length > 0
+      ? prisma.household.findMany({
+          where: { id: { in: codes } },
+          select: { id: true, name: true, deletedAt: true, mergedIntoHouseholdId: true },
+        })
+      : Promise.resolve([]),
+    codes.length > 0
+      ? prisma.householdCodeAlias.findMany({
+          where: { oldCode: { in: codes } },
+          include: { household: { select: { id: true, name: true, deletedAt: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
+  const existingByCode = new Map(existingHouseholds.map((h) => [h.id, h]));
+  const aliasByCode = new Map(aliases.map((a) => [a.oldCode, a]));
+
+  /** 回傳這個家戶編號在預檢階段的額外錯誤與提醒。 */
+  function inspectHouseholdCode(code: string): { errors: string[]; warnings: string[] } {
+    if (!code) return { errors: [], warnings: [] };
+
+    const direct = existingByCode.get(code);
+    if (direct && !direct.deletedAt) return { errors: [], warnings: [] }; // 正常更新既有家戶
+
+    const alias = aliasByCode.get(code);
+    if (alias?.household && !alias.household.deletedAt) {
+      return {
+        errors: [],
+        warnings: [
+          `家戶編號 ${code} 是舊編號，將自動對照到目前的家戶 ${alias.household.id}（${alias.household.name}）並更新其資料，不會新增第二戶。`,
+        ],
+      };
+    }
+
+    if (direct?.deletedAt) {
+      return {
+        errors: [
+          `家戶編號 ${code} 屬於已封存的家戶「${direct.name}」，既沒有合併也沒有編號對照。請先從回收區恢復、或改用其他編號、或把這一列排除後再匯入。`,
+        ],
+        warnings: [],
+      };
+    }
+
+    return { errors: [], warnings: [] }; // 全新編號，正常新增
+  }
+
   const rowsToCreate = normalizedRows.map((normalized) => {
-    const status = computeRowStatus(normalized);
+    const codeCheck = inspectHouseholdCode(normalized.household.code || "");
+    // 家戶編號衝突視為這一列的格式錯誤，不會進入 READY_TO_IMPORT。
+    const status = codeCheck.errors.length > 0 ? ("FORMAT_ERROR" as const) : computeRowStatus(normalized);
     return {
       rowNumber: normalized.rowNumber,
       householdId: normalized.household.code || "",
@@ -180,8 +239,8 @@ export async function analyzeDevoteeImport(
       memberName: normalized.household.name || null,
       rawData: serializeRowForStorage(normalized) as unknown as Prisma.InputJsonValue,
       status,
-      errors: [...normalized.missingFieldErrors, ...normalized.formatErrors],
-      warnings: normalized.warnings,
+      errors: [...normalized.missingFieldErrors, ...normalized.formatErrors, ...codeCheck.errors],
+      warnings: [...normalized.warnings, ...codeCheck.warnings],
     };
   });
 
@@ -418,8 +477,27 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
       for (const r of readyRows) {
         const code = r.household.code;
 
-        // 一、Household：家戶編號已存在＝更新戶名／主要聯絡人／地址；不存在＝新增。
+        // 一、Household：依 V12.3 指令七的順序解析家戶編號——
+        //   1) 先查目前的 Household.id
+        //   2) 沒有就查 HouseholdCodeAlias.oldCode（改過編號或已被合併的舊編號）
+        //   3) 命中別名時，更新別名指向的「目前正式家戶」，不可用舊編號另開一戶
+        //   4) 都沒命中才建立新家戶
+        //
+        // ⚠️ 正式 Excel 七欄格式完全沒有改變，使用者手上的檔案照用即可。
         let household = await tx.household.findFirst({ where: { id: code, deletedAt: null } });
+        let matchedViaAlias = false;
+
+        if (!household) {
+          const alias = await tx.householdCodeAlias.findUnique({
+            where: { oldCode: code },
+            include: { household: true },
+          });
+          if (alias?.household && !alias.household.deletedAt) {
+            household = alias.household;
+            matchedViaAlias = true;
+          }
+        }
+
         if (household) {
           const beforeData = household;
           household = await tx.household.update({
@@ -431,11 +509,32 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
             },
           });
           await recordVersion(
-            { entityType: "Household", entityId: household.id, action: "UPDATE", beforeData, afterData: household, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（家戶編號已存在，更新基本資料）" },
+            {
+              entityType: "Household",
+              entityId: household.id,
+              action: "UPDATE",
+              beforeData,
+              afterData: household,
+              operatorName,
+              changeNote: matchedViaAlias
+                ? `信眾資料匯入預檢中心：正式匯入（Excel 使用舊家戶編號 ${code}，已對照到目前家戶 ${household.id}，更新基本資料）`
+                : "信眾資料匯入預檢中心：正式匯入（家戶編號已存在，更新基本資料）",
+            },
             tx
           );
           householdsUpdated++;
         } else {
+          // V12.3 指令七.5：這個編號可能屬於「已封存、但沒有合併也沒有別名」
+          // 的家戶——直接 create 會撞主鍵（P2002）讓整批匯入失敗。這裡先明確
+          // 檢查並丟出可讀的錯誤，要求人工決定恢復、改編號或略過。
+          const archived = await tx.household.findUnique({ where: { id: code } });
+          if (archived) {
+            throw new Error(
+              `家戶編號 ${code} 屬於已封存的家戶「${archived.name}」，既沒有合併也沒有編號對照。` +
+                `請先從回收區恢復該家戶、或改用其他編號、或把這一列從本次匯入中排除，再重新執行匯入。`
+            );
+          }
+
           household = await tx.household.create({
             data: {
               id: code,

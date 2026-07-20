@@ -153,7 +153,7 @@ export default function TransferMembersWizard({ householdId, members, onClose, o
                 <div>
                   <label className={labelClass}>目標家戶編號</label>
                   <input
-                    className={inputClass}
+                    className={`${inputClass} min-h-11`}
                     value={targetCode}
                     onChange={(e) => setTargetCode(e.target.value)}
                     placeholder="例如 F00012"
@@ -164,7 +164,7 @@ export default function TransferMembersWizard({ householdId, members, onClose, o
                   <div>
                     <label className={labelClass}>原戶長即將被轉移，請指定原家戶新戶長</label>
                     <select
-                      className={inputClass}
+                      className={`${inputClass} min-h-11`}
                       value={newHeadMemberId}
                       onChange={(e) => setNewHeadMemberId(e.target.value)}
                     >
@@ -189,12 +189,12 @@ export default function TransferMembersWizard({ householdId, members, onClose, o
             {error && <p className={errorTextClass}>{error}</p>}
 
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={onClose}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose}>
                 取消
               </button>
               <button
                 type="button"
-                className={primaryButtonClass}
+                className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`}
                 onClick={loadPreview}
                 disabled={loading || selectedIds.length === 0 || !targetCode.trim()}
               >
@@ -238,7 +238,7 @@ export default function TransferMembersWizard({ householdId, members, onClose, o
             {error && <p className={errorTextClass}>{error}</p>}
 
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={() => setStep("select")} disabled={loading}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={() => setStep("select")} disabled={loading}>
                 返回
               </button>
               <button
@@ -259,7 +259,7 @@ export default function TransferMembersWizard({ householdId, members, onClose, o
             <div className="flex justify-end">
               <button
                 type="button"
-                className={primaryButtonClass}
+                className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`}
                 onClick={() => {
                   onSuccess();
                   onClose();

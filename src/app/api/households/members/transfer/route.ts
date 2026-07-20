@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "transferMember");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     if (!Array.isArray(body.memberIds) || typeof body.targetHouseholdId !== "string") {
@@ -37,7 +37,12 @@ export async function POST(request: NextRequest) {
       memberIds: body.memberIds.filter((id: unknown) => typeof id === "string"),
       targetHouseholdId: body.targetHouseholdId,
       newHeadsForSourceHouseholds,
+      // V12.3 指令三.3：各來源家戶的新主要聯絡人（未提供＝明確選擇暫不指定）。
+      newPrimaryContactsForSourceHouseholds:
+        (body.newPrimaryContactsForSourceHouseholds ?? undefined) as Record<string, string> | undefined,
       operatorName: check.operator.name,
+      // V12.3 指令八：異動紀錄要能追到帳號，不只是自由文字姓名。
+      operatorUserId: check.operator.id,
     });
 
     return NextResponse.json({ success: true, data: result });

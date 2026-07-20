@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "splitHousehold");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     if (typeof body.householdId !== "string" || !Array.isArray(body.memberIds)) {
@@ -50,7 +50,14 @@ export async function POST(request: NextRequest) {
       originalNewHeadMemberId:
         typeof body.originalNewHeadMemberId === "string" ? body.originalNewHeadMemberId : null,
       ancestorHandling,
+      // V12.3 指令三.3：原戶主要聯絡人被移出時的新人選；新戶的主要聯絡人。
+      originalNewPrimaryContactMemberId:
+        typeof body.originalNewPrimaryContactMemberId === "string" ? body.originalNewPrimaryContactMemberId : null,
+      newPrimaryContactMemberId:
+        typeof body.newPrimaryContactMemberId === "string" ? body.newPrimaryContactMemberId : null,
       operatorName: check.operator.name,
+      // V12.3 指令八：異動紀錄要能追到帳號，不只是自由文字姓名。
+      operatorUserId: check.operator.id,
     });
 
     return NextResponse.json({ success: true, data: result });

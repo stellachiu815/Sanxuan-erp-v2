@@ -15,7 +15,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "archiveHousehold");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : null;

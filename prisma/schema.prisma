@@ -35,6 +35,29 @@ model Household {
   manualReceivables        ManualReceivable[] // V11.0：以本戶為應收對象的臨時應收項目
   receipts                 Receipt[] // V11.1「全宮共用收據中心」：以本戶為付款人的收據
 
+  // ────────────────────────────────────────────────────────────
+  // V12.3「家戶管理完整強化」：家戶合併關聯（自我關聯）
+  //
+  // 合併家戶時，來源戶維持既有的 soft delete（deletedAt），但額外記錄它被
+  // 併入了哪一戶。理由：純家戶層級的歷史資料（RitualRecord、Activity 等，
+  // 沒有 memberId、只依 householdId 歸戶）**不會**被改寫 householdId——
+  // 一來要保留歷史發生當下的原始家戶，二來 RitualRecord 有
+  // @@unique([householdId, year, activityType])，直接搬移必然唯一鍵衝突。
+  //
+  // 因此改用「查詢時合併」：目標戶的歷史頁會一併查出所有 mergedInto 指向
+  // 自己的來源戶的歷史紀錄，並在畫面標示「原家戶：Fxxxxx／戶名」，讓使用者
+  // 看得到完整歷史、又不會誤以為那些紀錄是合併後才產生的。
+  //
+  // ⚠️ 不可循環合併：已經有 mergedIntoHouseholdId 的家戶不得再被當成合併
+  // 目標，也不得再次被操作（服務層 assertHouseholdNotMerged() 強制檢查）。
+  mergedIntoHouseholdId String?
+  mergedInto            Household?  @relation("HouseholdMerge", fields: [mergedIntoHouseholdId], references: [id], onDelete: SetNull)
+  mergedFrom            Household[] @relation("HouseholdMerge")
+  mergedAt              DateTime?
+
+  /// V12.3：本戶歷史上使用過的家戶編號（改編號後保留對照，見 HouseholdCodeAlias）
+  codeAliases HouseholdCodeAlias[]
+
   // V8.0「刪除保護」：軟刪除欄位，不會被直接永久刪除，先移到回收區。
   // deletedAt 有值＝目前在回收區；deletedByName 是操作人自行填寫的姓名
   // （系統目前沒有登入/session 機制，暫時無法自動記錄真正的操作者身份，
@@ -46,7 +69,43 @@ model Household {
   updatedAt DateTime @updatedAt
 
   @@index([deletedAt])
+  @@index([mergedIntoHouseholdId])
   @@map("households")
+}
+
+/// V12.3「家戶管理完整強化」：家戶編號歷史對照。
+///
+/// 修改家戶編號後，舊編號仍然是這一戶的歷史識別碼——行政人員手上的紙本、
+/// 既有 Excel 檔案、外部名冊都還是舊編號。這張表保留「舊編號 → 目前家戶」
+/// 的對照，讓下列情境都能正確命中同一戶，而不是產生第二戶：
+///
+///   1. Excel 再匯入舊編號（見 src/lib/devoteeImportBatch.ts）
+///   2. 搜尋舊編號（見 src/lib/devoteeSearchFields.ts）
+///
+/// ⚠️ 重要決策（V12.3 指令二）：**曾使用過的家戶編號一律不可回收。**
+/// 不論該戶是被軟刪除、被合併還是改了編號，舊編號都永久保留在這裡，
+/// validateHouseholdCode() 會同時檢查 Household.id 與這張表的 oldCode，
+/// 不會因為 Household.deletedAt 非空就允許別人重複使用同一個編號。
+model HouseholdCodeAlias {
+  /// 舊家戶編號本身就是主鍵——同一個舊編號不可能同時對應到兩戶。
+  oldCode String @id @db.VarChar(10)
+
+  /// 這個舊編號目前對應到哪一戶。改編號時 ON UPDATE CASCADE 會自動連動。
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  /// 產生這筆對照的原因，例如「家戶編號變更」「家戶合併」。
+  reason String?
+
+  /// 操作人。這裡刻意存 userId（不是自由文字），跟既有 User 對得起來；
+  /// RecordVersion 因為歷史因素只有 operatorName，本版不為此新增 migration。
+  operatorUserId String?
+  operatorName   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([householdId])
+  @@map("household_code_aliases")
 }
 
 /// 家戶成員

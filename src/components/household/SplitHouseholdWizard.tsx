@@ -149,23 +149,23 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
               <>
                 <div>
                   <label className={labelClass}>新家戶編號</label>
-                  <input className={inputClass} value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="例如 F00020" />
+                  <input className={`${inputClass} min-h-11`} value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="例如 F00020" />
                 </div>
                 <div>
                   <label className={labelClass}>新家戶戶名</label>
-                  <input className={inputClass} value={newName} onChange={(e) => setNewName(e.target.value)} />
+                  <input className={`${inputClass} min-h-11`} value={newName} onChange={(e) => setNewName(e.target.value)} />
                 </div>
                 <div>
                   <label className={labelClass}>新家戶主要聯絡人</label>
-                  <input className={inputClass} value={newContact} onChange={(e) => setNewContact(e.target.value)} />
+                  <input className={`${inputClass} min-h-11`} value={newContact} onChange={(e) => setNewContact(e.target.value)} />
                 </div>
                 <div>
                   <label className={labelClass}>新家戶地址</label>
-                  <input className={inputClass} value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
+                  <input className={`${inputClass} min-h-11`} value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
                 </div>
                 <div>
                   <label className={labelClass}>新家戶戶長（選填，必須是移出的成員）</label>
-                  <select className={inputClass} value={newHeadMemberId} onChange={(e) => setNewHeadMemberId(e.target.value)}>
+                  <select className={`${inputClass} min-h-11`} value={newHeadMemberId} onChange={(e) => setNewHeadMemberId(e.target.value)}>
                     <option value="">（不指定）</option>
                     {members.filter((m) => selected[m.id]).map((m) => (
                       <option key={m.id} value={m.id}>
@@ -179,7 +179,7 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
                   <div>
                     <label className={labelClass}>原戶長即將被移出，請指定原家戶新戶長</label>
                     <select
-                      className={inputClass}
+                      className={`${inputClass} min-h-11`}
                       value={originalNewHeadMemberId}
                       onChange={(e) => setOriginalNewHeadMemberId(e.target.value)}
                     >
@@ -228,12 +228,12 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
             {error && <p className={errorTextClass}>{error}</p>}
 
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={onClose}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose}>
                 取消
               </button>
               <button
                 type="button"
-                className={primaryButtonClass}
+                className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`}
                 onClick={loadPreview}
                 disabled={loading || selectedIds.length === 0 || !newCode.trim()}
               >
@@ -255,7 +255,7 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
             {error && <p className={errorTextClass}>{error}</p>}
 
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={() => setStep("select")} disabled={loading}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={() => setStep("select")} disabled={loading}>
                 返回
               </button>
               <button
@@ -276,7 +276,7 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
             <div className="flex justify-end">
               <button
                 type="button"
-                className={primaryButtonClass}
+                className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`}
                 onClick={() => {
                   onSuccess();
                   onClose();

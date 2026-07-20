@@ -178,7 +178,7 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
         <div>
           <label className={labelClass}>姓名</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="例如：王小美"
@@ -189,7 +189,7 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>性別</label>
-            <select className={inputClass} value={gender} onChange={(e) => setGender(e.target.value)}>
+            <select className={`${inputClass} min-h-11`} value={gender} onChange={(e) => setGender(e.target.value)}>
               <option value="">未填寫</option>
               <option value="男">男</option>
               <option value="女">女</option>
@@ -197,7 +197,7 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
           </div>
           <div>
             <label className={labelClass}>身份</label>
-            <select className={inputClass} value={role} onChange={(e) => setRole(e.target.value)}>
+            <select className={`${inputClass} min-h-11`} value={role} onChange={(e) => setRole(e.target.value)}>
               {memberRoleOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -231,7 +231,7 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
         <div>
           <label className={labelClass}>備註</label>
           <textarea
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -240,11 +240,11 @@ export default function AddMemberModal({ householdId, onClose, onSuccess }: Prop
 
         {error && <p className={errorTextClass}>{error}</p>}
 
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={handleClose}>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={handleClose}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting}>
+          <button type="submit" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} disabled={submitting}>
             {submitting ? "新增中…" : "新增家人"}
           </button>
         </div>

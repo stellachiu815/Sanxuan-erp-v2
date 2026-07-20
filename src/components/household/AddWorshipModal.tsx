@@ -75,7 +75,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         <div>
           <label className={labelClass}>類型</label>
           <select
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={type}
             onChange={(e) => setType(e.target.value as "ANCESTOR_LINE" | "INDIVIDUAL")}
           >
@@ -90,7 +90,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         <div>
           <label className={labelClass}>名稱</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={
@@ -103,7 +103,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         <div>
           <label className={labelClass}>陽上姓名</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={yangshangName}
             onChange={(e) => setYangshangName(e.target.value)}
           />
@@ -112,7 +112,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         <div>
           <label className={labelClass}>安奉位置</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={location}
             onChange={(e) => setLocation(e.target.value)}
           />
@@ -121,7 +121,7 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         <div>
           <label className={labelClass}>備註</label>
           <textarea
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -131,10 +131,10 @@ export default function AddWorshipModal({ householdId, onClose, onSuccess }: Pro
         {error && <p className={errorTextClass}>{error}</p>}
 
         <div className="mt-2 flex justify-end gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={onClose}>
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting}>
+          <button type="submit" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} disabled={submitting}>
             {submitting ? "新增中…" : "新增祭祀資料"}
           </button>
         </div>

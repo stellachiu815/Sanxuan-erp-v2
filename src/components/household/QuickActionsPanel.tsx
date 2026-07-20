@@ -11,6 +11,7 @@ import MergeHouseholdWizard from "./MergeHouseholdWizard";
 import SplitHouseholdWizard from "./SplitHouseholdWizard";
 import TransferMembersWizard from "./TransferMembersWizard";
 import Modal from "@/components/Modal";
+import ConfirmDialog from "@/components/system/ConfirmDialog";
 import VersionHistoryPanel from "@/components/system/VersionHistoryPanel";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee } from "@/lib/permissions";
@@ -49,6 +50,55 @@ type Props = {
 // 這兩個目前只做畫面，還沒有接功能（依需求，之後才會一個一個做）。
 // 「普渡」從 V3.0 起已經接上真正的登記畫面，「補印」從 V11.1 起已經接上
 // 全宮共用收據中心的補印功能，都不再放在這個清單裡。
+/**
+ * V12.3 指令九：家戶調整（進階）區的動作定義。
+ * 每一項的 warning 會出現在二次確認對話框裡，說明這個操作的實際影響。
+ */
+type AdvancedKind = "transferMembers" | "splitHousehold" | "mergeHousehold" | "changeCode" | "archiveHousehold";
+
+const ADVANCED_ACTIONS: { kind: AdvancedKind; icon: string; label: string; hint: string; warning: string }[] = [
+  {
+    kind: "transferMembers",
+    icon: "🔀",
+    label: "轉移成員",
+    hint: "把成員移到其他既有家戶",
+    warning: "成員名下的收款、收據、供品認捐、爐主登錄與列印項目，會一併改掛到新家戶。",
+  },
+  {
+    kind: "splitHousehold",
+    icon: "✂️",
+    label: "拆分家戶",
+    hint: "把部分成員移出，另開新家戶",
+    warning: "被移出的成員與其收款、收據、供品等紀錄會轉到新家戶；祭祀資料可選擇保留、移動或複製。",
+  },
+  {
+    kind: "mergeHousehold",
+    icon: "🔗",
+    label: "合併家戶",
+    hint: "把另一戶併入本戶",
+    warning: "來源家戶會被封存並標記為已合併，之後不可再被操作。此動作不易復原。",
+  },
+  {
+    kind: "changeCode",
+    icon: "🔢",
+    label: "修改家戶編號",
+    hint: "更換這一戶的編號",
+    warning: "舊編號會保留為歷史對照，Excel 匯入與搜尋仍可用舊編號找到本戶；舊編號不可再被其他家戶使用。",
+  },
+  {
+    kind: "archiveHousehold",
+    icon: "🗄",
+    label: "封存家戶",
+    hint: "把空家戶移入回收區",
+    warning: "封存後會進入回收區，可還原；但該家戶編號不會釋出，不可被其他家戶重複使用。",
+  },
+];
+
+const ADVANCED_ACTION_MAP = Object.fromEntries(ADVANCED_ACTIONS.map((a) => [a.kind, a])) as Record<
+  AdvancedKind,
+  (typeof ADVANCED_ACTIONS)[number]
+>;
+
 const COMING_SOON_ACTIONS = [
   { icon: "🏮", label: "年度燈", tone: "bg-yolk-50" },
   { icon: "🎉", label: "宮慶", tone: "bg-sage-50" },
@@ -85,6 +135,19 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
   const [openModal, setOpenModal] = useState<ModalKind>(null);
 
   const canManage = operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false;
+  /**
+   * V12.3 指令四／九：進階區只要角色擁有任一項結構性權限就顯示。
+   * STAFF 五項都沒有，整個進階區不會出現；真正的把關仍在各支 API。
+   */
+  const canAdjust = operatorUser?.role
+    ? canDevotee(operatorUser.role, "mergeHousehold") ||
+      canDevotee(operatorUser.role, "splitHousehold") ||
+      canDevotee(operatorUser.role, "transferMember") ||
+      canDevotee(operatorUser.role, "changeHouseholdCode") ||
+      canDevotee(operatorUser.role, "archiveHousehold")
+    : false;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pendingAdvanced, setPendingAdvanced] = useState<AdvancedKind | null>(null);
   const activeMemberCount = members.length;
 
   function handleSuccess() {
@@ -136,7 +199,7 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
             <button
               type="button"
               onClick={() => setOpenModal("editHousehold")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
                          shadow-soft transition hover:bg-cream-300/70"
             >
               <span className="text-2xl">✏️</span>
@@ -146,7 +209,7 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
             <button
               type="button"
               onClick={() => setOpenModal("addMember")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
                          shadow-soft transition hover:bg-sage-100"
             >
               <span className="text-2xl">➕</span>
@@ -156,7 +219,7 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
             <button
               type="button"
               onClick={() => setOpenModal("addWorship")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
                          shadow-soft transition hover:bg-blossom-100"
             >
               <span className="text-2xl">➕</span>
@@ -166,51 +229,11 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
             <button
               type="button"
               onClick={() => setOpenModal("assignHead")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-yolk-50 px-4 py-5 text-center
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-yolk-50 px-4 py-5 text-center
                          shadow-soft transition hover:bg-yolk-100"
             >
               <span className="text-2xl">👑</span>
-              <span className="text-sm text-ink">指定戶長</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpenModal("mergeHousehold")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
-                         shadow-soft transition hover:bg-sage-100"
-            >
-              <span className="text-2xl">🔗</span>
-              <span className="text-sm text-ink">合併家戶</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpenModal("splitHousehold")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-mist-50 px-4 py-5 text-center
-                         shadow-soft transition hover:bg-mist-100"
-            >
-              <span className="text-2xl">✂️</span>
-              <span className="text-sm text-ink">拆分家戶</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpenModal("transferMembers")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
-                         shadow-soft transition hover:bg-blossom-100"
-            >
-              <span className="text-2xl">🔀</span>
-              <span className="text-sm text-ink">轉移成員</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpenModal("archiveHousehold")}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
-                         shadow-soft transition hover:bg-cream-300/70"
-            >
-              <span className="text-2xl">🗄</span>
-              <span className="text-sm text-ink">封存空家戶</span>
+              <span className="text-sm text-ink">指定戶長／主要聯絡人</span>
             </button>
           </>
         )}
@@ -228,6 +251,88 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
           <span className="text-sm text-ink">修改紀錄</span>
         </button>
       </div>
+
+      {/*
+        V12.3「家戶管理完整強化」指令九：家戶調整（進階）。
+
+        在 V12.3 之前，「修改資料」跟「合併家戶／拆分家戶」是同一組 grid、
+        同樣的圓角卡片、只有底色不同——日常操作與不易復原的結構性操作視覺
+        權重完全一樣，很容易誤按。現在拆成兩區：上方是日常操作，這裡是進階
+        區，預設摺疊、警示樣式，且每一個動作按下去都會先跳二次確認，確認文字
+        一定會顯示家戶編號與戶名。
+
+        權限：這一區的動作在後端各自對應 mergeHousehold／splitHousehold／
+        transferMember／changeHouseholdCode／archiveHousehold 權限（STAFF 沒有），
+        前端這裡沿用同一組 canDevotee 判斷隱藏，但前端隱藏只是體驗優化，
+        真正的把關在各支 API。
+      */}
+      {canAdjust && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-blossom-200 bg-blossom-50/40">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((o) => !o)}
+            className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition
+                       hover:bg-blossom-50"
+          >
+            <span className="flex flex-col">
+              <span className="text-sm text-ink">⚠️ 家戶調整（進階）</span>
+              <span className="text-xs text-ink-faint">
+                轉移成員／拆分／合併／修改編號／封存　—　會改變家戶結構，請謹慎操作
+              </span>
+            </span>
+            <span className="text-xs text-ink-soft">{advancedOpen ? "收合 ▲" : "展開 ▼"}</span>
+          </button>
+
+          {advancedOpen && (
+            <div className="grid grid-cols-1 gap-2 border-t border-blossom-200 p-3 sm:grid-cols-2">
+              {ADVANCED_ACTIONS.map((a) => (
+                <button
+                  key={a.kind}
+                  type="button"
+                  onClick={() => setPendingAdvanced(a.kind)}
+                  className="flex min-h-12 items-center gap-3 rounded-xl bg-white/80 px-4 py-3 text-left
+                             shadow-soft transition hover:bg-blossom-100"
+                >
+                  <span className="text-xl">{a.icon}</span>
+                  <span className="flex flex-col">
+                    <span className="text-sm text-ink">{a.label}</span>
+                    <span className="text-xs text-ink-faint">{a.hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 進階操作的二次確認：確認文字一定顯示家戶編號與戶名（指令九）。 */}
+      {pendingAdvanced && (
+        <ConfirmDialog
+          danger
+          title={ADVANCED_ACTION_MAP[pendingAdvanced].label}
+          confirmLabel="我了解，繼續"
+          message={
+            <>
+              即將對家戶{" "}
+              <span className="font-medium text-ink">
+                {household.name}（{householdId}）
+              </span>{" "}
+              執行「{ADVANCED_ACTION_MAP[pendingAdvanced].label}」。
+              <br />
+              {ADVANCED_ACTION_MAP[pendingAdvanced].warning}
+              <br />
+              <span className="text-ink-soft">下一步會先顯示完整預覽，你仍可在預覽畫面取消。</span>
+            </>
+          }
+          onCancel={() => setPendingAdvanced(null)}
+          onConfirm={() => {
+            const kind = pendingAdvanced;
+            setPendingAdvanced(null);
+            if (kind === "changeCode") setOpenModal("editHousehold");
+            else setOpenModal(kind);
+          }}
+        />
+      )}
 
       {openModal === "editHousehold" && (
         <EditHouseholdModal

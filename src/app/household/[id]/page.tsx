@@ -175,6 +175,20 @@ export default async function HouseholdPage({
         {/* ⑤ 歷史活動 */}
         <section className="rounded-3xl bg-white/70 p-8 shadow-card">
           <h2 className="text-lg font-medium text-ink">歷史活動</h2>
+
+          {/* V12.3 指令一.B：合併進本戶的來源家戶，其家戶層級歷史（活動／祭祀）
+              刻意保留在原家戶不改寫，改成在這裡一併顯示並標示原家戶，
+              避免使用者誤以為那些紀錄是合併之後才產生的。 */}
+          {household.mergedFromHouseholds.length > 0 && (
+            <p className="mt-3 rounded-2xl bg-mist-50 px-4 py-2.5 text-xs leading-relaxed text-ink-soft">
+              本戶已合併{" "}
+              {household.mergedFromHouseholds
+                .map((h) => `${h.name}（${h.id}）`)
+                .join("、")}
+              。下方標示「原家戶」的紀錄來自合併前的來源家戶，仍保留其原始歸戶，不是合併後才產生的。
+            </p>
+          )}
+
           <div className="mt-5 flex flex-col gap-2">
             {household.activities.length === 0 && (
               <p className="text-sm text-ink-faint">尚無活動紀錄。</p>
@@ -182,13 +196,18 @@ export default async function HouseholdPage({
             {household.activities.map((a) => (
               <div
                 key={a.id}
-                className="flex flex-wrap items-center gap-3 rounded-2xl bg-cream-200/60 px-5 py-3 text-sm"
+                className="flex flex-wrap items-center gap-2 rounded-2xl bg-cream-200/60 px-4 py-3 text-sm sm:gap-3 sm:px-5"
               >
                 <span className="rounded-full bg-white/70 px-2 py-0.5 text-ink-soft">
                   {activityTypeLabel[a.type] ?? a.type}
                 </span>
                 {a.year && <span className="text-ink-soft">{a.year} 年</span>}
                 {a.note && <span className="text-ink-faint">{a.note}</span>}
+                {a.originHouseholdId && (
+                  <span className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink-soft">
+                    原家戶：{a.originHouseholdName ?? ""}（{a.originHouseholdId}）
+                  </span>
+                )}
                 <span className="ml-auto text-xs text-ink-faint">
                   {new Date(a.createdAt).toLocaleDateString("zh-TW")}
                 </span>

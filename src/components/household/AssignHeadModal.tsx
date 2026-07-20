@@ -61,7 +61,7 @@ export default function AssignHeadModal({ householdId, members, onClose, onSucce
       <Modal title="指定戶長" onClose={onClose}>
         <p className="text-sm text-ink-soft">這個家戶目前沒有成員，無法指定戶長。</p>
         <div className="mt-4 flex justify-end">
-          <button type="button" className={secondaryButtonClass} onClick={onClose}>
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose}>
             關閉
           </button>
         </div>
@@ -99,10 +99,10 @@ export default function AssignHeadModal({ householdId, members, onClose, onSucce
         {error && <p className={errorTextClass}>{error}</p>}
 
         <div className="mt-2 flex justify-end gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={onClose} disabled={submitting}>
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting || !memberId}>
+          <button type="submit" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} disabled={submitting || !memberId}>
             {submitting ? "處理中…" : "確認指定戶長"}
           </button>
         </div>

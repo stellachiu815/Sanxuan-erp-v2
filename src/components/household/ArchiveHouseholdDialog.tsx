@@ -63,11 +63,11 @@ export default function ArchiveHouseholdDialog({ householdId, memberCount, onClo
           </p>
           <div>
             <label className={labelClass}>封存原因（選填）</label>
-            <input className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <input className={`${inputClass} min-h-11`} value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
           {error && <p className={errorTextClass}>{error}</p>}
           <div className="mt-2 flex justify-end gap-2">
-            <button type="button" className={secondaryButtonClass} onClick={onClose} disabled={submitting}>
+            <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose} disabled={submitting}>
               取消
             </button>
             <button

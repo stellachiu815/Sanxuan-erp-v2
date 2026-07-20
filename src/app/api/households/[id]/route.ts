@@ -72,6 +72,19 @@ export async function PATCH(
     const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
+    // V12.3 指令四：一般欄位（戶名／聯絡人／電話／地址…）維持 updateProfile，
+    // 但「修改家戶編號」會連動所有關聯表的主鍵，屬於結構性變更，需要額外的
+    // changeHouseholdCode 權限（STAFF 沒有）。只有這次請求真的要換編號時才檢查，
+    // 一般編輯不受影響。
+    const wantsCodeChange =
+      typeof body.householdCode === "string" && body.householdCode.trim() && body.householdCode.trim() !== id;
+    if (wantsCodeChange) {
+      const codeCheck = await assertDevoteePermissionForOperator(body.operatorUserId, "changeHouseholdCode");
+      if (!codeCheck.ok) {
+        return NextResponse.json({ success: false, error: codeCheck.error }, { status: codeCheck.status });
+      }
+    }
+
     const { household } = await updateHouseholdBasic(
       id,
       {
@@ -84,7 +97,9 @@ export async function PATCH(
         companyName: "companyName" in body ? body.companyName : undefined,
         notes: "notes" in body ? body.notes : undefined,
       },
-      check.operator.name
+      check.operator.name,
+      // V12.3 指令八：異動紀錄要能追到帳號。
+      check.operator.id
     );
 
     revalidatePath(`/household/${household.id}`);

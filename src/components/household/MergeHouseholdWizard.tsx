@@ -129,7 +129,7 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
             <div>
               <label className={labelClass}>來源家戶編號（將被併入並封存）</label>
               <input
-                className={inputClass}
+                className={`${inputClass} min-h-11`}
                 value={sourceId}
                 onChange={(e) => setSourceId(e.target.value)}
                 placeholder="例如 F00012"
@@ -138,10 +138,10 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
             </div>
             {error && <p className={errorTextClass}>{error}</p>}
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={onClose}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose}>
                 取消
               </button>
-              <button type="button" className={primaryButtonClass} onClick={loadPreview} disabled={loading || !sourceId.trim()}>
+              <button type="button" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={loadPreview} disabled={loading || !sourceId.trim()}>
                 {loading ? "查詢中…" : "查看合併預覽"}
               </button>
             </div>
@@ -251,7 +251,7 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
             {error && <p className={errorTextClass}>{error}</p>}
 
             <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} onClick={() => setStep("input")} disabled={loading}>
+              <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={() => setStep("input")} disabled={loading}>
                 返回
               </button>
               <button
@@ -272,7 +272,7 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
             <div className="flex justify-end">
               <button
                 type="button"
-                className={primaryButtonClass}
+                className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`}
                 onClick={() => {
                   onSuccess();
                   onClose();

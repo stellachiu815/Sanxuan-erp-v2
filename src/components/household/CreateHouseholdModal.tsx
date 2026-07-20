@@ -103,7 +103,7 @@ export default function CreateHouseholdModal({ onClose }: Props) {
         <div>
           <label className={labelClass}>家戶編號</label>
           <input
-            className={inputClass}
+            className={`${inputClass} min-h-11`}
             value={householdCode}
             onChange={(e) => setHouseholdCode(e.target.value)}
             placeholder="留空自動產生，例如 F00021"
@@ -115,40 +115,40 @@ export default function CreateHouseholdModal({ onClose }: Props) {
         </div>
         <div>
           <label className={labelClass}>戶名</label>
-          <input className={inputClass} value={householdName} onChange={(e) => setHouseholdName(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={householdName} onChange={(e) => setHouseholdName(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>主要聯絡人</label>
-          <input className={inputClass} value={primaryContact} onChange={(e) => setPrimaryContact(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={primaryContact} onChange={(e) => setPrimaryContact(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>電話</label>
-          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>手機</label>
-          <input className={inputClass} value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>地址</label>
-          <input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={address} onChange={(e) => setAddress(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>公司名稱</label>
-          <input className={inputClass} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+          <input className={`${inputClass} min-h-11`} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
         </div>
         <div>
           <label className={labelClass}>備註</label>
-          <textarea className={inputClass} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <textarea className={`${inputClass} min-h-11`} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
         {error && <p className={errorTextClass}>{error}</p>}
 
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={onClose} disabled={submitting}>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className={`${secondaryButtonClass} min-h-11 w-full sm:w-auto`} onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button type="submit" className={primaryButtonClass} disabled={submitting}>
+          <button type="submit" className={`${primaryButtonClass} min-h-11 w-full sm:w-auto`} disabled={submitting}>
             {submitting ? "建立中…" : "建立家戶"}
           </button>
         </div>
