@@ -208,6 +208,39 @@ export const memberRoleOptions: { value: keyof typeof memberRoleLabel; label: st
   { value: "OTHER", label: "其他" },
 ];
 
+// V12「信眾資料中心正式建置」指令「三／四」新增：出生時辰（十二時辰）標籤與
+// 下拉選項。對應 Member.birthHour（String? 欄位，沿用 V11.3 既有設計，不是 Prisma
+// enum），可接受值限制為下列 12 個固定代碼，驗證在應用程式層完成（見 API route）。
+export const birthHourLabel: Record<string, string> = {
+  ZI: "子時（23:00–01:00）",
+  CHOU: "丑時（01:00–03:00）",
+  YIN: "寅時（03:00–05:00）",
+  MAO: "卯時（05:00–07:00）",
+  CHEN: "辰時（07:00–09:00）",
+  SI: "巳時（09:00–11:00）",
+  WU: "午時（11:00–13:00）",
+  WEI: "未時（13:00–15:00）",
+  SHEN: "申時（15:00–17:00）",
+  YOU: "酉時（17:00–19:00）",
+  XU: "戌時（19:00–21:00）",
+  HAI: "亥時（21:00–23:00）",
+};
+
+export const birthHourOptions: { value: keyof typeof birthHourLabel; label: string }[] = [
+  { value: "ZI", label: "子時（23:00–01:00）" },
+  { value: "CHOU", label: "丑時（01:00–03:00）" },
+  { value: "YIN", label: "寅時（03:00–05:00）" },
+  { value: "MAO", label: "卯時（05:00–07:00）" },
+  { value: "CHEN", label: "辰時（07:00–09:00）" },
+  { value: "SI", label: "巳時（09:00–11:00）" },
+  { value: "WU", label: "午時（11:00–13:00）" },
+  { value: "WEI", label: "未時（13:00–15:00）" },
+  { value: "SHEN", label: "申時（15:00–17:00）" },
+  { value: "YOU", label: "酉時（17:00–19:00）" },
+  { value: "XU", label: "戌時（19:00–21:00）" },
+  { value: "HAI", label: "亥時（21:00–23:00）" },
+];
+
 // V9.0「祭改管理與小人頭貼紙列印」用的標籤
 export const purificationRegistrationStatusLabel: Record<string, string> = {
   ACTIVE: "有效",

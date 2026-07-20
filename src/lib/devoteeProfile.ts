@@ -29,8 +29,11 @@ export type DevoteeSummary = {
   isPrimaryContact: boolean;
   solarBirthDate: string | null; // ISO date string，null 表示沒有登記
   lunarBirthDisplay: string | null; // 例如「農曆 1990 年 三月 初五」，沒有農曆資料則為 null
+  lunarBirthYear: number | null; // V12 新增：原始農曆年（欄位層級，供編輯表單直接帶入，跟上面的組合顯示字串分開）
   lunarBirthMonth: number | null;
   lunarBirthDay: number | null;
+  lunarIsLeapMonth: boolean; // V12 新增：是否閏月（欄位層級原始值，供編輯表單使用）
+  birthHour: string | null; // V12 新增：出生時辰（BirthHour enum 值，例如 "ZI"）
   zodiac: string | null;
   isDeceased: boolean;
   deceasedAt: string | null;
@@ -95,8 +98,11 @@ export function composeDevoteeSummary(
     isPrimaryContact: member.isPrimaryContact,
     solarBirthDate: birthday ? birthday.solarDate.toISOString().slice(0, 10) : null,
     lunarBirthDisplay: birthday ? formatLunarDate(birthday.lunar) : null,
+    lunarBirthYear: member.lunarBirthYear ?? null,
     lunarBirthMonth: member.lunarBirthMonth ?? (birthday ? birthday.lunar.month : null),
     lunarBirthDay: member.lunarBirthDay ?? (birthday ? birthday.lunar.day : null),
+    lunarIsLeapMonth: member.lunarIsLeapMonth,
+    birthHour: member.birthHour ?? null,
     zodiac: birthday?.zodiac ?? null,
     isDeceased: member.isDeceased,
     deceasedAt: member.deceasedAt ? member.deceasedAt.toISOString().slice(0, 10) : null,

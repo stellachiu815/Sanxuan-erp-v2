@@ -16,6 +16,10 @@ type StatsData = {
     lunarBirthdaysThisMonth: number;
     needsCareCount: number;
     deceasedCount: number;
+    missingBirthdayCount: number;
+    missingAddressCount: number;
+    missingNameCount: number;
+    missingPhoneCount: number;
     recentNewDevotees: { memberId: string; name: string; householdName: string; createdAt: string }[];
     recentInteractions: { id: string; memberId: string; name: string; interactionType: string; occurredAt: string; content: string }[];
   };
@@ -81,6 +85,38 @@ function DevoteeHomeInner() {
 
       {data && (
         <>
+          {/*
+            對應指令「五、待補資料」：放在信眾關係中心首頁最顯眼的位置，
+            點擊每個數字直接跳到對應篩選後的信眾名單，不需要再自己手動
+            點篩選按鈕。跟下面既有的「統計總覽」區塊分開、放在更上面，
+            因為「待補資料」是行政人員日常要主動處理的工作清單，跟下面
+            單純觀察用的統計數字性質不同。
+          */}
+          <section className="rounded-3xl bg-blossom-50/70 p-6 shadow-card">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-base font-medium text-ink">📝 待補資料</h2>
+              <span className="text-xs text-ink-faint">點擊數字直接查看名單</span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Link href="/devotee-center/list?filters=NO_BIRTHDAY" className="rounded-2xl bg-white/80 p-4 transition hover:bg-white">
+                <p className="text-xs text-ink-faint">缺出生年月日</p>
+                <p className="mt-1 text-xl text-ink">{data.stats.missingBirthdayCount}</p>
+              </Link>
+              <Link href="/devotee-center/list?filters=NO_ADDRESS" className="rounded-2xl bg-white/80 p-4 transition hover:bg-white">
+                <p className="text-xs text-ink-faint">缺地址</p>
+                <p className="mt-1 text-xl text-ink">{data.stats.missingAddressCount}</p>
+              </Link>
+              <div className="rounded-2xl bg-white/50 p-4" title="Member.name 為必填欄位，資料庫層級不可能存在缺姓名的信眾，恆為 0">
+                <p className="text-xs text-ink-faint">缺姓名</p>
+                <p className="mt-1 text-xl text-ink-faint">{data.stats.missingNameCount}</p>
+              </div>
+              <Link href="/devotee-center/list?filters=NO_PHONE" className="rounded-2xl bg-white/80 p-4 transition hover:bg-white">
+                <p className="text-xs text-ink-faint">缺電話</p>
+                <p className="mt-1 text-xl text-ink">{data.stats.missingPhoneCount}</p>
+              </Link>
+            </div>
+          </section>
+
           <section className="rounded-3xl bg-white/70 p-6 shadow-card">
             <h2 className="text-base font-medium text-ink">統計總覽</h2>
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">

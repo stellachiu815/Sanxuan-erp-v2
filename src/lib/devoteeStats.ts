@@ -51,6 +51,20 @@ export type DevoteeHomeStats = {
   lunarBirthdaysThisMonth: number; // 本月農曆生日人數
   needsCareCount: number; // 需要關懷人數（僅計算已正式標記，見 devoteeCare.ts 說明）
   deceasedCount: number; // 已標示往生人數
+  // V12「信眾資料中心正式建置」指令「五、待補資料」新增：缺出生年月日／
+  // 缺地址／缺姓名／缺電話人數，定義完全比照 src/lib/devoteeList.ts 的
+  // NO_BIRTHDAY／NO_ADDRESS／NO_PHONE 篩選條件（同一套判斷邏輯，不是另外
+  // 寫一份可能兜不起來的規則）。
+  //
+  // ⚠️ 誠實揭露：missingNameCount 這個數字恆定為 0——Member.name 在
+  // prisma/schema.prisma 是必填（NOT NULL）欄位，資料庫層級就不可能存在
+  // 「沒有姓名」的信眾資料，所以這裡不是「系統很完美所以一直是 0」，而是
+  // 這個統計項目在目前的資料結構下沒有實際意義，仍然照指令要求顯示出來，
+  // 只是恆為 0，交付報告會一併說明。
+  missingBirthdayCount: number;
+  missingAddressCount: number;
+  missingNameCount: number;
+  missingPhoneCount: number;
   recentNewDevotees: RecentNewDevoteeEntry[]; // 最近新增信眾（預覽）
   recentInteractions: RecentInteractionEntry[]; // 最近互動紀錄（預覽）
 };
@@ -208,6 +222,9 @@ export async function getDevoteeHomeStats(now: Date = new Date()): Promise<Devot
     lunarBirthdaysThisMonth,
     careList,
     deceasedCount,
+    missingBirthdayCount,
+    missingAddressCount,
+    missingPhoneCount,
     recentNewDevoteesRaw,
     recentInteractionsRaw,
   ] = await Promise.all([
@@ -222,6 +239,19 @@ export async function getDevoteeHomeStats(now: Date = new Date()): Promise<Devot
     listThisMonthLunarBirthdays(now),
     listCareList(),
     prisma.member.count({ where: { deletedAt: null, household: { deletedAt: null }, isDeceased: true } }),
+    prisma.member.count({
+      where: { deletedAt: null, household: { deletedAt: null }, solarBirthDate: null, lunarBirthYear: null },
+    }),
+    prisma.member.count({
+      where: { deletedAt: null, household: { deletedAt: null, address: null } },
+    }),
+    prisma.member.count({
+      where: {
+        deletedAt: null,
+        household: { deletedAt: null, phone: null },
+        AND: [{ OR: [{ devoteeProfile: null }, { devoteeProfile: { is: { mobile: null } } }] }],
+      },
+    }),
     prisma.member.findMany({
       where: { deletedAt: null, household: { deletedAt: null } },
       include: { household: { select: { name: true } } },
@@ -245,6 +275,10 @@ export async function getDevoteeHomeStats(now: Date = new Date()): Promise<Devot
     lunarBirthdaysThisMonth: lunarBirthdaysThisMonth.length,
     needsCareCount: careList.length,
     deceasedCount,
+    missingBirthdayCount,
+    missingAddressCount,
+    missingNameCount: 0, // 見上方型別定義的誠實揭露說明：Member.name 必填，恆為 0
+    missingPhoneCount,
     recentNewDevotees: recentNewDevoteesRaw.map((m) => ({
       memberId: m.id,
       name: m.name,

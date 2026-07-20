@@ -18,10 +18,24 @@ export default async function HomePage() {
       </div>
       <SearchBar variant="hero" />
       <DashboardOverviewCard />
-      <OfferingHomeCard />
+      {/*
+        V12 指令「一、首頁與主要導覽順序」：信眾中心 → 收款中心 → 活動中心 →
+        列印中心 → 供品中心 → 系統管理，信眾中心排在最前面、最顯眼的位置。
+
+        誠實說明這裡的對應關係（非逐字規定，是本輪判斷，供之後檢視）：
+        指令列出的六個名稱裡，「收款中心」「供品中心」「系統管理」跟既有
+        HomeCard 元件（CollectionHomeCard／OfferingHomeCard／
+        SystemCenterHomeCard）可以直接一一對應；但「活動中心」目前系統
+        沒有對應的 HomeCard（宮務活動只有首頁下方文字連結 /activities，
+        不是卡片），「列印中心」也沒有同名模組，這裡把它對應到既有的
+        ReceiptHomeCard（收據中心——目前系統裡跟「列印」最相關的既有模組）。
+        沒有新增或修改這兩個模組本身，只是把既有卡片排序；如果這個對應
+        不是你要的意思，請告訴我，我再依你的指示調整順序或對應關係。
+      */}
+      <DevoteeCenterHomeCard />
       <CollectionHomeCard />
       <ReceiptHomeCard />
-      <DevoteeCenterHomeCard />
+      <OfferingHomeCard />
       <SystemCenterHomeCard />
       <div className="flex flex-wrap items-center justify-center gap-4">
         <Link href="/import" className="text-sm text-ink-faint underline-offset-4 hover:underline">

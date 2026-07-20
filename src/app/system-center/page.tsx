@@ -2,6 +2,7 @@ import Link from "next/link";
 import { OperatorProvider } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import SystemCenterGate from "@/components/system-center/SystemCenterGate";
+import AdminToolsSection from "@/components/system-center/AdminToolsSection";
 
 /**
  * 系統管理主選單。V11.2 原本是對應指令「一」的 7 個子項目；V11.3 新增
@@ -40,6 +41,11 @@ export default function SystemCenterHomePage() {
       <main className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-10">
         <OperatorProvider>
           <OperatorBar />
+
+          {/* V12 指令「九」：ADMIN 可用的一般行政管理功能，放在下方
+              SUPER_ADMIN 專屬選單之外，見 AdminToolsSection 說明。 */}
+          <AdminToolsSection />
+
           <SystemCenterGate>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {tiles.map((t) => (

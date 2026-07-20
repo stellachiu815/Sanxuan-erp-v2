@@ -408,10 +408,11 @@ export type SystemAction =
   | "restoreBackup" // 還原 Backup（一鍵還原，覆蓋目前資料）
   | "manageGoogleDriveConnection" // 連結/解除/重新授權 Google Drive
   | "manageBackupSchedule" // 修改備份排程與保留政策
-  | "manageDataImport"; // V11.3「信眾資料匯入預檢中心」新增：上傳/欄位對照/預覽/
-  // 疑似重複人工確認/測試匯入——比照系統管理中心其餘功能一律 SUPER_ADMIN
-  // 限定；同時用來補上既有「家戶資料 Excel 批次匯入」（/import）原本完全
-  // 沒有權限管控的缺口（見 assertSystemPermissionForOperator 呼叫端）。
+  | "manageDataImport" // V11.3「信眾資料匯入預檢中心」新增：上傳/欄位對照/預覽/
+  // 疑似重複人工確認/測試匯入。
+  | "manageUsers"; // V12「信眾資料中心正式建置」指令「九、其他使用者帳號」新增：
+// 建立操作人員／修改姓名／啟用停用／指定角色，見下方 SYSTEM_PERMISSIONS
+// 對這個動作的角色說明。
 
 const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   SUPER_ADMIN: [
@@ -422,8 +423,28 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
     "manageGoogleDriveConnection",
     "manageBackupSchedule",
     "manageDataImport",
+    "manageUsers",
   ],
-  ADMIN: [],
+  // V12「信眾資料中心正式建置」指令「九」逐字定義：「ADMIN＝全部功能／可進
+  // 系統管理／可匯入／可新增修改刪除」。使用者已明確確認（AskUserQuestion）
+  // 這裡要直接照這次的定義更新既有權限矩陣，即使會改變已上線的 V12.0／
+  // 系統管理中心行為。
+  //
+  // ⚠️ 範圍界定（本輪判斷，非逐字規定，供之後檢視）：「可進系統管理」這裡
+  // 解讀成「可以使用系統管理中心裡屬於一般行政範疇的功能（資料匯入／
+  // 使用者帳號管理）」，不包含「viewSystemCenter」本身（也就是不包含
+  // 備份／還原／Google Drive 連線／備份排程這些既有指令「十四」明確寫死
+  // 「只有最高管理員」「一般使用者不得看到 Backup」的敏感維運功能）——
+  // 這幾個動作使用者這次完全沒有提到，維持既有的 SUPER_ADMIN 專屬限制，
+  // 不因為這次「全部功能」的字面意思而放寬。如果之後確定要讓 ADMIN 也能
+  // 操作備份／還原，需要另外明確確認，不由這裡直接推論帶過。
+  //
+  // 因此 ADMIN 看不到系統管理中心的主選單（viewSystemCenter 仍然是
+  // SUPER_ADMIN 專屬），但可以直接使用「使用者帳號管理」「信眾資料匯入」
+  // 這兩個獨立入口（見 src/app/system-center/page.tsx 的
+  // AdminToolsSection，放在 SystemCenterGate 之外，各自用這裡對應的
+  // action 個別檢查）。
+  ADMIN: ["manageDataImport", "manageUsers"],
   STAFF: [],
   READONLY: [],
   FINANCE_CLERK: [],
@@ -493,6 +514,40 @@ export type DevoteeAction =
   | "manageCareList" // 正式標記/取消關懷狀態（SUPER_ADMIN 專屬）
   | "mergeDevotees"; // 執行疑似重複信眾合併——指令明確規定本次不開放，見上方說明 6，目前沒有任何角色擁有、也沒有對應 API
 
+// ============================================================
+// V12「信眾資料中心正式建置」指令「九、其他使用者帳號」對權限矩陣的更新
+// （使用者已透過 AskUserQuestion 明確確認：直接照這次的定義更新，即使會
+// 改變已上線的 V12.0 行為，見 src/lib/permissions.ts 檔案上方 SystemAction
+// 區塊同樣的說明）。
+//
+// 指令「九」逐字定義：「ADMIN＝全部功能／可進系統管理／可匯入／可新增
+// 修改刪除；STAFF＝可查詢／可新增修改信眾／可收款／不可進系統管理／
+// 不可刪除重要資料；VIEWER(READONLY)＝只能查詢／不可修改／不可收款／
+// 不可匯入」。
+//
+// 【本輪判斷，非逐字規定，供之後檢視】
+// 1. ADMIN「全部功能」：這裡解讀成 DevoteeAction 除了 mergeDevotees 以外
+//    全部開放——mergeDevotees 不給任何角色，是因為系統目前根本沒有任何
+//    合併信眾的 API（指令十三本來就規定本次不開放合併），不是刻意排除
+//    ADMIN，這個動作本來對所有角色都是純文件性質的佔位（見上方型別定義
+//    的說明）。
+// 2. STAFF「可新增修改信眾」：對應 createProfile／updateProfile／
+//    applyTag／createInteraction（套用既有標籤、新增互動紀錄本來就屬於
+//    日常新增/修改信眾資料的一部分）；「標籤管理」（新增/停用標籤定義
+//    本身，manageTags）、「互動紀錄管理」（修改/刪除別人建立的紀錄，
+//    manageInteractions）、「關懷名單管理」（manageCareList）、完整財務
+//    稽核（viewFullFinancialStats／viewAuditLog）這幾個原本就標記為
+//    「管理」層級或 SUPER_ADMIN 專屬的動作，指令「九」沒有提到 STAFF
+//    可以做，這裡維持不開放，避免把「新增修改信眾」這句話過度放大成
+//    STAFF 也能做所有管理層級操作。
+// 3. STAFF「可收款」：信眾關係中心本身沒有收款功能（收款在收款中心
+//    /collection-center），這裡不需要新增對應的 DevoteeAction；「可收款」
+//    這句話目前是靠收款中心目前完全沒有權限檢查這個既有缺口「間接」
+//    成立（誠實揭露：這不是我這次刻意設計出來的權限，而是既有缺口剛好
+//    沒有擋 STAFF，詳見交付報告已知限制）。
+// 4. STAFF「不可刪除重要資料」：信眾關係中心本身沒有任何刪除信眾資料的
+//    功能/API，這個限制靠「根本沒有入口」達成，不需要額外的權限判斷。
+// ============================================================
 const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
   SUPER_ADMIN: [
     "view",
@@ -507,8 +562,20 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
     "manageInteractions",
     "manageCareList",
   ],
-  ADMIN: ["view", "viewFinancialSummary", "updateProfile", "applyTag", "createInteraction"],
-  STAFF: [], // 指令「十六」沒有提到 STAFF，比照既有系統管理中心慣例（未提及角色一律不開放），信眾關係中心選單/資料一律不顯示給 STAFF
+  ADMIN: [
+    "view",
+    "viewFinancialSummary",
+    "viewFullFinancialStats",
+    "viewAuditLog",
+    "createProfile",
+    "updateProfile",
+    "manageTags",
+    "applyTag",
+    "createInteraction",
+    "manageInteractions",
+    "manageCareList",
+  ],
+  STAFF: ["view", "viewFinancialSummary", "createProfile", "updateProfile", "applyTag", "createInteraction"],
   READONLY: ["view", "viewFinancialSummary"],
   FINANCE_CLERK: [],
 };
@@ -592,6 +659,11 @@ export function getFullPermissionSnapshot() {
     "restoreBackup",
     "manageGoogleDriveConnection",
     "manageBackupSchedule",
+    // manageDataImport／manageUsers 原本就漏在這份快照清單裡（manageDataImport
+    // 是 V11.3 的既有遺漏，這裡順手補上；manageUsers 是這次 V12 新增的動作）
+    // ——只補齊清單，不改變任何角色實際的權限判斷邏輯。
+    "manageDataImport",
+    "manageUsers",
   ];
   const devoteeActions: DevoteeAction[] = [
     "view",

@@ -56,6 +56,10 @@ async function getBasicAndHousehold(memberId: string) {
       household: {
         include: {
           members: { where: { deletedAt: null }, orderBy: { name: "asc" } },
+          // V12「信眾資料中心正式建置」指令「四」：編輯頁需要顯示並可新增
+          // 歷代祖先／乙位正魂（既有的 WorshipRecord），跟既有 /household/[id]
+          // 頁面顯示的資料來源完全相同，不重複建立第二份查詢邏輯以外的資料。
+          worshipRecords: { orderBy: { createdAt: "asc" } },
         },
       },
     },
@@ -79,6 +83,14 @@ async function getBasicAndHousehold(memberId: string) {
         role: m.role,
         isPrimaryContact: m.isPrimaryContact,
         isDeceased: m.isDeceased,
+      })),
+      worshipRecords: member.household.worshipRecords.map((w) => ({
+        id: w.id,
+        type: w.type,
+        displayName: w.displayName,
+        location: w.location,
+        yangshangName: w.yangshangName,
+        notes: w.notes,
       })),
     },
   };

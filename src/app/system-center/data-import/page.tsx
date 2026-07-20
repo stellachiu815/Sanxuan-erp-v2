@@ -37,7 +37,10 @@ export default function DevoteeDataImportPage() {
 
         <OperatorProvider>
           <OperatorBar />
-          <SystemCenterGate>
+          {/* V12 指令「九」：ADMIN「可匯入」，這裡改成檢查 manageDataImport
+              （SUPER_ADMIN／ADMIN 皆可），不再是只有 SUPER_ADMIN 能看到的
+              viewSystemCenter，見 SystemCenterGate 與 permissions.ts 的說明。 */}
+          <SystemCenterGate action="manageDataImport">
             <DevoteeImportWizard />
           </SystemCenterGate>
         </OperatorProvider>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useOperator } from "@/lib/operatorClient";
-import { canSystem } from "@/lib/permissions";
+import { canSystem, type SystemAction } from "@/lib/permissions";
 
 /**
  * 【系統管理】整個選單的畫面層級守門（對應指令「十四」：一般使用者不得
@@ -16,19 +16,33 @@ import { canSystem } from "@/lib/permissions";
  * 也能在網頁原始碼裡看到這些內容——所以系統管理中心底下的每個頁面都
  * 設計成「先看得到操作人員身分，才透過 API 用 useEffect 抓資料」的純
  * client 元件，不透過 Server Component 預先帶資料。
+ *
+ * V12「信眾資料中心正式建置」新增 action 這個選填參數（預設仍然是
+ * "viewSystemCenter"，既有 6 個子頁面沒有傳這個參數，行為完全不變）：
+ * 「使用者帳號管理」「信眾資料匯入」這兩個頁面改成分別檢查
+ * "manageUsers"／"manageDataImport"，讓 ADMIN 可以個別使用這兩個功能，
+ * 但不會因此打開 viewSystemCenter、看到備份/還原/Google Drive 這些
+ * 仍然維持 SUPER_ADMIN 專屬的敏感功能（見 src/lib/permissions.ts
+ * SYSTEM_PERMISSIONS 的說明）。
  */
-export default function SystemCenterGate({ children }: { children: React.ReactNode }) {
+export default function SystemCenterGate({
+  children,
+  action = "viewSystemCenter",
+}: {
+  children: React.ReactNode;
+  action?: SystemAction;
+}) {
   const { operatorUser, loading } = useOperator();
 
   if (loading) {
     return <p className="text-sm text-ink-faint">載入中…</p>;
   }
 
-  if (!operatorUser || !canSystem(operatorUser.role, "viewSystemCenter")) {
+  if (!operatorUser || !canSystem(operatorUser.role, action)) {
     return (
       <div className="rounded-3xl bg-white/70 p-8 text-center shadow-card">
         <p className="text-sm text-ink-soft">
-          【系統管理】僅開放最高管理員使用。請先在上方選擇具有最高管理員身分的操作人員。
+          這個功能目前操作人員沒有權限使用。請先在上方選擇具有對應權限的操作人員。
         </p>
       </div>
     );

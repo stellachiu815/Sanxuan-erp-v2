@@ -1,24 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, use as usePromise } from "react";
+import { Suspense, useEffect, useState, use as usePromise } from "react";
+import { useSearchParams } from "next/navigation";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee } from "@/lib/permissions";
 import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
 import { DEVOTEE_INTERACTION_TYPE_LABEL } from "@/components/devotee/labels";
+import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOptions } from "@/lib/labels";
 
 type Overview = {
   basic: {
     memberId: string;
+    householdId: string;
     name: string;
     gender: string | null;
     role: string;
+    isPrimaryContact: boolean;
     solarBirthDate: string | null;
     lunarBirthDisplay: string | null;
+    lunarBirthYear: number | null;
+    lunarBirthMonth: number | null;
+    lunarBirthDay: number | null;
+    lunarIsLeapMonth: boolean;
+    birthHour: string | null;
     zodiac: string | null;
     isDeceased: boolean;
     deceasedAt: string | null;
+    memberNotes: string | null;
     isDisabled: boolean;
     mobile: string | null;
     lineId: string | null;
@@ -37,6 +47,7 @@ type Overview = {
     phone: string | null;
     address: string | null;
     members: { memberId: string; name: string; role: string; isPrimaryContact: boolean; isDeceased: boolean }[];
+    worshipRecords: { id: string; type: string; displayName: string; location: string | null; yangshangName: string | null; notes: string | null }[];
   };
   tags: { assignmentId: string; tagId: string; name: string; isActive: boolean }[];
   rituals: { ritualRecordId: string; activityName: string; year: number; amount: number; paymentStatus: string; receiptNumbers: string[] }[];
@@ -64,6 +75,13 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("總覽");
   const [reloadTick, setReloadTick] = useState(0);
 
+  // 對應指令「七、上一位／下一位」：q／filters 是從信眾名單頁點進來時網址
+  // 帶的參數（見 list/page.tsx 的 detailQueryString），維持在同一個篩選
+  // 範圍內移動，見 src/lib/devoteeList.ts getAdjacentDevoteeIds() 的說明。
+  const urlParams = useSearchParams();
+  const listQueryString = urlParams.toString(); // 原封不動轉送給 neighbors API 跟 上一位/下一位連結
+  const [neighbors, setNeighbors] = useState<{ prevMemberId: string | null; nextMemberId: string | null } | null>(null);
+
   useEffect(() => {
     if (!operatorUserId) return;
     fetch(`/api/devotee-center/${memberId}?operatorUserId=${encodeURIComponent(operatorUserId)}`)
@@ -78,13 +96,46 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
       .catch((e) => setError(e.message));
   }, [operatorUserId, memberId, reloadTick]);
 
+  useEffect(() => {
+    if (!operatorUserId) return;
+    const params = new URLSearchParams(listQueryString);
+    params.set("operatorUserId", operatorUserId);
+    fetch(`/api/devotee-center/${memberId}/neighbors?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => setNeighbors(d))
+      .catch(() => setNeighbors(null));
+  }, [operatorUserId, memberId, listQueryString]);
+
   if (error) return <div className="rounded-3xl bg-blossom-100 p-6 text-sm text-ink">{error}</div>;
   if (!overview) return <p className="text-sm text-ink-faint">載入中…</p>;
 
   const b = overview.basic;
+  const detailHref = (id: string) => `/devotee-center/${id}${listQueryString ? `?${listQueryString}` : ""}`;
 
   return (
     <div className="flex flex-col gap-6">
+      {/* 對應指令「七、上一位／下一位」：方便連續完成資料補登，不用每次都
+          回列表再點下一位。找不到上一位/下一位（例如已經是名單頭尾）時
+          按鈕會停用。 */}
+      {neighbors && (neighbors.prevMemberId || neighbors.nextMemberId) && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-white/70 px-4 py-2 text-sm shadow-soft">
+          {neighbors.prevMemberId ? (
+            <Link href={detailHref(neighbors.prevMemberId)} className="rounded-full bg-cream-100 px-4 py-1.5 text-ink-soft hover:bg-cream-200">
+              ← 上一位
+            </Link>
+          ) : (
+            <span className="rounded-full bg-cream-100 px-4 py-1.5 text-ink-faint opacity-40">← 上一位</span>
+          )}
+          <span className="text-xs text-ink-faint">依目前名單排序移動</span>
+          {neighbors.nextMemberId ? (
+            <Link href={detailHref(neighbors.nextMemberId)} className="rounded-full bg-cream-100 px-4 py-1.5 text-ink-soft hover:bg-cream-200">
+              下一位 →
+            </Link>
+          ) : (
+            <span className="rounded-full bg-cream-100 px-4 py-1.5 text-ink-faint opacity-40">下一位 →</span>
+          )}
+        </div>
+      )}
       <section className="rounded-3xl bg-white/70 p-6 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -150,7 +201,15 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
         {tab === "收據" && <ReceiptsTab receipts={overview.receipts} />}
         {tab === "供品" && <OfferingsTab offerings={overview.offerings} />}
         {tab === "祭祀與祭改" && <PurificationsTab purifications={overview.purifications} />}
-        {tab === "家戶成員" && <HouseholdTab household={overview.household} />}
+        {tab === "家戶成員" && (
+          <HouseholdTab
+            memberId={memberId}
+            household={overview.household}
+            operatorUserId={operatorUserId}
+            canEdit={operatorUser?.role === "SUPER_ADMIN" || operatorUser?.role === "ADMIN"}
+            onChanged={() => setReloadTick((t) => t + 1)}
+          />
+        )}
         {tab === "互動紀錄" && (
           <InteractionsTab
             memberId={memberId}
@@ -278,6 +337,15 @@ function OverviewTab({
   return (
     <div className="flex flex-col gap-4">
       {canEdit && (
+        <BaseEditForm
+          memberId={memberId}
+          operatorUserId={operatorUserId}
+          basic={overview.basic}
+          household={overview.household}
+          onChanged={onChanged}
+        />
+      )}
+      {canEdit && (
         <ProfileEditForm memberId={memberId} operatorUserId={operatorUserId} basic={overview.basic} onChanged={onChanged} />
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -341,6 +409,241 @@ function OverviewTab({
         </div>
       </div>
 
+    </div>
+  );
+}
+
+type BirthdayMode = "none" | "solar" | "lunar";
+
+/**
+ * V12「信眾資料中心正式建置」指令「四、信眾完整資料編輯頁」。
+ *
+ * 這裡負責「基本資料」＋「家戶資料」——直接修改既有的 Member／Household
+ * 兩張表（呼叫 PATCH /api/devotee-center/[memberId]/base，見
+ * src/lib/devoteeBaseEdit.ts）。跟下面既有的 ProfileEditForm（只改
+ * DevoteeProfile 延伸資料表，例如手機/LINE/個人備註）是兩支獨立的表單、
+ * 各自送出各自的 API，不要混在一起——沿用既有架構分工，不重新設計。
+ *
+ * ⚠️ 家戶編號（Household.id）刻意不提供輸入框：這是主鍵，被十幾張既有
+ * 資料表引用，且沒有設定連動更新，直接開放修改會造成外鍵衝突或需要高
+ * 風險的多表同步更新（使用者已確認這次不開放修改，只顯示唯讀）。
+ */
+function BaseEditForm({
+  memberId,
+  operatorUserId,
+  basic,
+  household,
+  onChanged,
+}: {
+  memberId: string;
+  operatorUserId: string | null;
+  basic: Overview["basic"];
+  household: Overview["household"];
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState(basic.name);
+  const [gender, setGender] = useState(basic.gender ?? "");
+  const [role, setRole] = useState(basic.role);
+  const [isPrimaryContact, setIsPrimaryContact] = useState(basic.isPrimaryContact);
+  const [isDeceased, setIsDeceased] = useState(basic.isDeceased);
+  const [deceasedAt, setDeceasedAt] = useState(basic.deceasedAt ?? "");
+  const [notes, setNotes] = useState(basic.memberNotes ?? "");
+  const [birthHour, setBirthHour] = useState(basic.birthHour ?? "");
+
+  const initialBirthdayMode: BirthdayMode = basic.solarBirthDate ? "solar" : basic.lunarBirthYear ? "lunar" : "none";
+  const [birthdayMode, setBirthdayMode] = useState<BirthdayMode>(initialBirthdayMode);
+  const [solarBirthDate, setSolarBirthDate] = useState(basic.solarBirthDate ?? "");
+  const [lunarBirthYear, setLunarBirthYear] = useState(basic.lunarBirthYear ? String(basic.lunarBirthYear) : "");
+  const [lunarBirthMonth, setLunarBirthMonth] = useState(basic.lunarBirthMonth ? String(basic.lunarBirthMonth) : "");
+  const [lunarBirthDay, setLunarBirthDay] = useState(basic.lunarBirthDay ? String(basic.lunarBirthDay) : "");
+  const [lunarIsLeapMonth, setLunarIsLeapMonth] = useState(basic.lunarIsLeapMonth);
+
+  const [householdName, setHouseholdName] = useState(household.name);
+  const [contactName, setContactName] = useState(household.contactName ?? "");
+  const [address, setAddress] = useState(household.address ?? "");
+  const [phone, setPhone] = useState(household.phone ?? "");
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (!operatorUserId) return;
+    if (!name.trim()) {
+      setError("姓名為必填，不能清空");
+      return;
+    }
+    if (!householdName.trim()) {
+      setError("戶名為必填，不能清空");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const body: Record<string, unknown> = {
+        operatorUserId,
+        name: name.trim(),
+        gender: gender || null,
+        role,
+        isPrimaryContact,
+        isDeceased,
+        deceasedAt: isDeceased ? deceasedAt || null : null,
+        notes: notes || null,
+        birthHour: birthHour || null,
+        birthdayType: birthdayMode,
+        household: {
+          name: householdName.trim(),
+          contactName: contactName || null,
+          address: address || null,
+          phone: phone || null,
+        },
+      };
+      if (birthdayMode === "solar") {
+        body.solarBirthDate = solarBirthDate;
+      } else if (birthdayMode === "lunar") {
+        body.lunarBirthYear = Number(lunarBirthYear);
+        body.lunarBirthMonth = Number(lunarBirthMonth);
+        body.lunarBirthDay = Number(lunarBirthDay);
+        body.lunarIsLeapMonth = lunarIsLeapMonth;
+      }
+
+      const res = await fetch(`/api/devotee-center/${memberId}/base`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "儲存失敗");
+      setSaved(true);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl bg-cream-100 p-4">
+      <h3 className="text-sm font-medium text-ink">信眾基本資料</h3>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          姓名 *
+          <input value={name} onChange={(e) => setName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          性別
+          <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="男 / 女" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          與戶主關係
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
+            {memberRoleOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          出生時辰
+          <select value={birthHour} onChange={(e) => setBirthHour(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink">
+            <option value="">未填寫</option>
+            {birthHourOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs text-ink-faint">出生年月日（國曆或農曆擇一登記）</p>
+        <div className="mt-1 flex flex-wrap gap-3 text-sm text-ink-soft">
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={birthdayMode === "none"} onChange={() => setBirthdayMode("none")} /> 未填寫
+          </label>
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={birthdayMode === "solar"} onChange={() => setBirthdayMode("solar")} /> 國曆
+          </label>
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={birthdayMode === "lunar"} onChange={() => setBirthdayMode("lunar")} /> 農曆
+          </label>
+        </div>
+        {birthdayMode === "solar" && (
+          <input
+            type="date"
+            value={solarBirthDate}
+            onChange={(e) => setSolarBirthDate(e.target.value)}
+            className="mt-2 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          />
+        )}
+        {birthdayMode === "lunar" && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input type="number" placeholder="年（西元）" value={lunarBirthYear} onChange={(e) => setLunarBirthYear(e.target.value)} className="w-28 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <input type="number" placeholder="月" value={lunarBirthMonth} onChange={(e) => setLunarBirthMonth(e.target.value)} className="w-20 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <input type="number" placeholder="日" value={lunarBirthDay} onChange={(e) => setLunarBirthDay(e.target.value)} className="w-20 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+            <label className="flex items-center gap-1 text-sm text-ink-soft">
+              <input type="checkbox" checked={lunarIsLeapMonth} onChange={(e) => setLunarIsLeapMonth(e.target.checked)} /> 閏月
+            </label>
+          </div>
+        )}
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+        <input type="checkbox" checked={isDeceased} onChange={(e) => setIsDeceased(e.target.checked)} />
+        已辭世
+      </label>
+      {isDeceased && (
+        <input
+          type="date"
+          value={deceasedAt}
+          onChange={(e) => setDeceasedAt(e.target.value)}
+          className="mt-2 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+        />
+      )}
+      <label className="mt-2 flex items-center gap-2 text-sm text-ink-soft">
+        <input type="checkbox" checked={isPrimaryContact} onChange={(e) => setIsPrimaryContact(e.target.checked)} />
+        是主要聯絡人
+      </label>
+
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="備註"
+        rows={2}
+        className="mt-3 w-full rounded-2xl border border-cream-200 bg-cream-50 px-3 py-2 text-sm"
+      />
+
+      <h3 className="mt-5 text-sm font-medium text-ink">家戶資料</h3>
+      <p className="mt-1 text-xs text-ink-faint">家戶編號：{household.id}（不開放修改，如需更換編號請另外告知）</p>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          戶名 *
+          <input value={householdName} onChange={(e) => setHouseholdName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          主要聯絡人
+          <input value={contactName} onChange={(e) => setContactName(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint">
+          電話
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-faint sm:col-span-2">
+          地址
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+        </label>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <button disabled={saving} onClick={save} className="rounded-full bg-sage-200 px-5 py-2 text-sm font-medium text-ink disabled:opacity-40">
+          {saving ? "儲存中…" : "儲存基本資料"}
+        </button>
+        {saved && <span className="text-xs text-ink-faint">已儲存</span>}
+        {error && <span className="text-xs text-blossom-300">{error}</span>}
+      </div>
     </div>
   );
 }
@@ -612,36 +915,226 @@ function PurificationsTab({ purifications }: { purifications: Overview["purifica
   );
 }
 
-function HouseholdTab({ household }: { household: Overview["household"] }) {
+const WORSHIP_TYPE_LABEL: Record<string, string> = { ANCESTOR_LINE: "歷代祖先", INDIVIDUAL: "個人往生者" };
+
+/**
+ * V12「信眾資料中心正式建置」指令「四、其他資料」：家戶成員／歷代祖先／
+ * 乙位正魂——只能新增，比照既有 /household/[id] 頁面同樣資料的「新增」
+ * 行為，不提供修改/刪除既有這些項目的入口（既有頁面本身也沒有這些操作，
+ * 這裡沒有擴大範圍）。
+ */
+function HouseholdTab({
+  memberId,
+  household,
+  operatorUserId,
+  canEdit,
+  onChanged,
+}: {
+  memberId: string;
+  household: Overview["household"];
+  operatorUserId: string | null;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-ink-soft">
-        {household.name}（{household.id}）・{household.phone || "無電話"}・{household.address || "無地址"}
-      </p>
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="text-xs text-ink-faint">
-            <th className="px-3 py-2">姓名</th>
-            <th className="px-3 py-2">身份</th>
-            <th className="px-3 py-2">主要聯絡人</th>
-            <th className="px-3 py-2">狀態</th>
-          </tr>
-        </thead>
-        <tbody>
-          {household.members.map((m) => (
-            <tr key={m.memberId} className="border-t border-cream-200">
-              <td className="px-3 py-2 text-ink">
-                <Link href={`/devotee-center/${m.memberId}`} className="underline-offset-4 hover:underline">
-                  {m.name}
-                </Link>
-              </td>
-              <td className="px-3 py-2 text-ink-soft">{m.role}</td>
-              <td className="px-3 py-2 text-ink-soft">{m.isPrimaryContact ? "是" : ""}</td>
-              <td className="px-3 py-2 text-ink-faint">{m.isDeceased ? "已往生" : ""}</td>
+    <div className="flex flex-col gap-6">
+      <div>
+        <p className="text-sm text-ink-soft">
+          {household.name}（{household.id}）・{household.phone || "無電話"}・{household.address || "無地址"}
+        </p>
+        <table className="mt-3 w-full text-left text-sm">
+          <thead>
+            <tr className="text-xs text-ink-faint">
+              <th className="px-3 py-2">姓名</th>
+              <th className="px-3 py-2">身份</th>
+              <th className="px-3 py-2">主要聯絡人</th>
+              <th className="px-3 py-2">狀態</th>
             </tr>
+          </thead>
+          <tbody>
+            {household.members.map((m) => (
+              <tr key={m.memberId} className="border-t border-cream-200">
+                <td className="px-3 py-2 text-ink">
+                  <Link href={`/devotee-center/${m.memberId}`} className="underline-offset-4 hover:underline">
+                    {m.name}
+                  </Link>
+                </td>
+                <td className="px-3 py-2 text-ink-soft">{memberRoleLabel[m.role] ?? m.role}</td>
+                <td className="px-3 py-2 text-ink-soft">{m.isPrimaryContact ? "是" : ""}</td>
+                <td className="px-3 py-2 text-ink-faint">{m.isDeceased ? "已往生" : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {canEdit && <AddHouseholdMemberForm memberId={memberId} operatorUserId={operatorUserId} onChanged={onChanged} />}
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium text-ink">歷代祖先／乙位正魂</h3>
+        {household.worshipRecords.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-faint">尚無祭祀資料。</p>
+        ) : (
+          <div className="mt-2 flex flex-col gap-2">
+            {household.worshipRecords.map((w) => (
+              <div key={w.id} className="rounded-2xl bg-blossom-50 px-4 py-3 text-sm">
+                <span className="text-ink">{w.displayName}</span>
+                <span className="ml-2 rounded-full bg-white/70 px-2 py-0.5 text-xs text-ink-soft">
+                  {WORSHIP_TYPE_LABEL[w.type] ?? w.type}
+                </span>
+                {w.location && <span className="ml-2 text-xs text-ink-faint">安奉地：{w.location}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        {canEdit && <AddWorshipRecordForm memberId={memberId} operatorUserId={operatorUserId} onChanged={onChanged} />}
+      </div>
+    </div>
+  );
+}
+
+/** 新增家戶成員小表單（對應指令「四」）。呼叫 POST .../household-members。 */
+function AddHouseholdMemberForm({
+  memberId,
+  operatorUserId,
+  onChanged,
+}: {
+  memberId: string;
+  operatorUserId: string | null;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("OTHER");
+  const [gender, setGender] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (!operatorUserId || !name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/devotee-center/${memberId}/household-members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId, name: name.trim(), role, gender: gender || undefined, birthdayType: "none" }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "新增失敗");
+      setName("");
+      setGender("");
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "新增失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-3 rounded-full bg-cream-100 px-4 py-1.5 text-xs text-ink-soft hover:bg-cream-200">
+        ＋ 新增家戶成員
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl bg-cream-100 p-4">
+      <div className="flex flex-wrap gap-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="姓名" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="性別（選填）" className="w-32 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm">
+          {memberRoleOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
-        </tbody>
-      </table>
+        </select>
+      </div>
+      <p className="mt-2 text-xs text-ink-faint">出生年月日等其他資料可以在新增後，點進這位成員的信眾完整資料編輯頁再補齊。</p>
+      <div className="mt-3 flex items-center gap-3">
+        <button disabled={saving || !name.trim()} onClick={submit} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+          {saving ? "新增中…" : "新增"}
+        </button>
+        <button onClick={() => setOpen(false)} className="text-xs text-ink-faint hover:underline">
+          取消
+        </button>
+        {error && <span className="text-xs text-blossom-300">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** 新增歷代祖先／乙位正魂小表單（對應指令「四」）。呼叫 POST .../worship-records。 */
+function AddWorshipRecordForm({
+  memberId,
+  operatorUserId,
+  onChanged,
+}: {
+  memberId: string;
+  operatorUserId: string | null;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState<string>(worshipTypeOptions[0]?.value ?? "ANCESTOR_LINE");
+  const [displayName, setDisplayName] = useState("");
+  const [location, setLocation] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (!operatorUserId || !displayName.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/devotee-center/${memberId}/worship-records`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId, type, displayName: displayName.trim(), location: location || undefined }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "新增失敗");
+      setDisplayName("");
+      setLocation("");
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "新增失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-3 rounded-full bg-cream-100 px-4 py-1.5 text-xs text-ink-soft hover:bg-cream-200">
+        ＋ 新增歷代祖先／乙位正魂
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl bg-cream-100 p-4">
+      <div className="flex flex-wrap gap-2">
+        <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm">
+          {worshipTypeOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="名稱（例如：王姓歷代祖先）" className="min-w-[200px] flex-1 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="安奉地（選填）" className="w-40 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <button disabled={saving || !displayName.trim()} onClick={submit} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+          {saving ? "新增中…" : "新增"}
+        </button>
+        <button onClick={() => setOpen(false)} className="text-xs text-ink-faint hover:underline">
+          取消
+        </button>
+        {error && <span className="text-xs text-blossom-300">{error}</span>}
+      </div>
     </div>
   );
 }
@@ -750,7 +1243,11 @@ export default function DevoteeDetailPage({ params }: { params: Promise<{ member
         <OperatorProvider>
           <OperatorBar />
           <DevoteeCenterGate>
-            <DevoteeDetailInner memberId={memberId} />
+            {/* DevoteeDetailInner 用了 useSearchParams()，Next.js 要求外面要有
+                Suspense 邊界，否則 npm run build 靜態分析階段會報錯。 */}
+            <Suspense fallback={<p className="text-sm text-ink-faint">載入中…</p>}>
+              <DevoteeDetailInner memberId={memberId} />
+            </Suspense>
           </DevoteeCenterGate>
         </OperatorProvider>
       </main>

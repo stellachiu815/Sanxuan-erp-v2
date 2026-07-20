@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listDevotees, type DevoteeListFilter } from "@/lib/devoteeList";
+import { getAdjacentDevoteeIds, type DevoteeListFilter } from "@/lib/devoteeList";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 
 const VALID_FILTERS: DevoteeListFilter[] = [
@@ -22,11 +22,14 @@ const VALID_FILTERS: DevoteeListFilter[] = [
 ];
 
 /**
- * GET /api/devotee-center/list?operatorUserId=xxx&q=王&filters=NEEDS_CARE,TAG_VIP&page=1&pageSize=20
- * 對應指令「五、信眾名單」：分頁 + 搜尋 + 篩選，全部在資料庫層級完成
- * （見 src/lib/devoteeList.ts）。
+ * GET /api/devotee-center/xxx/neighbors?operatorUserId=xxx&q=王&filters=NO_ADDRESS
+ *
+ * 對應指令「七、上一位／下一位」。q／filters 帶入跟目前信眾名單頁完全相同
+ * 的參數，讓上一位/下一位維持在同一個篩選範圍內，見 src/lib/devoteeList.ts
+ * getAdjacentDevoteeIds() 的說明。
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ memberId: string }> }) {
+  const { memberId } = await params;
   const { searchParams } = new URL(request.url);
   const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -39,12 +42,6 @@ export async function GET(request: NextRequest) {
         .filter((f): f is DevoteeListFilter => VALID_FILTERS.includes(f as DevoteeListFilter))
     : undefined;
 
-  const result = await listDevotees({
-    q: searchParams.get("q") ?? undefined,
-    filters,
-    page: searchParams.get("page") ? Number(searchParams.get("page")) : undefined,
-    pageSize: searchParams.get("pageSize") ? Number(searchParams.get("pageSize")) : undefined,
-  });
-
+  const result = await getAdjacentDevoteeIds(memberId, { q: searchParams.get("q") ?? undefined, filters });
   return NextResponse.json(result);
 }
