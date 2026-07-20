@@ -60,6 +60,11 @@ type PlannedMember = {
   reason: string;
   candidates: MatchCandidate[];
   personData: unknown | null;
+  resolution?: {
+    decision: "KEEP_ORIGINAL" | "TRANSFER_IN" | "CREATE_NEW" | "SKIP";
+    memberId: string | null;
+    householdId: string | null;
+  } | null;
 };
 
 type RowPlan = {
@@ -114,6 +119,8 @@ type CommitPreview = {
   newAncestorCount: number;
   newSpiritCount: number;
   skippedCount: number;
+  /** V12.6 驗收修正：尚未完成人工確認的成員數 */
+  pendingResolutions: number;
   overCap: boolean;
   capMessage: string | null;
 };
@@ -156,6 +163,64 @@ const STATUS_BADGE_CLASS: Record<RowStatus, string> = {
   HOUSEHOLD_UNCERTAIN: "bg-yolk-200 text-ink",
 };
 
+/**
+ * V12.6 驗收修正（指令一）：分類篩選。
+ *
+ * 每個分類都是可點的按鈕，點下去只顯示該分類的**完整**清單（可分頁載入
+ * 更多），不再是「只看得到前 20 筆、其餘無法查看」。
+ */
+type FilterKey =
+  | "ALL"
+  | "SUSPECTED_DUPLICATE"
+  | "FIELD_CONFLICT"
+  | "INCOMPLETE_DATA"
+  | "FORMAT_ERROR"
+  | "HOUSEHOLD_CREATE"
+  | "HOUSEHOLD_UPDATE"
+  | "MEMBER_CREATE"
+  | "MEMBER_UPDATE"
+  | "EXCLUDED";
+
+function matchesFilter(r: AnalyzedRow, key: FilterKey): boolean {
+  switch (key) {
+    case "ALL":
+      return true;
+    case "SUSPECTED_DUPLICATE":
+      return r.status === "SUSPECTED_DUPLICATE";
+    case "FIELD_CONFLICT":
+      return (r.plan?.fieldConflicts.length ?? 0) > 0;
+    case "INCOMPLETE_DATA":
+      return r.status === "INCOMPLETE_DATA";
+    case "FORMAT_ERROR":
+      return r.status === "FORMAT_ERROR";
+    case "HOUSEHOLD_CREATE":
+      return r.plan?.householdAction === "CREATE";
+    case "HOUSEHOLD_UPDATE":
+      return r.plan?.householdAction === "UPDATE";
+    case "MEMBER_CREATE":
+      return (r.plan?.members.some((m) => m.action === "CREATE") ?? false);
+    case "MEMBER_UPDATE":
+      return (r.plan?.members.some((m) => m.action === "UPDATE") ?? false);
+    case "EXCLUDED":
+      return r.status === "EXCLUDED";
+    default:
+      return true;
+  }
+}
+
+const FILTER_LABEL: Record<FilterKey, string> = {
+  ALL: "全部",
+  SUSPECTED_DUPLICATE: "疑似重複",
+  FIELD_CONFLICT: "欄位衝突",
+  INCOMPLETE_DATA: "必填缺漏",
+  FORMAT_ERROR: "格式錯誤",
+  HOUSEHOLD_CREATE: "可新增家戶",
+  HOUSEHOLD_UPDATE: "可更新家戶",
+  MEMBER_CREATE: "可新增信眾",
+  MEMBER_UPDATE: "可更新信眾",
+  EXCLUDED: "已略過",
+};
+
 const dash = (v: string | null | undefined): string => (v && v.trim().length > 0 ? v : "—");
 
 export default function DevoteeImportWizard() {
@@ -180,6 +245,14 @@ export default function DevoteeImportWizard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [rows, setRows] = useState<AnalyzedRow[]>([]);
 
+  // ---- V12.6 驗收修正：分類篩選與分頁 ----
+  const [filterKey, setFilterKey] = useState<FilterKey>("ALL");
+  const [visibleCount, setVisibleCount] = useState(20);
+  /** 整批尚未完成人工確認的成員數（>0 時停用正式匯入） */
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [savingResolution, setSavingResolution] = useState<string | null>(null);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+
   // ---- 確認匯入 ----
   const [commitPreview, setCommitPreview] = useState<CommitPreview | null>(null);
   const [commitPreviewError, setCommitPreviewError] = useState<string | null>(null);
@@ -202,6 +275,10 @@ export default function DevoteeImportWizard() {
     setMapping({});
     setSummary(null);
     setRows([]);
+    setFilterKey("ALL");
+    setVisibleCount(20);
+    setPendingTotal(0);
+    setResolutionError(null);
     setCommitPreview(null);
     setCommitPreviewError(null);
     setCommitError(null);
@@ -254,6 +331,16 @@ export default function DevoteeImportWizard() {
       setSummary(data.summary ?? null);
       setRows(data.rows ?? []);
       setPersonInfo({ fileName: data.personFileName ?? null, rowCount: data.personRowCount ?? 0 });
+      setFilterKey("ALL");
+      setVisibleCount(20);
+      // 尚未確認的成員數＝所有 REVIEW 且沒有 resolution 的成員
+      setPendingTotal(
+        (data.rows ?? []).reduce(
+          (acc: number, r: AnalyzedRow) =>
+            acc + (r.plan?.members.filter((m) => m.action === "REVIEW" && !m.resolution).length ?? 0),
+          0
+        )
+      );
       setStep(useCurrentMapping ? 3 : 2);
     } catch {
       setAnalyzeError("無法連線到伺服器，請稍後再試");
@@ -307,6 +394,68 @@ export default function DevoteeImportWizard() {
     }
   }
 
+  /**
+   * V12.6 驗收修正（指令二）：送出某一位成員的人工決定。
+   *
+   * 寫入既有的 ImportRow.resolutionDecision／resolutionHouseholdId／
+   * resolutionMemberId（以及 plan 內的逐成員決定），存進資料庫，
+   * 重新整理不會消失。
+   */
+  async function saveResolution(
+    rowId: string,
+    memberName: string,
+    decision: "KEEP_ORIGINAL" | "TRANSFER_IN" | "CREATE_NEW" | "SKIP",
+    memberId?: string | null
+  ) {
+    if (!batchId || !operatorUserId) return;
+    const key = `${rowId}::${memberName}`;
+    setSavingResolution(key);
+    setResolutionError(null);
+    try {
+      const res = await fetch(`/api/import/devotee-precheck/${batchId}/resolution`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId, rowId, memberName, decision, memberId: memberId ?? null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setResolutionError(data.error ?? "儲存處理方式失敗");
+        return;
+      }
+      setPendingTotal(data.pendingTotal ?? 0);
+      // 就地更新畫面狀態，不必重新載入整批
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id !== rowId
+            ? r
+            : {
+                ...r,
+                status: data.rowStatus ?? r.status,
+                plan: r.plan
+                  ? {
+                      ...r.plan,
+                      members: r.plan.members.map((m) =>
+                        m.name === memberName
+                          ? { ...m, resolution: { decision, memberId: memberId ?? null, householdId: null } }
+                          : m
+                      ),
+                    }
+                  : r.plan,
+              }
+        )
+      );
+    } catch {
+      setResolutionError("無法連線到伺服器，請稍後再試");
+    } finally {
+      setSavingResolution(null);
+    }
+  }
+
+  function pickFilter(k: FilterKey) {
+    setFilterKey(k);
+    setVisibleCount(20); // 切換分類時回到第一頁
+  }
+
   function downloadErrorCsv() {
     if (!batchId || !operatorUserId) return;
     window.open(
@@ -315,7 +464,9 @@ export default function DevoteeImportWizard() {
     );
   }
 
-  const previewRows = rows.slice(0, 20);
+  // V12.6 驗收修正：依分類篩選後的完整清單與目前顯示範圍。
+  const filteredRows = rows.filter((r) => matchesFilter(r, filterKey));
+  const previewRows = filteredRows.slice(0, visibleCount);
 
   return (
     <div className="flex flex-col gap-6">
@@ -470,19 +621,19 @@ export default function DevoteeImportWizard() {
             </p>
           )}
 
-          {/* V12.6 指令六：預檢分類 */}
+          {/* V12.6 驗收修正（指令一）：每個分類都可點擊，點了只看該分類的完整清單 */}
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
-            <StatPill label="總筆數（戶）" value={summary.total} />
-            <StatPill label="可新增家戶" value={summary.householdsToCreate} tone="sage" />
-            <StatPill label="可更新家戶" value={summary.householdsToUpdate} tone="mist" />
-            <StatPill label="可新增信眾" value={summary.membersToCreate} tone="sage" />
-            <StatPill label="可更新信眾" value={summary.membersToUpdate} tone="mist" />
+            <FilterPill k="ALL" count={summary.total} label="總筆數（戶）" active={filterKey} onPick={pickFilter} />
+            <FilterPill k="HOUSEHOLD_CREATE" count={summary.householdsToCreate} active={filterKey} onPick={pickFilter} tone="sage" />
+            <FilterPill k="HOUSEHOLD_UPDATE" count={summary.householdsToUpdate} active={filterKey} onPick={pickFilter} tone="mist" />
+            <FilterPill k="MEMBER_CREATE" count={summary.membersToCreate} active={filterKey} onPick={pickFilter} tone="sage" />
+            <FilterPill k="MEMBER_UPDATE" count={summary.membersToUpdate} active={filterKey} onPick={pickFilter} tone="mist" />
+            <FilterPill k="SUSPECTED_DUPLICATE" count={summary.suspectedDuplicate} active={filterKey} onPick={pickFilter} tone="yolk" />
+            <FilterPill k="FIELD_CONFLICT" count={summary.fieldConflicts} active={filterKey} onPick={pickFilter} tone="yolk" />
+            <FilterPill k="FORMAT_ERROR" count={summary.formatError} active={filterKey} onPick={pickFilter} tone="blossom" />
+            <FilterPill k="INCOMPLETE_DATA" count={summary.incompleteData} active={filterKey} onPick={pickFilter} tone="blossom" />
+            <FilterPill k="EXCLUDED" count={summary.excluded} active={filterKey} onPick={pickFilter} tone="cream" />
             <StatPill label="高可信度自動配對" value={summary.autoMatchedHighConfidence} tone="mist" />
-            <StatPill label="疑似重複" value={summary.suspectedDuplicate} tone="yolk" />
-            <StatPill label="欄位衝突" value={summary.fieldConflicts} tone="yolk" />
-            <StatPill label="格式錯誤" value={summary.formatError} tone="blossom" />
-            <StatPill label="必填缺漏" value={summary.incompleteData} tone="blossom" />
-            <StatPill label="已略過" value={summary.excluded} tone="cream" />
           </div>
 
           {summary.suspectedDuplicate > 0 && (
@@ -494,7 +645,23 @@ export default function DevoteeImportWizard() {
             </p>
           )}
 
-          <p className="text-xs text-ink-faint">以下顯示前 20 筆資料預覽（統計數字為整份檔案，每一筆代表一戶）：</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-ink-faint">
+              目前顯示「{FILTER_LABEL[filterKey]}」
+              {filteredRows.length > 0
+                ? `第 1–${Math.min(visibleCount, filteredRows.length)} 筆，共 ${filteredRows.length} 筆`
+                : "：沒有符合的資料"}
+            </p>
+            {filterKey !== "ALL" && (
+              <button
+                type="button"
+                onClick={() => pickFilter("ALL")}
+                className="min-h-11 text-xs text-ink-soft underline-offset-4 hover:text-ink hover:underline sm:min-h-0"
+              >
+                清除篩選
+              </button>
+            )}
+          </div>
           <div className="flex flex-col gap-3">
             {previewRows.map((r) => (
               <div key={r.id} className="rounded-2xl border border-cream-200 p-4">
@@ -592,13 +759,13 @@ export default function DevoteeImportWizard() {
                                     : "需人工確認"}
                             </span>
                             {m.action === "REVIEW" && (
-                              <>
-                                <span className="mt-0.5 block text-ink-soft">{m.reason}</span>
-                                <span className="mt-0.5 block text-ink-faint">
-                                  可選處理方式：① 保留原家戶（不動）② 轉入本戶（請用信眾詳情的「更換家戶」）
-                                  ③ 建立新人物（在 Excel 姓名加註區別，或補上手機／生日再匯入）④ 略過這一列
-                                </span>
-                              </>
+                              <MemberResolutionControls
+                                rowId={r.id}
+                                member={m}
+                                targetHouseholdLabel={`${dash(r.household.name)}（${dash(r.household.code)}）`}
+                                saving={savingResolution === `${r.id}::${m.name}`}
+                                onSave={saveResolution}
+                              />
                             )}
                           </div>
                         ))}
@@ -607,12 +774,53 @@ export default function DevoteeImportWizard() {
                   </div>
                 )}
 
-                {(r.errors.length > 0 || r.warnings.length > 0) && (
-                  <p className="mt-2 text-xs text-blossom-300">{[...r.errors, ...r.warnings].join("；")}</p>
+                {/*
+                  V12.6 驗收修正（指令三）：錯誤與提醒分開顯示，並標明是否
+                  阻擋匯入——「空白但會保留系統既有值」屬於提醒，不是錯誤。
+                */}
+                {r.errors.length > 0 && (
+                  <div className="mt-2 rounded-xl bg-blossom-50 px-3 py-2">
+                    <p className="text-xs text-ink">
+                      ⛔ 阻擋匯入（第 {r.rowNumber} 列／家戶編號 {dash(r.household.code)}／戶名{" "}
+                      {dash(r.household.name)}）
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {r.errors.map((e) => (
+                        <li key={e} className="text-xs text-ink-soft">
+                          ・{e}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-ink-faint">
+                      建議處理：在 Excel 補上缺少的欄位後重新上傳；家戶編號無法補齊時，請改由「新增家戶」手動建立。
+                    </p>
+                  </div>
+                )}
+                {r.warnings.length > 0 && (
+                  <div className="mt-2 rounded-xl bg-cream-100 px-3 py-2">
+                    <p className="text-xs text-ink-soft">ℹ️ 提醒（不阻擋匯入）</p>
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {r.warnings.map((w) => (
+                        <li key={w} className="text-xs text-ink-faint">
+                          ・{w}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             ))}
           </div>
+          {filteredRows.length > previewRows.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((n) => n + 50)}
+              className="min-h-11 w-full rounded-full border border-cream-200 text-sm text-ink-soft sm:w-auto sm:px-6"
+            >
+              載入更多（還有 {filteredRows.length - previewRows.length} 筆）
+            </button>
+          )}
+
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
             <button
               type="button"
@@ -651,6 +859,13 @@ export default function DevoteeImportWizard() {
                 <StatPill label="即將新增乙位正魂" value={commitPreview.newSpiritCount} tone="sage" />
                 <StatPill label="不處理筆數" value={commitPreview.skippedCount} tone="blossom" />
               </div>
+              {/* V12.6 驗收修正（指令四）：尚有未完成人工確認時，明確顯示筆數並停用匯入 */}
+              {(commitPreview.pendingResolutions ?? 0) > 0 && (
+                <p className="rounded-2xl bg-yolk-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+                  還有 <span className="text-ink">{commitPreview.pendingResolutions}</span> 位成員的疑似重複尚未確認處理方式，
+                  正式匯入已停用。請回到上一步，點「疑似重複」分類逐一選擇處理方式後再回來。
+                </p>
+              )}
               {commitPreview.overCap && (
                 <p className="rounded-2xl bg-blossom-100 p-4 text-sm text-blossom-300">{commitPreview.capMessage}</p>
               )}
@@ -668,7 +883,7 @@ export default function DevoteeImportWizard() {
                 </button>
                 <button
                   type="button"
-                  disabled={committing || commitPreview.overCap}
+                  disabled={committing || commitPreview.overCap || (commitPreview.pendingResolutions ?? 0) > 0}
                   onClick={handleCommit}
                   className="min-h-10 rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint"
                 >
@@ -740,6 +955,175 @@ export default function DevoteeImportWizard() {
         <p className="text-xs text-ink-faint">目前操作人員：{operatorUser.name}</p>
       )}
     </div>
+  );
+}
+
+/**
+ * V12.6 驗收修正（指令二）：單一成員的人工確認控制項。
+ *
+ * 提供四個真正可按的選項；選「保留原家戶」或「轉入目前家戶」時，還必須
+ * 選定是哪一位既有信眾（候選人會顯示姓名、原家戶、比對依據）。
+ * 送出後寫進資料庫的既有 resolution* 欄位，重新整理不會消失。
+ */
+function MemberResolutionControls({
+  rowId,
+  member,
+  targetHouseholdLabel,
+  saving,
+  onSave,
+}: {
+  rowId: string;
+  member: PlannedMember;
+  targetHouseholdLabel: string;
+  saving: boolean;
+  onSave: (
+    rowId: string,
+    memberName: string,
+    decision: "KEEP_ORIGINAL" | "TRANSFER_IN" | "CREATE_NEW" | "SKIP",
+    memberId?: string | null
+  ) => void;
+}) {
+  const [picked, setPicked] = useState<string>(member.candidates[0]?.memberId ?? "");
+  const decided = member.resolution?.decision ?? null;
+
+  const DECISION_LABEL: Record<string, string> = {
+    KEEP_ORIGINAL: "保留原家戶，不移動",
+    TRANSFER_IN: `轉入目前家戶 ${targetHouseholdLabel}`,
+    CREATE_NEW: "建立為新信眾",
+    SKIP: "略過此人",
+  };
+
+  if (decided) {
+    return (
+      <div className="mt-1 rounded-lg bg-sage-50 px-3 py-2">
+        <p className="text-xs text-ink">
+          ✓ 已確認：{DECISION_LABEL[decided]}
+          {member.resolution?.memberId && (
+            <span className="text-ink-faint">
+              　（
+              {member.candidates.find((c) => c.memberId === member.resolution?.memberId)?.householdName ?? "既有信眾"}
+              ）
+            </span>
+          )}
+        </p>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onSave(rowId, member.name, decided, member.resolution?.memberId ?? null)}
+          className="mt-1 min-h-11 text-xs text-ink-faint underline-offset-4 hover:text-ink hover:underline sm:min-h-0"
+        >
+          重新送出
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 flex flex-col gap-2 rounded-lg bg-white px-3 py-2">
+      <p className="text-ink-soft">{member.reason}</p>
+
+      {member.candidates.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-ink-faint">系統找到的既有信眾：</span>
+          {member.candidates.map((c) => (
+            <label key={c.memberId} className="flex min-h-11 items-start gap-2 sm:min-h-0">
+              <input
+                type="radio"
+                name={`cand-${rowId}-${member.name}`}
+                checked={picked === c.memberId}
+                onChange={() => setPicked(c.memberId)}
+                className="mt-1"
+              />
+              <span>
+                <span className="text-ink">{c.name}</span>
+                <span className="ml-1 text-ink-faint">
+                  {c.householdName}（{c.householdId}）
+                  {c.inOtherHousehold ? "・在其他家戶" : "・在本戶"}
+                </span>
+                <span className="block text-ink-faint">比對依據：{c.matchedFields.join("＋")}（{c.confidence}）</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
+        <button
+          type="button"
+          disabled={saving || !picked}
+          onClick={() => onSave(rowId, member.name, "KEEP_ORIGINAL", picked)}
+          className="min-h-11 rounded-full bg-cream-100 px-3 text-xs text-ink transition hover:bg-cream-200 disabled:opacity-40 sm:min-h-9"
+        >
+          ① 保留原家戶
+        </button>
+        <button
+          type="button"
+          disabled={saving || !picked}
+          onClick={() => onSave(rowId, member.name, "TRANSFER_IN", picked)}
+          className="min-h-11 rounded-full bg-mist-100 px-3 text-xs text-ink transition hover:bg-mist-200 disabled:opacity-40 sm:min-h-9"
+        >
+          ② 轉入目前家戶
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onSave(rowId, member.name, "CREATE_NEW")}
+          className="min-h-11 rounded-full bg-sage-100 px-3 text-xs text-ink transition hover:bg-sage-200 disabled:opacity-40 sm:min-h-9"
+        >
+          ③ 建立為新信眾
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onSave(rowId, member.name, "SKIP")}
+          className="min-h-11 rounded-full bg-cream-200 px-3 text-xs text-ink-soft transition hover:bg-cream-300 disabled:opacity-40 sm:min-h-9"
+        >
+          ④ 略過此人
+        </button>
+      </div>
+      {saving && <span className="text-ink-faint">儲存中…</span>}
+    </div>
+  );
+}
+
+/** V12.6 驗收修正：可點擊的分類籌碼。 */
+function FilterPill({
+  k,
+  count,
+  label,
+  active,
+  onPick,
+  tone,
+}: {
+  k: FilterKey;
+  count: number;
+  label?: string;
+  active: FilterKey;
+  onPick: (k: FilterKey) => void;
+  tone?: "sage" | "yolk" | "blossom" | "mist" | "cream";
+}) {
+  const isActive = active === k;
+  const toneClass =
+    tone === "sage"
+      ? "bg-sage-100"
+      : tone === "yolk"
+        ? "bg-yolk-100"
+        : tone === "blossom"
+          ? "bg-blossom-100"
+          : tone === "mist"
+            ? "bg-mist-100"
+            : "bg-cream-100";
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(k)}
+      className={`min-h-11 rounded-full px-3 py-1.5 text-left text-xs transition sm:min-h-0 ${toneClass} ${
+        isActive ? "ring-2 ring-ink-soft text-ink" : "text-ink-soft hover:text-ink"
+      }`}
+    >
+      <span className="block">{label ?? FILTER_LABEL[k]}</span>
+      <span className="block text-sm text-ink">{count}</span>
+    </button>
   );
 }
 

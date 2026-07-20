@@ -20,6 +20,7 @@ import {
   type MatchConfidence,
 } from "@/lib/devoteeImportMemberMatch";
 import { setPrimaryContact } from "@/lib/householdPrimaryContact";
+import { syncMemberHouseholdReferences, describeSyncCounts } from "@/lib/householdReferenceSync";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——批次分析／查詢／確認匯入（依正式
@@ -212,6 +213,33 @@ export type RowPlan = {
   overwriteBlanks?: boolean;
 };
 
+/**
+ * V12.6 驗收修正：使用者對「需人工確認」成員做出的決定。
+ *
+ * ⚠️ 為什麼存在 plan（rawData Json）裡而不是只用 ImportRow 的三個
+ * resolution 欄位：ImportRow 的 resolutionDecision／resolutionMemberId 是
+ * **一列一個**，但正式七欄一列＝一戶、一戶可能有多位成員各自需要決定
+ * （例如三位同名成員分屬不同情況）。所以逐成員的決定存在這裡，同時把
+ * 「這一列的代表性決定」鏡射到既有的 ImportRow.resolutionDecision／
+ * resolutionHouseholdId／resolutionMemberId 三個欄位（指令二要求寫入既有
+ * 欄位），兩邊都有，不需要任何 migration。
+ */
+export type MemberResolution = {
+  /**
+   * KEEP_ORIGINAL  保留原家戶，不移動（不建立、不搬動）
+   * TRANSFER_IN    轉入目前家戶（把既有成員搬過來）
+   * CREATE_NEW     建立為新信眾（視為不同人）
+   * SKIP           略過此人
+   */
+  decision: "KEEP_ORIGINAL" | "TRANSFER_IN" | "CREATE_NEW" | "SKIP";
+  /** KEEP_ORIGINAL／TRANSFER_IN 時，使用者選定的既有成員 */
+  memberId: string | null;
+  /** 該成員原本所屬家戶（供紀錄與 ImportRow.resolutionHouseholdId 鏡射） */
+  householdId: string | null;
+  decidedAt: string;
+  decidedByName: string | null;
+};
+
 export type PlannedMember = {
   name: string;
   action: "CREATE" | "UPDATE" | "REVIEW" | "SKIP";
@@ -220,6 +248,8 @@ export type PlannedMember = {
   candidates: MemberMatchCandidate[];
   /** 來自個人 Excel 的補充欄位（沒有個人檔時為 null） */
   personData: IncomingMember | null;
+  /** V12.6 驗收修正：人工決定（尚未決定時為 null） */
+  resolution?: MemberResolution | null;
 };
 
 export type AnalyzedDevoteeRow = {
@@ -462,11 +492,32 @@ export async function analyzeDevoteeImport(
     const codeCheck = inspectHouseholdCode(normalized.household.code || "");
     const plan = buildRowPlan(normalized, codeCheck.errors[0] ?? null);
 
+    /**
+     * V12.6 驗收修正：必填缺漏的判定要看「這一戶是新增還是更新」。
+     *
+     * devoteeImportValidate.ts 是純函式、不查資料庫，所以它把「戶名」與
+     * 「家戶成員」空白一律當成必填缺漏。但對**已存在的家戶**來說，這兩欄
+     * 空白的正確語意是「這次不異動」，跟主要聯絡人／地址空白完全一樣——
+     * 依指令二「空白欄位不可覆蓋既有有效資料」，本來就該保留既有值，
+     * 不應該被歸類成阻擋匯入的必填缺漏。
+     *
+     * 因此這裡在知道「有沒有對應到既有家戶」之後重新判定：
+     *   家戶編號空白 → 永遠阻擋（沒有編號就無法識別要更新哪一戶）
+     *   戶名／家戶成員空白 → 只有「新增家戶」時才阻擋；更新既有家戶時
+     *                        降級為提醒，並保留既有資料
+     */
+    const isUpdatingExisting = plan.householdAction === "UPDATE";
+    const blockingMissing = normalized.missingFieldErrors.filter((e) => {
+      if (e.includes("家戶編號")) return true;
+      return !isUpdatingExisting;
+    });
+    const downgradedMissing = normalized.missingFieldErrors.filter((e) => !blockingMissing.includes(e));
+
     // V12.6 指令六：狀態分類。優先序＝格式錯誤 > 必填缺漏 > 疑似重複 > 可匯入。
     let status: ImportRowStatus;
     if (codeCheck.errors.length > 0 || normalized.formatErrors.length > 0) {
       status = "FORMAT_ERROR";
-    } else if (normalized.missingFieldErrors.length > 0) {
+    } else if (blockingMissing.length > 0) {
       status = "INCOMPLETE_DATA";
     } else if (plan.members.some((m) => m.action === "REVIEW")) {
       // 有成員需要人工判斷（同名但證據不足、或已在別戶）→ 疑似重複，
@@ -494,10 +545,15 @@ export async function analyzeDevoteeImport(
       memberName: normalized.household.name || null,
       rawData: serializeRowForStorage(normalized, plan) as unknown as Prisma.InputJsonValue,
       status,
-      errors: [...normalized.missingFieldErrors, ...normalized.formatErrors, ...codeCheck.errors],
+      // 只有真正阻擋匯入的才放進 errors；被降級的空白欄位改放 warnings，
+      // 讓畫面不會把「保留既有資料」誤顯示成錯誤。
+      errors: [...blockingMissing, ...normalized.formatErrors, ...codeCheck.errors],
       warnings: [
         ...normalized.warnings,
         ...codeCheck.warnings,
+        ...downgradedMissing.map(
+          (e) => `${e.replace("缺少必填欄位", "Excel 未填")}——這一戶已存在，將保留系統既有資料，不影響匯入。`
+        ),
         ...memberWarnings,
         ...conflictWarnings,
         ...keptWarnings,
@@ -617,6 +673,8 @@ export type CommitPreviewResult =
       newAncestorCount: number;
       newSpiritCount: number;
       skippedCount: number; // 資料不完整／格式錯誤，這次不會處理的列數
+      /** V12.6 驗收修正：尚未完成人工確認的成員數，>0 時畫面必須停用正式匯入 */
+      pendingResolutions: number;
       overCap: boolean;
       capMessage: string | null;
     }
@@ -688,6 +746,7 @@ export async function getCommitPreview(batchId: string): Promise<CommitPreviewRe
     newAncestorCount,
     newSpiritCount,
     skippedCount: view.summary.incompleteData + view.summary.formatError,
+    pendingResolutions: await countPendingResolutions(batchId),
     overCap,
     capMessage: overCap
       ? `目前單次最多處理${MAX_TEST_IMPORT_HOUSEHOLDS}戶或${MAX_TEST_IMPORT_MEMBERS}位家戶成員，請縮小範圍分批匯入。`
@@ -723,6 +782,21 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
 
   const view = await getDevoteeImportBatch(batchId);
   if (!view) return { ok: false, status: 404, error: "找不到這個匯入批次" };
+  /**
+   * V12.6 驗收修正（指令四）：還有未完成的人工確認時，一律不允許正式匯入。
+   *
+   * 這是後端的硬性把關，不只靠前端停用按鈕——否則有人直接打 API 就會把
+   * 「疑似重複」的列略過寫入，等於繞過人工確認。
+   */
+  const pendingResolutions = await countPendingResolutions(batchId);
+  if (pendingResolutions > 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: `還有 ${pendingResolutions} 位成員的疑似重複尚未確認處理方式，請先在預檢畫面逐一確認後再執行正式匯入。`,
+    };
+  }
+
   const readyRows = view.rows.filter((r) => r.status === "READY_TO_IMPORT");
   if (readyRows.length === 0) return { ok: false, status: 400, error: "這個批次目前沒有可以匯入的家戶資料" };
 
@@ -863,7 +937,62 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
         const plannedMembers = r.plan?.members;
         if (plannedMembers?.length) {
           for (const pm of plannedMembers) {
-            if (pm.action === "SKIP" || pm.action === "REVIEW") continue;
+            if (pm.action === "SKIP") continue;
+
+            /**
+             * V12.6 驗收修正：commit 必須依人工決定執行，不可忽略。
+             *
+             * action === "REVIEW" 的成員一定要有 resolution 才會走到這裡
+             * （沒有決定的列狀態仍是 SUSPECTED_DUPLICATE，不會進 readyRows）。
+             * 這裡把四種決定映射成實際動作：
+             *
+             *   KEEP_ORIGINAL 保留原家戶 → 什麼都不做（不建立、不搬動）
+             *   SKIP          略過此人   → 什麼都不做
+             *   TRANSFER_IN   轉入本戶   → 搬動既有成員，並呼叫既有的
+             *                              syncMemberHouseholdReferences()
+             *                              同步六張去正規化表（V12.3 服務，
+             *                              不複製邏輯）
+             *   CREATE_NEW    建立新信眾 → 當成全新成員新增
+             */
+            if (pm.action === "REVIEW") {
+              const res = pm.resolution;
+              if (!res) continue; // 防呆：理論上不會發生
+
+              if (res.decision === "KEEP_ORIGINAL" || res.decision === "SKIP") {
+                continue;
+              }
+
+              if (res.decision === "TRANSFER_IN" && res.memberId) {
+                const moving = await tx.member.findUnique({ where: { id: res.memberId } });
+                if (!moving || moving.deletedAt) continue;
+                if (moving.householdId === household.id) continue; // 已經在本戶
+
+                const before = moving;
+                const after = await tx.member.update({
+                  where: { id: res.memberId },
+                  data: { householdId: household.id },
+                });
+                // ⚠️ 成員換戶了，六張同時存 memberId 與 householdId 的表必須
+                // 一起同步，否則收款／收據／供品會留在舊戶（V12.3 指令一.A）。
+                const syncCounts = await syncMemberHouseholdReferences(tx, [res.memberId], household.id);
+                await recordVersion(
+                  {
+                    entityType: "Member",
+                    entityId: res.memberId,
+                    action: "UPDATE",
+                    beforeData: before,
+                    afterData: after,
+                    operatorName,
+                    changeNote: `信眾資料匯入預檢中心：依人工確認，由家戶 ${before.householdId} 轉入 ${household.id}｜同步關聯紀錄：${describeSyncCounts(syncCounts)}`,
+                  },
+                  tx
+                );
+                membersUpdated++;
+                continue;
+              }
+
+              // CREATE_NEW：往下走一般新增流程
+            }
 
             if (pm.action === "CREATE") {
               const created = await tx.member.create({
@@ -1091,6 +1220,104 @@ export async function commitDevoteeImport(batchId: string, operatorName?: string
     failures,
     committedAt: committedBatch?.committedAt ?? new Date(),
   };
+}
+
+// ============================================================
+// 六之二、人工確認（V12.6 驗收修正）
+// ============================================================
+
+/**
+ * 儲存某一列裡某位成員的人工決定。
+ *
+ * 使用既有的 ImportRow.rawData（plan）與既有的 resolution* 三個欄位，
+ * **沒有新增任何 Prisma 欄位或資料表**。決定存進資料庫後重新整理不會消失。
+ *
+ * 一列所有需要確認的成員都決定完之後，這一列的狀態會從
+ * SUSPECTED_DUPLICATE 自動變回 READY_TO_IMPORT，才會被 commit 收進去。
+ */
+export async function saveMemberResolution(params: {
+  batchId: string;
+  rowId: string;
+  memberName: string;
+  decision: MemberResolution["decision"];
+  memberId?: string | null;
+  operatorName?: string | null;
+}): Promise<{ ok: true; status: ImportRowStatus; pendingCount: number } | { ok: false; error: string }> {
+  const { batchId, rowId, memberName, decision, memberId, operatorName } = params;
+
+  const row = await prisma.importRow.findFirst({
+    where: { id: rowId, batchId },
+    include: { batch: { select: { importKind: true, status: true } } },
+  });
+  if (!row) return { ok: false, error: "找不到這一列匯入資料" };
+  if (row.batch.importKind !== DEVOTEE_IMPORT_KIND) return { ok: false, error: "這個批次不是信眾匯入預檢批次" };
+  if (row.batch.status === "COMMITTED") return { ok: false, error: "這個批次已經確認匯入，不能再修改人工決定" };
+
+  const stored = row.rawData as unknown as StoredRowPayload;
+  const plan = stored.plan;
+  if (!plan) return { ok: false, error: "這一列沒有預檢計畫，請重新上傳分析" };
+
+  const target = plan.members.find((m) => m.name === memberName);
+  if (!target) return { ok: false, error: `這一列沒有成員「${memberName}」` };
+  if (target.action !== "REVIEW") return { ok: false, error: `成員「${memberName}」不需要人工確認` };
+
+  // KEEP_ORIGINAL／TRANSFER_IN 必須指定是哪一位既有成員。
+  if ((decision === "KEEP_ORIGINAL" || decision === "TRANSFER_IN") && !memberId) {
+    return { ok: false, error: "請先選擇對應的既有信眾" };
+  }
+  const candidate = memberId ? target.candidates.find((c) => c.memberId === memberId) : null;
+  if (memberId && !candidate) return { ok: false, error: "選擇的信眾不在這一位的候選清單內" };
+
+  target.resolution = {
+    decision,
+    memberId: memberId ?? null,
+    householdId: candidate?.householdId ?? null,
+    decidedAt: new Date().toISOString(),
+    decidedByName: operatorName ?? null,
+  };
+
+  // 這一列還有幾位待決定
+  const pending = plan.members.filter((m) => m.action === "REVIEW" && !m.resolution).length;
+  const nextStatus: ImportRowStatus = pending === 0 ? "READY_TO_IMPORT" : "SUSPECTED_DUPLICATE";
+
+  // 鏡射到既有的 ImportRow.resolution* 三個欄位（取這一列最後一個決定當代表）
+  const decisionMap: Record<MemberResolution["decision"], "CONFIRMED_DUPLICATE" | "CONFIRMED_NOT_DUPLICATE" | "ASSIGN_HOUSEHOLD" | "SKIP"> = {
+    KEEP_ORIGINAL: "CONFIRMED_DUPLICATE",
+    TRANSFER_IN: "ASSIGN_HOUSEHOLD",
+    CREATE_NEW: "CONFIRMED_NOT_DUPLICATE",
+    SKIP: "SKIP",
+  };
+
+  await prisma.importRow.update({
+    where: { id: rowId },
+    data: {
+      rawData: stored as unknown as Prisma.InputJsonValue,
+      status: nextStatus,
+      resolutionDecision: decisionMap[decision],
+      resolutionMemberId: memberId ?? null,
+      resolutionHouseholdId: candidate?.householdId ?? null,
+      resolutionNote: `成員「${memberName}」：${decision}`,
+      resolvedAt: new Date(),
+      resolvedByName: operatorName ?? null,
+    },
+  });
+
+  return { ok: true, status: nextStatus, pendingCount: pending };
+}
+
+/** 整個批次還有幾位成員等待人工確認（供畫面停用「正式匯入」按鈕）。 */
+export async function countPendingResolutions(batchId: string): Promise<number> {
+  const rows = await prisma.importRow.findMany({
+    where: { batchId, status: "SUSPECTED_DUPLICATE" },
+    select: { rawData: true },
+  });
+  let pending = 0;
+  for (const r of rows) {
+    const plan = (r.rawData as unknown as StoredRowPayload).plan;
+    if (!plan) continue;
+    pending += plan.members.filter((m) => m.action === "REVIEW" && !m.resolution).length;
+  }
+  return pending;
 }
 
 // ============================================================
