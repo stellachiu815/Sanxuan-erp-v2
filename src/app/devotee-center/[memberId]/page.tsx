@@ -12,6 +12,12 @@ import ChangeHouseholdModal from "@/components/devotee/ChangeHouseholdModal";
 import { checkDevoteeDataQuality, type QualityIssue } from "@/lib/devoteeDataQuality";
 import { DEVOTEE_INTERACTION_TYPE_LABEL } from "@/components/devotee/labels";
 import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOptions } from "@/lib/labels";
+// V13.2：性別選項與生日輸入都共用既有元件，不維護第二套。
+import { GENDER_OPTIONS } from "@/lib/genderNormalize";
+import BirthdayField, {
+  createEmptyBirthdayValue,
+  type BirthdayValue,
+} from "@/components/birthday/BirthdayField";
 
 type Overview = {
   basic: {
@@ -28,7 +34,11 @@ type Overview = {
     lunarBirthDay: number | null;
     lunarIsLeapMonth: boolean;
     birthHour: string | null;
+    // V13.1 生日／生肖模組：由 composeDevoteeSummary() 依生日即時計算，
+    // 資料庫不儲存。沒有有效生日資料時三者皆為 null。
     zodiac: string | null;
+    actualAge: number | null;
+    nominalAge: number | null;
     isDeceased: boolean;
     deceasedAt: string | null;
     memberNotes: string | null;
@@ -157,10 +167,50 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
             <p className="mt-1 text-sm text-ink-soft">
               {b.householdName}・{b.mobile || b.householdPhone || "無電話"}・{b.householdAddress || "無地址"}
             </p>
-            <p className="mt-1 text-xs text-ink-faint">
-              {b.solarBirthDate || b.lunarBirthDisplay || "無生日資料"}
-              {b.zodiac ? `・生肖 ${b.zodiac}` : ""}
-            </p>
+            {/*
+              V13.1 生日／生肖模組：性別、國曆、農曆、生肖、實歲、虛歲
+              **各自獨立一格**顯示。
+
+              舊寫法是 `{b.solarBirthDate || b.lunarBirthDisplay}` 後面接一段
+              `{b.zodiac ? \`・生肖 ${b.zodiac}\` : ""}`——短路運算讓兩種曆別
+              只會顯示其中一種，生肖則被擠在同一行末端、樣式極淡，實務上
+              等於看不見。這正是「生肖沒顯示」的原因。
+
+              ⚠️ 不會出現 Invalid Date / NaN：
+              這裡顯示的全部是 composeDevoteeSummary() already-formatted 的值
+              （solarBirthDate 是字串、lunarBirthDisplay 是字串、歲數是 number
+              或 null），畫面**不做任何 new Date() 或算術**。資料不足時
+              deriveBirthdayInfo() 整個回傳 null，五個欄位一律是 null，
+              不可能是 NaN。
+
+              版面用 flex-wrap + gap，手機與桌機都不會擠成一條過長文字。
+            */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-faint">
+              <span>
+                性別：<span className="text-ink-soft">{b.gender ?? "未填寫"}</span>
+              </span>
+              <span>
+                國曆：<span className="text-ink-soft">{b.solarBirthDate ?? "未填寫"}</span>
+              </span>
+              <span>
+                農曆：<span className="text-ink-soft">{b.lunarBirthDisplay ?? "未填寫"}</span>
+              </span>
+              <span>
+                生肖：<span className="text-ink-soft">{b.zodiac ?? "未填寫"}</span>
+              </span>
+              <span>
+                實歲：
+                <span className="text-ink-soft">
+                  {b.actualAge === null ? "未填寫" : `${b.actualAge} 歲`}
+                </span>
+              </span>
+              <span>
+                虛歲：
+                <span className="text-ink-soft">
+                  {b.nominalAge === null ? "未填寫" : `${b.nominalAge} 歲`}
+                </span>
+              </span>
+            </div>
             {/* V12.2「信眾建立與查詢中心」指令「六、信眾與家戶互相導覽」：
                 這一頁原本完全沒有連回所屬家戶的連結（頁面上有家戶資料但不能
                 點）。這裡補上明顯的入口，連到既有的 /household/[id]，不新增
@@ -491,7 +541,6 @@ function OverviewTab({
   );
 }
 
-type BirthdayMode = "none" | "solar" | "lunar";
 
 /**
  * V12「信眾資料中心正式建置」指令「四、信眾完整資料編輯頁」。
@@ -528,13 +577,46 @@ function BaseEditForm({
   const [notes, setNotes] = useState(basic.memberNotes ?? "");
   const [birthHour, setBirthHour] = useState(basic.birthHour ?? "");
 
-  const initialBirthdayMode: BirthdayMode = basic.solarBirthDate ? "solar" : basic.lunarBirthYear ? "lunar" : "none";
-  const [birthdayMode, setBirthdayMode] = useState<BirthdayMode>(initialBirthdayMode);
-  const [solarBirthDate, setSolarBirthDate] = useState(basic.solarBirthDate ?? "");
-  const [lunarBirthYear, setLunarBirthYear] = useState(basic.lunarBirthYear ? String(basic.lunarBirthYear) : "");
-  const [lunarBirthMonth, setLunarBirthMonth] = useState(basic.lunarBirthMonth ? String(basic.lunarBirthMonth) : "");
-  const [lunarBirthDay, setLunarBirthDay] = useState(basic.lunarBirthDay ? String(basic.lunarBirthDay) : "");
-  const [lunarIsLeapMonth, setLunarIsLeapMonth] = useState(basic.lunarIsLeapMonth);
+  /**
+   * V13.2 第五節：生日改用共用的 BirthdayField，不再維護第二套邏輯。
+   *
+   * ⚠️ 原始登記曆別的判定順序很重要：**先看農曆**。
+   *
+   * V13.1 起國曆與農曆兩者都會永久保存（由 resolveBirthdayFields 自動換算），
+   * 所以「有沒有 solarBirthDate」已經無法判斷當初是用哪一種登記的——兩者
+   * 一定都有值。舊寫法 `basic.solarBirthDate ? "solar" : ...` 會讓**所有**
+   * 農曆登記的信眾一開啟編輯頁就變成國曆模式，一存檔就把原本的農曆登記
+   * 誤存成國曆（V13.2 第五節明令禁止）。
+   *
+   * 判斷依據改為 lunarBirthYear：使用者當初若是用農曆登記，農曆年是他
+   * 親手輸入的原始值；國曆則是系統換算出來的。
+   */
+  const initialBirthday: BirthdayValue = basic.lunarBirthYear
+    ? {
+        birthdayType: "lunar",
+        solarBirthDate: basic.solarBirthDate ?? "",
+        lunarBirthYear: String(basic.lunarBirthYear),
+        lunarBirthMonth: basic.lunarBirthMonth ? String(basic.lunarBirthMonth) : "",
+        lunarBirthDay: basic.lunarBirthDay ? String(basic.lunarBirthDay) : "",
+        lunarIsLeapMonth: basic.lunarIsLeapMonth,
+      }
+    : basic.solarBirthDate
+      ? {
+          birthdayType: "solar",
+          solarBirthDate: basic.solarBirthDate,
+          lunarBirthYear: "",
+          lunarBirthMonth: "",
+          lunarBirthDay: "",
+          lunarIsLeapMonth: false,
+        }
+      : createEmptyBirthdayValue();
+
+  const [birthday, setBirthday] = useState<BirthdayValue>(initialBirthday);
+  const birthdayMode = birthday.birthdayType;
+  const solarBirthDate = birthday.solarBirthDate;
+  const lunarBirthYear = birthday.lunarBirthYear;
+  const lunarBirthMonth = birthday.lunarBirthMonth;
+  const lunarBirthDay = birthday.lunarBirthDay;
 
   const [householdName, setHouseholdName] = useState(household.name);
   const [contactName, setContactName] = useState(household.contactName ?? "");
@@ -637,7 +719,7 @@ function BaseEditForm({
         body.lunarBirthYear = Number(lunarBirthYear);
         body.lunarBirthMonth = Number(lunarBirthMonth);
         body.lunarBirthDay = Number(lunarBirthDay);
-        body.lunarIsLeapMonth = lunarIsLeapMonth;
+        body.lunarIsLeapMonth = birthday.lunarIsLeapMonth;
       }
 
       const res = await fetch(`/api/devotee-center/${memberId}/base`, {
@@ -665,7 +747,23 @@ function BaseEditForm({
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           性別
-          <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="男 / 女" className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
+          {/*
+            V13.2 第五節：性別改為下拉，不可自由輸入其他文字。
+            選項來自共用的 GENDER_OPTIONS，與新增信眾表單同一份定義。
+            後端 updateDevoteeBase() 也會用 normalizeGenderInput() 再驗一次，
+            即使前端被繞過也不會有奇怪的值進資料庫。
+          */}
+          <select
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+            className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+          >
+            {GENDER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint">
           與戶主關係
@@ -690,37 +788,13 @@ function BaseEditForm({
         </label>
       </div>
 
+      {/*
+        V13.2 第五節：生日編輯區沿用共用的 BirthdayField，與新增信眾
+        （CreateDevoteeModal／AddMemberModal）**同一個元件**，不維護第二套。
+        BirthdayField 本身會即時顯示國曆、農曆、生肖、實歲、虛歲。
+      */}
       <div id="field-birthday" className="mt-3 rounded-2xl transition">
-        <p className="text-xs text-ink-faint">出生年月日（國曆或農曆擇一登記）</p>
-        <div className="mt-1 flex flex-wrap gap-3 text-sm text-ink-soft">
-          <label className="flex items-center gap-1">
-            <input type="radio" checked={birthdayMode === "none"} onChange={() => setBirthdayMode("none")} /> 未填寫
-          </label>
-          <label className="flex items-center gap-1">
-            <input type="radio" checked={birthdayMode === "solar"} onChange={() => setBirthdayMode("solar")} /> 國曆
-          </label>
-          <label className="flex items-center gap-1">
-            <input type="radio" checked={birthdayMode === "lunar"} onChange={() => setBirthdayMode("lunar")} /> 農曆
-          </label>
-        </div>
-        {birthdayMode === "solar" && (
-          <input
-            type="date"
-            value={solarBirthDate}
-            onChange={(e) => setSolarBirthDate(e.target.value)}
-            className="mt-2 min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
-          />
-        )}
-        {birthdayMode === "lunar" && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input type="number" placeholder="年（西元）" value={lunarBirthYear} onChange={(e) => setLunarBirthYear(e.target.value)} className="min-h-11 w-28 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
-            <input type="number" placeholder="月" value={lunarBirthMonth} onChange={(e) => setLunarBirthMonth(e.target.value)} className="min-h-11 w-20 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
-            <input type="number" placeholder="日" value={lunarBirthDay} onChange={(e) => setLunarBirthDay(e.target.value)} className="min-h-11 w-20 min-w-0 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink" />
-            <label className="flex items-center gap-1 text-sm text-ink-soft">
-              <input type="checkbox" checked={lunarIsLeapMonth} onChange={(e) => setLunarIsLeapMonth(e.target.checked)} /> 閏月
-            </label>
-          </div>
-        )}
+        <BirthdayField value={birthday} onChange={setBirthday} />
       </div>
 
       <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
@@ -1294,7 +1368,18 @@ function AddHouseholdMemberForm({
     <div className="mt-3 rounded-2xl bg-cream-100 p-4">
       <div className="flex flex-wrap gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="姓名" className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
-        <input value={gender} onChange={(e) => setGender(e.target.value)} placeholder="性別（選填）" className="w-32 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm" />
+        {/* V13.2 第五節：性別一律下拉，不可自由輸入 */}
+        <select
+          value={gender}
+          onChange={(e) => setGender(e.target.value)}
+          className="w-32 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm"
+        >
+          {GENDER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm">
           {memberRoleOptions.map((o) => (
             <option key={o.value} value={o.value}>

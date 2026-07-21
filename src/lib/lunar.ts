@@ -79,11 +79,62 @@ export function getLeapMonthOfYear(year: number): number {
   return LunarYear.fromYear(year).getLeapMonth();
 }
 
-/** 生肖（以農曆年為準） */
+/**
+ * 十二生肖的**正式輸出字型**（繁體）。
+ *
+ * ⚠️ lunar-javascript 的 getYearShengXiao() 回傳的是**簡體**（马、龙、鸡、猪…）。
+ * 三玄宮所有畫面與列印都必須是繁體，所以在這裡做唯一一次正規化——
+ * 各畫面**不得**自行轉換，也不得只改測試的 expected 值。
+ *
+ * 索引依地支順序：子丑寅卯辰巳午未申酉戌亥
+ */
+const ZODIAC_TRADITIONAL = [
+  "鼠", "牛", "虎", "兔", "龍", "蛇",
+  "馬", "羊", "猴", "雞", "狗", "豬",
+] as const;
+
+/**
+ * 簡體 → 繁體對照。
+ *
+ * 這裡刻意保留「以 lunar-javascript 為曆法權威、只修正字型」的作法，
+ * 而不是完全改用 (year - 4) % 12 自行計算——農曆年的判定（尤其是接近
+ * 農曆年關的日期）以套件為準比較保險，我們只負責把字換成繁體。
+ *
+ * 若套件回傳了對照表以外的值（理論上不會發生），會退回依農曆年計算，
+ * 確保永遠輸出繁體，不會把簡體字漏出去。
+ */
+const ZODIAC_S2T: Record<string, string> = {
+  "鼠": "鼠", "牛": "牛", "虎": "虎", "兔": "兔",
+  "龙": "龍", "龍": "龍",
+  "蛇": "蛇",
+  "马": "馬", "馬": "馬",
+  "羊": "羊", "猴": "猴",
+  "鸡": "雞", "雞": "雞",
+  "狗": "狗",
+  "猪": "豬", "豬": "豬",
+};
+
+/**
+ * 生肖（以農曆年為準）。**一律回傳繁體**。
+ *
+ * 這是全專案唯一的生肖來源：信眾詳情頁、信眾名單、家戶頁、匯入驗證
+ * （importRules）、生日換算 API 全部經過這裡，不會有第二套字型。
+ */
 export function getZodiacByLunarYear(lunarYear: number): string {
-  const lunar = Lunar.fromYmd(lunarYear, 1, 1);
-  return lunar.getYearShengXiao();
+  if (!Number.isFinite(lunarYear)) {
+    // 不合理的年份不猜測；呼叫端會把整筆視為「未填寫」
+    return "";
+  }
+  const raw = Lunar.fromYmd(lunarYear, 1, 1).getYearShengXiao();
+  const mapped = ZODIAC_S2T[raw];
+  if (mapped) return mapped;
+  // 保險路徑：套件回傳了預期外的值，改依地支索引取繁體
+  const index = (((Math.trunc(lunarYear) - 4) % 12) + 12) % 12;
+  return ZODIAC_TRADITIONAL[index];
 }
+
+/** 十二生肖（繁體）完整清單，供選單／驗證使用。 */
+export const ZODIAC_LIST: readonly string[] = ZODIAC_TRADITIONAL;
 
 /**
  * 實歲（周歲）：以國曆生日計算，尚未過生日則少一歲。
@@ -111,32 +162,112 @@ export function getNominalAge(birthLunarYear: number, today: Date = new Date()):
   return currentLunar.getYear() - birthLunarYear + 1;
 }
 
-/** 綜合換算：只要有國曆或農曆其中一種生日資料，算出完整資訊 */
-export function deriveBirthdayInfo(fields: BirthdayFields): BirthdayInfo | null {
-  let solarDate: Date;
+/** 生日資料的合理年份範圍（超出視為資料異常，不換算）。 */
+const MIN_BIRTH_YEAR = 1800;
+const MAX_BIRTH_YEAR = 2200;
 
-  if (fields.solarBirthDate) {
-    solarDate = fields.solarBirthDate;
-  } else if (fields.lunarBirthYear && fields.lunarBirthMonth && fields.lunarBirthDay) {
-    solarDate = lunarToSolar(
-      fields.lunarBirthYear,
-      fields.lunarBirthMonth,
-      fields.lunarBirthDay,
-      !!fields.lunarIsLeapMonth
-    );
-  } else {
+/** 這個 Date 是否是可用來換算的有效日期。 */
+function isUsableDate(d: unknown): d is Date {
+  if (!(d instanceof Date)) return false;
+  if (Number.isNaN(d.getTime())) return false; // Invalid Date
+  const y = d.getUTCFullYear();
+  return Number.isFinite(y) && y >= MIN_BIRTH_YEAR && y <= MAX_BIRTH_YEAR;
+}
+
+/** 農曆年月日是否在合理範圍（農曆一個月最多 30 天）。 */
+function isUsableLunarYmd(y: unknown, m: unknown, d: unknown): boolean {
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return false;
+  const year = y as number;
+  const month = m as number;
+  const day = d as number;
+  if (year < MIN_BIRTH_YEAR || year > MAX_BIRTH_YEAR) return false;
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 30) return false;
+  return true;
+}
+
+/**
+ * 綜合換算：只要有國曆或農曆其中一種生日資料，算出完整資訊。
+ *
+ * ── 完整輸入防護（V13.1 生日／生肖模組）─────────────────────────
+ * 這支**絕不丟出例外，也絕不回傳含 NaN／Invalid Date 的物件**。
+ * 任何無法換算的情況一律回傳 null，由呼叫端顯示「未填寫」。
+ *
+ * 防護的四個層次：
+ *   1. 國曆：必須是有效 Date（擋掉 Invalid Date）且年份在合理範圍
+ *   2. 農曆：年月日必須是整數且在合理範圍（擋掉 month=13、day=99）
+ *   3. 換算過程：lunar-javascript 仍可能對邊界值丟例外，整段包 try/catch
+ *   4. 輸出前檢查：solarDate 有效、兩個歲數是有限數字、生肖非空
+ *
+ * ⚠️ 為什麼要在這裡防護，而不是只靠 safeDeriveBirthdayInfo()：
+ * 這支是 exported 的公開函式，任何呼叫端（含未來新增的）都可能直接用它。
+ * 把防護放在包裝層，等於要求每個呼叫端都記得用包裝版——遲早會漏。
+ * Prisma 的 lunarBirthMonth 是沒有值域限制的 `Int?`，早期匯入資料確實
+ * 可能有 13、99 這類值，漏一處就是整頁 500。
+ */
+export function deriveBirthdayInfo(fields: BirthdayFields): BirthdayInfo | null {
+  try {
+    let solarDate: Date;
+
+    if (fields.solarBirthDate !== null && fields.solarBirthDate !== undefined) {
+      // 層次 1：國曆必須是有效日期
+      if (!isUsableDate(fields.solarBirthDate)) return null;
+      // 正規化成 UTC 純日期，避免時區造成 off-by-one
+      solarDate = new Date(
+        Date.UTC(
+          fields.solarBirthDate.getUTCFullYear(),
+          fields.solarBirthDate.getUTCMonth(),
+          fields.solarBirthDate.getUTCDate()
+        )
+      );
+    } else if (
+      // 層次 2：農曆年月日必須完整且在合理範圍
+      isUsableLunarYmd(fields.lunarBirthYear, fields.lunarBirthMonth, fields.lunarBirthDay)
+    ) {
+      solarDate = lunarToSolar(
+        fields.lunarBirthYear as number,
+        fields.lunarBirthMonth as number,
+        fields.lunarBirthDay as number,
+        !!fields.lunarIsLeapMonth
+      );
+      if (!isUsableDate(solarDate)) return null;
+    } else {
+      return null;
+    }
+
+    const lunar = solarToLunar(solarDate);
+    if (!Number.isFinite(lunar.year)) return null;
+
+    const zodiac = getZodiacByLunarYear(lunar.year);
+    const actualAge = getActualAge(solarDate);
+    const nominalAge = getNominalAge(lunar.year);
+
+    // 層次 4：輸出前最後檢查，確保絕不把壞值交給呼叫端
+    if (!Number.isFinite(actualAge) || !Number.isFinite(nominalAge)) return null;
+    if (typeof zodiac !== "string" || zodiac === "") return null;
+
+    return { solarDate, lunar, zodiac, actualAge, nominalAge };
+  } catch {
+    // 層次 3：lunar-javascript 對邊界值丟出的任何例外
     return null;
   }
+}
 
-  const lunar = solarToLunar(solarDate);
-
-  return {
-    solarDate,
-    lunar,
-    zodiac: getZodiacByLunarYear(lunar.year),
-    actualAge: getActualAge(solarDate),
-    nominalAge: getNominalAge(lunar.year),
-  };
+/**
+ * @deprecated 直接用 deriveBirthdayInfo() 即可。
+ *
+ * V13.1 生日／生肖模組初版時，防護寫在這個包裝函式裡，deriveBirthdayInfo()
+ * 本身仍會對異常資料丟例外。那個設計有個明顯缺陷：**任何忘記用包裝版的
+ * 呼叫端都會踩雷**，而 deriveBirthdayInfo() 是 exported 的公開函式。
+ *
+ * 現在防護已經完整內建在 deriveBirthdayInfo() 內部，這支只是**薄轉接**，
+ * 不含任何額外邏輯——刻意不重複做檢查，避免形成兩套判斷標準。
+ *
+ * 保留這個名稱是為了不動既有呼叫端（devoteeProfile.ts / household.ts）；
+ * 之後可以安全地把呼叫端改回 deriveBirthdayInfo() 並移除這支。
+ */
+export function safeDeriveBirthdayInfo(fields: BirthdayFields): BirthdayInfo | null {
+  return deriveBirthdayInfo(fields);
 }
 
 /** 格式化農曆日期成中文字串，例如「農曆 1990 年 三月 初五（閏）」 */

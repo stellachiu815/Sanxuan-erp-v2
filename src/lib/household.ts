@@ -1,6 +1,6 @@
 import type { ActivityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { deriveBirthdayInfo, formatLunarDate, formatSolarDate } from "@/lib/lunar";
+import { safeDeriveBirthdayInfo, formatLunarDate, formatSolarDate } from "@/lib/lunar";
 
 export type MemberRoleValue =
   | "HOUSEHOLD_HEAD"
@@ -112,7 +112,9 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
   const sourceNameById = new Map(mergedSources.map((h) => [h.id, h.name]));
 
   const members: MemberView[] = household.members.map((m) => {
-    const birthday = deriveBirthdayInfo({
+    // V13.1：改用防護版——單筆資料異常時該筆顯示「未填寫」，
+  // 不會讓整個頁面 500（lunarBirthMonth 是無值域限制的 Int?）。
+  const birthday = safeDeriveBirthdayInfo({
       solarBirthDate: m.solarBirthDate,
       lunarBirthYear: m.lunarBirthYear,
       lunarBirthMonth: m.lunarBirthMonth,

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
-import { deriveBirthdayInfo, formatLunarDate } from "@/lib/lunar";
+import { safeDeriveBirthdayInfo, formatLunarDate } from "@/lib/lunar";
 import type { Member, DevoteeProfile } from "@prisma/client";
 
 /**
@@ -34,7 +34,29 @@ export type DevoteeSummary = {
   lunarBirthDay: number | null;
   lunarIsLeapMonth: boolean; // V12 新增：是否閏月（欄位層級原始值，供編輯表單使用）
   birthHour: string | null; // V12 新增：出生時辰（BirthHour enum 值，例如 "ZI"）
+
+  // ────────────────────────────────────────────────────────────
+  // V13.1 生日／生肖模組：以下三欄全部由 deriveBirthdayInfo() 依生日
+  // **即時計算**，資料庫不儲存（也不該儲存——生肖與生日綁定不會變，
+  // 但歲數每年都會變，存進資料庫必然過期）。
+  //
+  // 沒有任何有效生日資料時三者皆為 null，畫面顯示「未填寫」。
+  // 絕不會是 NaN——deriveBirthdayInfo() 在資料不足時整個回傳 null，
+  // 不會回傳一個帶有 NaN 欄位的物件。
+  // ────────────────────────────────────────────────────────────
+
+  /** 生肖，例如「馬」。依農曆年計算 */
   zodiac: string | null;
+  /** 實歲（周歲）：依國曆生日與**今天**計算，尚未過生日則少一歲 */
+  actualAge: number | null;
+  /**
+   * 虛歲：目前農曆年 − 出生農曆年 + 1。
+   *
+   * ⚠️ 這是三玄宮 ERP 既有的農曆邏輯（src/lib/lunar.ts 的 getNominalAge），
+   * **不是「實歲加一」**。農曆正月初一一過，換算出的農曆年就變成新的一年，
+   * 虛歲自動加一；國曆生日還沒到的人，實歲與虛歲會差兩歲而不是一歲。
+   */
+  nominalAge: number | null;
   isDeceased: boolean;
   deceasedAt: string | null;
   memberNotes: string | null;
@@ -75,7 +97,9 @@ export function composeDevoteeSummary(
     devoteeProfile: DevoteeProfile | null;
   }
 ): DevoteeSummary {
-  const birthday = deriveBirthdayInfo({
+  // V13.1：改用防護版——單筆資料異常時該筆顯示「未填寫」，
+  // 不會讓整個頁面 500（lunarBirthMonth 是無值域限制的 Int?）。
+  const birthday = safeDeriveBirthdayInfo({
     solarBirthDate: member.solarBirthDate,
     lunarBirthYear: member.lunarBirthYear,
     lunarBirthMonth: member.lunarBirthMonth,
@@ -103,7 +127,11 @@ export function composeDevoteeSummary(
     lunarBirthDay: member.lunarBirthDay ?? (birthday ? birthday.lunar.day : null),
     lunarIsLeapMonth: member.lunarIsLeapMonth,
     birthHour: member.birthHour ?? null,
+    // V13.1：三者共用同一個 birthday 物件（deriveBirthdayInfo 的結果），
+    // 不各自重算，也不新增第二套計算方式。
     zodiac: birthday?.zodiac ?? null,
+    actualAge: birthday?.actualAge ?? null,
+    nominalAge: birthday?.nominalAge ?? null,
     isDeceased: member.isDeceased,
     deceasedAt: member.deceasedAt ? member.deceasedAt.toISOString().slice(0, 10) : null,
     memberNotes: member.notes,

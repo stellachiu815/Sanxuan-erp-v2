@@ -60,6 +60,8 @@ type PlannedMember = {
   reason: string;
   candidates: MatchCandidate[];
   personData: unknown | null;
+  /** V13.2：性別衝突說明（既有值與 Excel 不同）。null 代表無衝突 */
+  genderConflict?: string | null;
   resolution?: {
     decision: "KEEP_ORIGINAL" | "TRANSFER_IN" | "CREATE_NEW" | "SKIP";
     memberId: string | null;
@@ -862,6 +864,16 @@ export default function DevoteeImportWizard() {
                                     ? "已存在，略過"
                                     : "需人工確認"}
                             </span>
+                            {/*
+                              V13.2 第三節之 3：性別衝突提示。
+                              匯入不會覆蓋既有性別，這裡明確告知使用者，
+                              要改成 Excel 的值需匯入後手動修改。
+                            */}
+                            {m.genderConflict && (
+                              <p className="mt-1 rounded-lg bg-yolk-100 px-3 py-2 text-[11px] leading-relaxed text-ink">
+                                {m.genderConflict}
+                              </p>
+                            )}
                             {m.action === "REVIEW" && (
                               <MemberResolutionControls
                                 rowId={r.id}
