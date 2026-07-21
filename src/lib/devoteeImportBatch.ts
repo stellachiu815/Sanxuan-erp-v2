@@ -1,5 +1,6 @@
 import { Prisma, type ImportRowStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isGenderConflict } from "@/lib/genderNormalize";
 import { recordVersion } from "@/lib/recordVersion";
 import {
   normalizeAndValidateDevoteeRow,
@@ -310,6 +311,12 @@ export type PlannedMember = {
   personData: IncomingMember | null;
   /** V12.6 驗收修正：人工決定（尚未決定時為 null） */
   resolution?: MemberResolution | null;
+  /**
+   * V13.2：性別衝突說明。
+   * null 代表沒有衝突（含「任一邊沒有性別資料」的情況）。
+   * 有值時會顯示在預檢畫面，匯入本身不會被阻擋，既有值也不會被覆蓋。
+   */
+  genderConflict?: string | null;
 };
 
 export type AnalyzedDevoteeRow = {
@@ -460,6 +467,8 @@ export async function analyzeDevoteeImport(
           id: true,
           name: true,
           householdId: true,
+          // V13.2：既有性別，供預檢偵測衝突
+          gender: true,
           solarBirthDate: true,
           lunarBirthYear: true,
           lunarBirthMonth: true,
@@ -474,6 +483,7 @@ export async function analyzeDevoteeImport(
     id: m.id,
     name: m.name,
     householdId: m.householdId,
+    gender: m.gender,
     householdName: m.household.name,
     mobile: m.devoteeProfile?.mobile ?? null,
     householdPhone: m.household.phone,
@@ -536,6 +546,14 @@ export async function analyzeDevoteeImport(
         lunarBirthDay: person?.lunarBirthDay ?? null,
         lunarIsLeapMonth: person?.lunarIsLeapMonth ?? false,
         address: person?.address ?? normalized.household.address,
+        /**
+         * V13.2：性別。唯一來源是個人資料工作表。
+         *
+         * 家戶 Excel 七欄沒有性別欄位——**這不代表要把性別清空**。
+         * 沒有個人檔時為 null，代表「這次匯入沒有帶性別資料」，
+         * 下游的更新邏輯會據此保留資料庫既有值（見 commit 階段）。
+         */
+        gender: person?.gender ?? null,
         // V13.1 指令一：身分證。空白保持 null，不由家戶或其他列推測。
         nationalId: person?.nationalId ?? null,
         // 一般家戶成員沒有牌位地址；牌位地址只在歷代祖先／乙位正魂使用
@@ -551,6 +569,24 @@ export async function analyzeDevoteeImport(
               ? "UPDATE" // 有個人資料可以補進既有成員
               : "SKIP"
             : "REVIEW";
+      /**
+       * V13.2 第三節之 3：性別衝突偵測。
+       *
+       * 只有「資料庫既有性別」與「Excel 性別」兩者都有值且不同時才是衝突。
+       * 任一邊為空都不算——空白代表「沒有這項資料」，不是「與對方不同」。
+       *
+       * 衝突時**不靜默覆蓋**：commit 階段會保留既有值，這裡產生的提醒
+       * 會顯示在預檢畫面，由使用者決定要不要人工改成新值。
+       */
+      const matchedExisting = result.candidates[0]?.memberId
+        ? existingMembers.find((m) => m.id === result.candidates[0].memberId) ?? null
+        : null;
+      const genderConflict =
+        matchedExisting && isGenderConflict(matchedExisting.gender, incoming.gender)
+          ? `「${name}」的性別在系統中是「${matchedExisting.gender}」，Excel 是「${incoming.gender}」。` +
+            `匯入不會覆蓋既有資料，若要改成 Excel 的值請於匯入後手動修改。`
+          : null;
+
       return {
         name,
         action,
@@ -558,6 +594,7 @@ export async function analyzeDevoteeImport(
         reason: result.reason,
         candidates: result.candidates,
         personData: person ? incoming : null,
+        genderConflict,
       };
     });
 
@@ -1242,6 +1279,11 @@ export async function commitDevoteeImport(
                   ...(toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)
                     ? { solarBirthDate: toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)! }
                     : {}),
+                  /**
+                   * V13.2：性別。個人資料工作表有值就寫入，沒有就維持 null。
+                   * 絕不從身分證推導。
+                   */
+                  ...(pm.personData?.gender ? { gender: pm.personData.gender } : {}),
                   // V13.1 指令一：身分證。空白時整個欄位不寫入（維持 null），
                   // 不會塞入空字串。
                   ...(pm.personData?.nationalId ? { nationalId: pm.personData.nationalId } : {}),
@@ -1308,6 +1350,21 @@ export async function commitDevoteeImport(
              */
             if (!existing.nationalId && pm.personData.nationalId) {
               patch.nationalId = pm.personData.nationalId;
+            }
+            /**
+             * V13.2 第三節：性別的三種情況。
+             *
+             *   1. Excel 沒有性別       → 完全不動（家戶 Excel 沒這欄不代表要清空）
+             *   2. 既有為空、Excel 有值 → 補入
+             *   3. 兩邊都有且不同        → **不靜默覆蓋**，保留舊值，
+             *                             衝突已在預檢階段標示由使用者確認
+             *
+             * 第 3 點是關鍵：這裡刻意選擇「保留舊值」而不是「採用新值」。
+             * 資料庫既有值是行政人員實際確認過的資料，Excel 可能是舊檔或
+             * 有打字錯誤；預設保留既有值，要改必須由使用者在預檢明確決定。
+             */
+            if (!existing.gender && pm.personData.gender) {
+              patch.gender = pm.personData.gender;
             }
             if (Object.keys(patch).length > 0) {
               const after = await tx.member.update({ where: { id: targetId }, data: patch });

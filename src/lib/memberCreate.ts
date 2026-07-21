@@ -5,6 +5,7 @@ import { memberRoleLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
 import { resolveBirthdayFields } from "@/lib/birthdaySync";
 import { normalizeNationalId, validateNationalId } from "@/lib/nationalId";
+import { normalizeGenderInput } from "@/lib/genderNormalize";
 import { HouseholdManagementError } from "@/lib/householdManagement";
 import { findPreCreateDuplicates } from "@/lib/devoteeDuplicates";
 
@@ -93,7 +94,14 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
   const role = typeof input.role === "string" ? input.role : "OTHER";
   if (!(role in memberRoleLabel)) throw new HouseholdManagementError("身份選項不正確");
 
-  const gender = typeof input.gender === "string" && input.gender ? input.gender : null;
+  /**
+   * V13.2：性別一律經過共用正規化，資料庫裡只會有「男」「女」或 null。
+   * 無法辨識時直接報錯，不寫入任意文字（V13.2 第二、五節）。
+   * ⚠️ 絕不從身分證推導。
+   */
+  const genderResult = normalizeGenderInput(input.gender);
+  if (!genderResult.ok) throw new HouseholdManagementError(genderResult.reason);
+  const gender = genderResult.value;
   const notes = typeof input.notes === "string" && input.notes.trim() ? input.notes.trim() : null;
   const mobile = typeof input.mobile === "string" && input.mobile.trim() ? input.mobile.trim() : null;
   const email = typeof input.email === "string" && input.email.trim() ? input.email.trim() : null;

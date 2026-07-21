@@ -1,6 +1,7 @@
 import { normalizeName, toNullableText, toHalfWidthDigits, toSafeCalendarDate } from "@/lib/devoteeImportNormalize";
 import { normalizeNationalId } from "@/lib/nationalId";
 import { parseFlexibleDate } from "@/lib/minguoDate";
+import { normalizeGenderInput } from "@/lib/genderNormalize";
 
 /**
  * V12.6「Excel 匯入中心正式版」指令四：個人資料 Excel。
@@ -45,6 +46,15 @@ export type PersonSheetRow = {
   /** 有填時用來精準對應家戶；沒填則只靠姓名對應 */
   householdCode: string | null;
   name: string;
+  /**
+   * V13.2：性別。**已正規化**為「男」／「女」／null。
+   *
+   * 無法辨識的值不會寫進這裡（會留 null），而是記在 formatErrors 進入
+   * 人工確認清單——絕不猜測、絕不寫入任意文字。
+   *
+   * ⚠️ 性別的唯一來源是個人資料工作表的「性別」欄位。
+   * 不從身分證字號推導（V13.2 明令）。
+   */
   gender: string | null;
   mobile: string | null;
   phone: string | null;
@@ -115,6 +125,19 @@ function parseDateCell(raw: unknown, label: string, errors: string[]): string | 
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * V13.2：性別儲存格 → 「男」／「女」／null。
+ *
+ * 無法辨識時**不猜測**，回 null 並把原因記進 errors，該列會進入預檢的
+ * 人工確認清單（V13.2 第二節）。
+ */
+function normalizeGenderCell(raw: unknown, errors: string[]): string | null {
+  const result = normalizeGenderInput(raw);
+  if (result.ok) return result.value;
+  errors.push(result.reason);
+  return null;
+}
+
 /** 農曆生日：yyyy-MM-dd，閏月在後面加「(閏)」或「（閏）」，沿用舊版慣例。 */
 function parseLunarCell(
   raw: unknown,
@@ -158,7 +181,9 @@ export function parsePersonSheet(rawRows: Record<string, unknown>[]): PersonShee
       rowNumber: i + 2, // 1 是標題列
       householdCode: normalizeName(cell(raw, "家戶編號")) || null,
       name,
-      gender: toNullableText(cell(raw, "性別")),
+      // V13.2：一律經過共用正規化（男性/女性/M/F… → 男/女）。
+      // 無法辨識時回 null 並在 formatErrors 留下說明，交人工確認。
+      gender: normalizeGenderCell(cell(raw, "性別"), formatErrors),
       mobile: toNullableText(cell(raw, "手機")),
       phone: toNullableText(cell(raw, "市話", "電話")),
       email: toNullableText(cell(raw, "Email", "email", "E-mail")),

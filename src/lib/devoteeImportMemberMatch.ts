@@ -32,6 +32,17 @@ export type IncomingMember = {
   lunarBirthDay: number | null;
   lunarIsLeapMonth: boolean;
   address: string | null;
+  /**
+   * V13.2：性別（已正規化為「男」／「女」／null）。
+   *
+   * ⚠️ 這個欄位是 V13.2 修復的核心：個人資料工作表明明有性別，
+   * 但 IncomingMember 原本**沒有這個欄位**，導致性別在「個人 Excel 解析
+   * 完成 → 組成 IncomingMember」這一步被整個丟掉，永遠寫不進 Member.gender。
+   *
+   * 家戶 Excel 七欄沒有性別欄位，所以合併時一律以個人資料為準；
+   * 家戶端沒有性別**不代表要清空**（V13.2 第三節之 4）。
+   */
+  gender: string | null;
   /** V13.1 指令一：身分證字號（已正規化，空白為 null） */
   nationalId: string | null;
   /**
@@ -47,6 +58,8 @@ export type ExistingMemberForMatch = {
   id: string;
   name: string;
   householdId: string;
+  /** V13.2：資料庫既有性別，用來在預檢階段偵測與 Excel 的衝突 */
+  gender: string | null;
   householdName: string;
   mobile: string | null; // DevoteeProfile.mobile
   householdPhone: string | null;

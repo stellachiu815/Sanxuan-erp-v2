@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import { resolveBirthdayFields } from "@/lib/birthdaySync";
 import { normalizeNationalId, validateNationalId } from "@/lib/nationalId";
+import { normalizeGenderInput } from "@/lib/genderNormalize";
 
 /**
  * V12「信眾資料中心正式建置」指令「四、信眾完整資料編輯頁」。
@@ -93,7 +94,15 @@ export async function updateDevoteeBase(
 
   const memberData: Prisma.MemberUpdateInput = {};
   if (input.name !== undefined) memberData.name = input.name;
-  if (input.gender !== undefined) memberData.gender = input.gender;
+  /**
+   * V13.2 第五節：性別只允許「男」「女」或空白，不可自由輸入其他文字。
+   * 這裡是最後一道防線——即使前端下拉被繞過，也不會有奇怪的值進資料庫。
+   */
+  if (input.gender !== undefined) {
+    const g = normalizeGenderInput(input.gender);
+    if (!g.ok) throw new Error(g.reason);
+    memberData.gender = g.value;
+  }
   if (input.role !== undefined) memberData.role = input.role;
   if (input.isPrimaryContact !== undefined) memberData.isPrimaryContact = input.isPrimaryContact;
   if (input.isDeceased !== undefined) memberData.isDeceased = input.isDeceased;
