@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
+import { resolvePocketPaymentState } from "@/lib/pocketPricing";
+import { additionalPrintItemTypeLabel } from "@/lib/labels";
 import {
   round2,
   deriveUniversalPaymentStatus,
@@ -608,6 +610,316 @@ const purificationEntryAdapter: ReceivableSourceAdapter = {
 };
 
 // ============================================================
+// Adapter 5：ADDITIONAL_PRINT_ITEM（寶袋等附加列印項目，V13.3B 新串接）
+// ============================================================
+
+/**
+ * 計算一筆附加列印項目目前的已收金額。
+ *
+ * ⚠️ V13.3B 的關鍵設計決定（對應指令第四階段之 10／11）：
+ *
+ * 其他四個來源（供品／贊普／祭改）各自有**專屬的收款分錄表**
+ * （OfferingPayment／UniversalSalvationPayment／PurificationPayment），
+ * 所以它們可以在自己的資料表上維護 amountPaid 欄位。
+ *
+ * **AdditionalPrintItem 沒有這樣的分錄表**，而且它的 `paymentId` 是單一
+ * 欄位——一筆寶袋可能分多次收款（部分付款、補收），單一 paymentId
+ * 根本無法表達。因此：
+ *
+ *   唯一真實來源 = PaymentAllocation（收） − PaymentAdjustment（退／轉／作廢）
+ *
+ * `AdditionalPrintItem.isPaid` / `paymentId` 兩個舊欄位**保留但不作為真實
+ * 來源**：isPaid 由這裡算出的結果同步回寫（方便列表查詢），paymentId 維持
+ * 相容用途、不再被任何邏輯讀取。這一點在 schema 註解也寫清楚了，避免日後
+ * 有人誤把 isPaid 當成可信任的判斷依據。
+ */
+async function sumAdditionalPrintItemPaid(
+  client: Prisma.TransactionClient | typeof prisma,
+  itemIds: string[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (itemIds.length === 0) return result;
+
+  const SOURCE_TYPE = "ADDITIONAL_PRINT_ITEM" as Prisma.PaymentAllocationWhereInput["sourceType"];
+
+  /**
+   * ⚠️ 沖銷（退款／轉出／作廢）的來源連結方式必須看清楚，這裡踩過一次坑：
+   *
+   * `PaymentAdjustment.targetSourceType` / `targetSourceId` **只在
+   * TRANSFER_TO_OTHER（轉款）時寫入**，用來記錄「錢轉去哪裡」——
+   * 那是**轉入端**，不是被沖銷的來源。
+   * REFUND 與 VOID_INCOMPLETE 這兩種的這兩個欄位一律是 null
+   * （見 src/lib/collectionCenter.ts 的 createPaymentAdjustment）。
+   *
+   * 真正指向「被沖銷的是哪一筆來源」的是 `sourceAllocationId`
+   * → PaymentAllocation.sourceType / sourceId。
+   *
+   * 所以這裡用 sourceAllocation 關聯過濾，不是用 targetSourceType。
+   * 用錯的話，退款完全不會被扣除，已收金額會永遠停在退款前的數字。
+   */
+  const [allocations, adjustments, transferIns] = await Promise.all([
+    client.paymentAllocation.findMany({
+      where: {
+        // 這個 enum 值由 20260723000000 migration 新增
+        sourceType: SOURCE_TYPE,
+        sourceId: { in: itemIds },
+      },
+      select: { sourceId: true, amount: true },
+    }),
+    // 沖銷：被退款／轉出／作廢的分配，其來源就是這些寶袋
+    client.paymentAdjustment.findMany({
+      where: {
+        sourceAllocation: { sourceType: SOURCE_TYPE, sourceId: { in: itemIds } },
+        adjustmentType: { in: ["REFUND", "TRANSFER_TO_OTHER", "VOID_INCOMPLETE"] },
+      },
+      select: {
+        amount: true,
+        adjustmentType: true,
+        sourceAllocation: { select: { sourceId: true } },
+      },
+    }),
+    // 轉入：別筆來源的錢轉進這些寶袋（targetSourceType 才是這個用途）
+    client.paymentAdjustment.findMany({
+      where: {
+        adjustmentType: "TRANSFER_TO_OTHER",
+        targetSourceType: SOURCE_TYPE as Prisma.PaymentAdjustmentWhereInput["targetSourceType"],
+        targetSourceId: { in: itemIds },
+      },
+      select: { targetSourceId: true, amount: true },
+    }),
+  ]);
+
+  for (const a of allocations) {
+    result.set(a.sourceId, round2((result.get(a.sourceId) ?? 0) + Number(a.amount)));
+  }
+  for (const adj of adjustments) {
+    const sid = adj.sourceAllocation?.sourceId;
+    if (!sid) continue;
+    // RETAIN_AS_OVERPAYMENT 已在 where 排除——「保留為溢收」代表錢還在宮裡，
+    // 不減少已收金額。
+    result.set(sid, round2((result.get(sid) ?? 0) - Number(adj.amount)));
+  }
+  for (const t of transferIns) {
+    if (!t.targetSourceId) continue;
+    result.set(t.targetSourceId, round2((result.get(t.targetSourceId) ?? 0) + Number(t.amount)));
+  }
+
+  // 不允許負數（理論上不會發生，防禦性處理）
+  for (const [k, v] of result) result.set(k, round2(Math.max(0, v)));
+  return result;
+}
+
+/** 已收金額變動後，同步回寫 isPaid 快照。isPaid 不是真實來源，只是查詢便利欄位。 */
+async function syncAdditionalPrintItemPaidFlag(
+  tx: Prisma.TransactionClient,
+  itemId: string
+): Promise<void> {
+  const item = await tx.additionalPrintItem.findUnique({ where: { id: itemId } });
+  if (!item) return;
+  const paidMap = await sumAdditionalPrintItemPaid(tx, [itemId]);
+  const amountPaid = paidMap.get(itemId) ?? 0;
+  const subtotal = Number(item.subtotal ?? 0);
+  const state = resolvePocketPaymentState(subtotal, amountPaid);
+  if (item.isPaid !== state.isPaid) {
+    await tx.additionalPrintItem.update({ where: { id: itemId }, data: { isPaid: state.isPaid } });
+  }
+}
+
+/**
+ * V13.3B：取得單筆附加列印項目目前的已收金額（對外公開）。
+ *
+ * 供 additionalPrintItems.ts 的 CRUD 財務防呆使用——修改金額、取消、
+ * 刪除之前，都必須先知道這筆已經收了多少錢。
+ *
+ * 真實來源是 PaymentAllocation − PaymentAdjustment，不是 isPaid 欄位。
+ */
+export async function getAdditionalPrintItemPaidAmount(itemId: string): Promise<number> {
+  const map = await sumAdditionalPrintItemPaid(prisma, [itemId]);
+  return map.get(itemId) ?? 0;
+}
+
+/**
+ * V13.3B：**批次**取得多筆附加列印項目的已收金額。
+ *
+ * ⚠️ 避免 N+1（指令「API 回傳資料」明確要求）：一次讀取多筆項目時，
+ * 必須用這一支，不可以在迴圈裡逐筆呼叫 getAdditionalPrintItemPaidAmount()。
+ *
+ * 內部只發出 3 次查詢（分配／沖銷／轉入），與項目筆數無關。
+ */
+export async function getAdditionalPrintItemPaidAmounts(
+  itemIds: string[]
+): Promise<Map<string, number>> {
+  return sumAdditionalPrintItemPaid(prisma, itemIds);
+}
+
+const additionalPrintItemAdapter: ReceivableSourceAdapter = {
+  sourceType: "ADDITIONAL_PRINT_ITEM",
+  isWired: true,
+
+  async listPending(filters) {
+    /**
+     * 只列出「確實要收費、且還沒收足」的項目：
+     *   - isChargeable = true（免費贈送不進待收款）
+     *   - subtotal > 0
+     *   - deletedAt = null（已刪除的不出現）
+     *   - status ≠ CANCELLED（已取消的不出現）
+     */
+    const where: Prisma.AdditionalPrintItemWhereInput = {
+      isChargeable: true,
+      subtotal: { gt: 0 },
+      deletedAt: null,
+      status: { not: "CANCELLED" },
+    };
+    if (filters.sponsorHouseholdId) where.householdId = filters.sponsorHouseholdId;
+    if (filters.sponsorMemberId) where.memberId = filters.sponsorMemberId;
+
+    const items = await prisma.additionalPrintItem.findMany({
+      where,
+      include: {
+        household: true,
+        member: true,
+        ritualRecord: { include: { household: true } },
+        activity: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+    if (items.length === 0) return [];
+
+    const paidMap = await sumAdditionalPrintItemPaid(prisma, items.map((i) => i.id));
+
+    return items
+      .map((item) => {
+        const subtotal = Number(item.subtotal ?? 0);
+        const amountPaid = paidMap.get(item.id) ?? 0;
+        const state = resolvePocketPaymentState(subtotal, amountPaid);
+        // 已收足的不列入待收款
+        if (state.amountUnpaid <= 0) return null;
+
+        const year = item.ritualRecord.year;
+        const typeLabel = additionalPrintItemTypeLabel[item.itemType] ?? item.itemType;
+        const householdName = item.ritualRecord.household.name;
+
+        const view: UniversalReceivableView = {
+          sourceType: "ADDITIONAL_PRINT_ITEM",
+          sourceId: item.id,
+          householdId: item.ritualRecord.householdId,
+          memberId: item.memberId,
+          payerName: item.member?.name || item.ritualRecord.household.contactName || householdName,
+          phone: item.ritualRecord.household.phone,
+          activityId: item.activityId,
+          activityName: item.activity?.name ?? `${year}年度普渡`,
+          itemName:
+            `${typeLabel}－${item.printName}` +
+            `（${householdName}，${year}年度普渡，數量 ${item.quantity}` +
+            `${item.unitPrice ? `，單價 ${Number(item.unitPrice)} 元` : ""}）`,
+          receivableAmount: subtotal,
+          paidAmount: amountPaid,
+          unpaidAmount: state.amountUnpaid,
+          paymentStatus: state.status === "PARTIAL" ? "PARTIAL" : "UNPAID",
+          sourceYear: year,
+          sourceDate: item.createdAt.toISOString(),
+          sourceUrl: `/household/${item.ritualRecord.householdId}/rituals/universal-salvation`,
+          canCollect: true,
+          cannotCollectReason: null,
+          isCrossYear: isCrossYearUnpaid(year, filters.currentYear, state.status === "PARTIAL" ? "PARTIAL" : "UNPAID"),
+          note: item.note,
+          createdAt: item.createdAt,
+        };
+        return view;
+      })
+      .filter((v): v is UniversalReceivableView => v !== null)
+      .filter((v) => (filters.onlyCrossYear ? v.isCrossYear : true));
+  },
+
+  async applyPayment(tx, sourceId, amount, ctx) {
+    /**
+     * 防超額與防重複入帳。
+     *
+     * ⚠️ 與其他 adapter 的差異：它們在自己的資料表上有 amountUnpaid 欄位，
+     * 可以用「原子條件式 UPDATE」一次完成檢查＋扣減。寶袋的已收金額是
+     * 從 PaymentAllocation 推導的，沒有這樣的欄位可以原子更新。
+     *
+     * 因此改用 **SELECT ... FOR UPDATE 鎖住這一列**，在同一個交易內
+     * 重新計算已收金額並檢查。行鎖確保同時兩個人收同一筆寶袋時，
+     * 第二個人會等第一個人的交易結束後才讀到最新金額，不會雙雙通過檢查。
+     */
+    const locked = await tx.$queryRaw<{ id: string; subtotal: Prisma.Decimal | null; isChargeable: boolean; deletedAt: Date | null; status: string }[]>`
+      SELECT "id", "subtotal", "isChargeable", "deletedAt", "status"
+      FROM "additional_print_items"
+      WHERE "id" = ${sourceId}
+      FOR UPDATE
+    `;
+    if (locked.length === 0) throw new Error(`找不到這筆附加列印項目（${sourceId}）`);
+    const row = locked[0];
+    if (row.deletedAt) throw new Error("這筆項目已被刪除，無法收款");
+    if (row.status === "CANCELLED") throw new Error("這筆項目已取消，無法收款");
+    if (!row.isChargeable) throw new Error("這筆項目設定為免費，無法收款");
+
+    const subtotal = Number(row.subtotal ?? 0);
+    const paidMap = await sumAdditionalPrintItemPaid(tx, [sourceId]);
+    const alreadyPaid = paidMap.get(sourceId) ?? 0;
+    const unpaid = round2(Math.max(0, subtotal - alreadyPaid));
+
+    if (amount > unpaid) {
+      throw new Error(
+        `收款金額 ${amount} 元超過目前未收金額 ${unpaid} 元（可能剛被其他人收款），請重新整理後再試`
+      );
+    }
+
+    const item = await tx.additionalPrintItem.findUnique({
+      where: { id: sourceId },
+      include: { ritualRecord: { include: { household: true } } },
+    });
+
+    await recordVersion(
+      {
+        entityType: "AdditionalPrintItem",
+        entityId: sourceId,
+        action: "UPDATE",
+        operatorName: ctx.operatorName,
+        changeNote: `收款中心合併收款 ${amount} 元（${ctx.transactionNo}）`,
+      },
+      tx
+    );
+
+    // isPaid 是快照，收款後同步。真實來源仍是 PaymentAllocation。
+    // ⚠️ 此時本次的 PaymentAllocation 尚未建立（由收款中心外層在 adapter
+    // 回傳後才寫入），所以這裡先用「已收 + 本次金額」推算最終狀態。
+    const finalState = resolvePocketPaymentState(subtotal, round2(alreadyPaid + amount));
+    await tx.additionalPrintItem.update({
+      where: { id: sourceId },
+      data: { isPaid: finalState.isPaid },
+    });
+
+    const typeLabel = item ? additionalPrintItemTypeLabel[item.itemType] ?? item.itemType : "附加列印項目";
+    return {
+      // 寶袋沒有專屬分錄表，ledgerId 用來源自身 id
+      // （PaymentAllocation 本身就是這個來源的正式分錄）
+      ledgerId: sourceId,
+      label: `${typeLabel}－${item?.printName ?? ""}（${item?.ritualRecord.household.name ?? ""}，${item?.ritualRecord.year ?? ""}年度普渡）`,
+      year: item?.ritualRecord.year ?? ctx.paidOn.getFullYear() - 1911,
+    };
+  },
+
+  async applyReversal(tx, sourceId, _amount, _ctx) {
+    /**
+     * 退款／轉款／作廢。
+     *
+     * 實際的沖銷金額由收款中心寫入 PaymentAdjustment（targetSourceType=
+     * ADDITIONAL_PRINT_ITEM），這裡不重複建立分錄——寶袋沒有自己的分錄表，
+     * PaymentAdjustment 就是唯一紀錄。
+     *
+     * 這支只負責把 isPaid 快照同步回正確狀態，讓這筆寶袋重新回到
+     * 待收款清單（未收或部分付款）。
+     */
+    const item = await tx.additionalPrintItem.findUnique({ where: { id: sourceId } });
+    if (!item) throw new Error("找不到這筆附加列印項目");
+    await syncAdditionalPrintItemPaidFlag(tx, sourceId);
+  },
+};
+
+// ============================================================
 // Registry
 // ============================================================
 
@@ -616,6 +928,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   manualReceivableAdapter,
   universalSalvationSponsorAdapter,
   purificationEntryAdapter,
+  additionalPrintItemAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

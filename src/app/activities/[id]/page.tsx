@@ -3,6 +3,9 @@ import Link from "next/link";
 import { getTempleEventHome } from "@/lib/templeEvents";
 import { listGenericParticipants, listTempleEventExpenses } from "@/lib/templeEvents";
 import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
+import PocketPriceCard from "@/components/activities/PocketPriceCard";
+import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
+import { prisma } from "@/lib/prisma";
 
 export default async function ActivityHomePage({
   params,
@@ -23,6 +26,18 @@ export default async function ActivityHomePage({
     listTempleEventExpenses(id),
   ]);
 
+  /**
+   * V13.3B：寶袋預設單價（只有普渡活動需要）。
+   * 讀 TempleEvent.pocketUnitPrice，null 時由 resolvePocketUnitPrice 補 300。
+   */
+  const eventPricing = await prisma.templeEvent.findUnique({
+    where: { id },
+    select: { activityType: true, year: true, pocketUnitPrice: true },
+  });
+  const rawPocketPrice = eventPricing?.pocketUnitPrice
+    ? Number(eventPricing.pocketUnitPrice)
+    : null;
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
@@ -35,6 +50,15 @@ export default async function ActivityHomePage({
       </header>
 
       <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
+        {eventPricing?.activityType === "UNIVERSAL_SALVATION" && (
+          <PocketPriceCard
+            templeEventId={id}
+            year={eventPricing.year}
+            initialPocketUnitPrice={rawPocketPrice}
+            initialEffectivePrice={resolvePocketUnitPrice(rawPocketPrice)}
+          />
+        )}
+
         <ActivityHomeScreen
           templeEventId={id}
           initialHome={{

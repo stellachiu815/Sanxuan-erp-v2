@@ -11,6 +11,7 @@ import {
 } from "@/lib/purification";
 import { copyActivityOfferingsForNewEvent } from "@/lib/activityOfferings";
 
+import { DEFAULT_POCKET_UNIT_PRICE, resolvePocketUnitPrice } from "@/lib/pocketPricing";
 /**
  * V8.1「宮務活動中心」核心邏輯：活動精靈（Step1～Step4）＋活動 Checklist＋
  * 活動支出容器。這裡是所有宮務活動（普渡、祭改、光明燈、太歲燈、全家燈、
@@ -110,6 +111,15 @@ export async function createTempleEvent(
         solarDate: input.solarDate ?? null,
         status: input.status ?? "PREPARING",
         note: input.note ?? null,
+        /**
+         * V13.3B：新建普渡活動時，寶袋預設單價一律帶入 300
+         * （DEFAULT_POCKET_UNIT_PRICE，見 src/lib/pocketPricing.ts）。
+         *
+         * 只有普渡會用到寶袋，其他活動類型維持 null——它們的
+         * AdditionalPrintItem 目前沒有收費需求，寫入價格只會造成誤解。
+         */
+        pocketUnitPrice:
+          input.activityType === "UNIVERSAL_SALVATION" ? DEFAULT_POCKET_UNIT_PRICE : null,
       },
     });
     await recordVersion(
@@ -507,4 +517,72 @@ export async function toggleChecklistItem(
     },
   });
   return { ok: true, data: { id } };
+}
+
+
+/**
+ * V13.3B：更新活動的寶袋預設單價。
+ *
+ * ⚠️ 只影響**之後新增**的寶袋——既有 AdditionalPrintItem 的 unitPrice
+ * 是建立當下的快照，這裡絕不回頭重算（指令第六階段之 5、6）。
+ *
+ * 伺服器端再次驗證金額，不信任前端：
+ *   - 必須是有限數字
+ *   - 不得為負
+ *   - 上限 999999，避免誤植
+ * null 代表清除設定，讀取時會 fallback 到 DEFAULT_POCKET_UNIT_PRICE。
+ */
+export async function updateTempleEventPocketUnitPrice(
+  eventId: string,
+  pocketUnitPrice: number | null,
+  operatorName?: string | null
+): Promise<TempleEventResult<{ id: string; pocketUnitPrice: number }>> {
+  const existing = await prisma.templeEvent.findUnique({ where: { id: eventId } });
+  if (!existing) return { ok: false, status: 404, error: "找不到這個活動" };
+
+  if (pocketUnitPrice !== null) {
+    if (!Number.isFinite(pocketUnitPrice)) {
+      return { ok: false, status: 400, error: "寶袋單價必須是數字" };
+    }
+    if (pocketUnitPrice < 0) {
+      return { ok: false, status: 400, error: "寶袋單價不得小於 0" };
+    }
+    if (pocketUnitPrice > 999999) {
+      return { ok: false, status: 400, error: "寶袋單價超出合理範圍，請確認是否輸入錯誤" };
+    }
+  }
+
+  const before = existing.pocketUnitPrice ? Number(existing.pocketUnitPrice) : null;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const after = await tx.templeEvent.update({
+      where: { id: eventId },
+      data: { pocketUnitPrice },
+    });
+    await recordVersion(
+      {
+        entityType: "TempleEvent",
+        entityId: eventId,
+        action: "UPDATE",
+        beforeData: { pocketUnitPrice: before },
+        afterData: { pocketUnitPrice },
+        operatorName,
+        changeNote:
+          `修改寶袋年度預設單價：${before ?? "未設定"} → ${pocketUnitPrice ?? "未設定"} 元` +
+          `（只影響之後新增的寶袋，既有寶袋金額不變）`,
+      },
+      tx
+    );
+    return after;
+  });
+
+  return {
+    ok: true,
+    data: {
+      id: updated.id,
+      pocketUnitPrice: resolvePocketUnitPrice(
+        updated.pocketUnitPrice ? Number(updated.pocketUnitPrice) : null
+      ),
+    },
+  };
 }

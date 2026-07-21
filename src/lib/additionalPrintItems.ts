@@ -1,6 +1,17 @@
 import { AdditionalPrintItemType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
+import {
+  resolvePocketUnitPrice,
+  computePocketSubtotal,
+  assertSubtotalNotBelowPaid,
+  assertNoPaymentBeforeRemoval,
+  resolvePocketPaymentState,
+} from "@/lib/pocketPricing";
+import {
+  getAdditionalPrintItemPaidAmount,
+  getAdditionalPrintItemPaidAmounts,
+} from "@/lib/receivableAdapters";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import {
   resolvePrintName,
@@ -67,10 +78,26 @@ export type AdditionalPrintItemMutationResult =
   | { ok: true; item: Awaited<ReturnType<typeof prisma.additionalPrintItem.findUniqueOrThrow>> }
   | { ok: false; status: number; error: string };
 
+/**
+ * V13.3B：附加列印項目 ＋ 即時計算的付款狀態。
+ *
+ * amountPaid／amountUnpaid／paymentStatus 都是**即時由 PaymentAllocation
+ * − PaymentAdjustment 算出來的**，不是資料庫欄位。
+ * isPaid 也覆寫成計算結果，避免畫面讀到過時的快照。
+ */
+export type AdditionalPrintItemWithPayment =
+  Awaited<ReturnType<typeof prisma.additionalPrintItem.findMany>>[number] & {
+    amountPaid: number;
+    amountUnpaid: number;
+    paymentStatus: "FREE" | "UNPAID" | "PARTIAL" | "PAID";
+  };
+
 export type AdditionalPrintItemListResult =
   | {
       ok: true;
-      items: Awaited<ReturnType<typeof prisma.additionalPrintItem.findMany>>;
+      items: AdditionalPrintItemWithPayment[];
+      /** 這個年度活動的寶袋預設單價（已 fallback，供「新增」時帶入） */
+      activityPocketUnitPrice: number;
     }
   | { ok: false; status: number; error: string };
 
@@ -89,7 +116,44 @@ export async function listAdditionalPrintItemsForEntry(
     where: { sourceEntryId: entryId, deletedAt: null },
     orderBy: [{ isExtra: "asc" }, { createdAt: "asc" }],
   });
-  return { ok: true, items };
+
+  /**
+   * V13.3B：補上 UI 需要的付款狀態欄位。
+   *
+   * ⚠️ 避免 N+1：用**一次批次查詢**取得所有項目的已收金額
+   * （內部只發 3 個 query，與筆數無關），不在迴圈裡逐筆查資料庫。
+   *
+   * ⚠️ amountPaid 來自 PaymentAllocation − PaymentAdjustment，
+   * **不信任舊的 paymentId 欄位**（它是單一欄位，無法表達多次付款）。
+   */
+  const paidMap = await getAdditionalPrintItemPaidAmounts(items.map((i) => i.id));
+
+  // 年度預設單價：供畫面顯示「新增時會帶入多少」
+  const activity = context.templeEventId
+    ? await prisma.templeEvent.findUnique({
+        where: { id: context.templeEventId },
+        select: { pocketUnitPrice: true },
+      })
+    : null;
+  const activityPocketUnitPrice = resolvePocketUnitPrice(
+    activity?.pocketUnitPrice ? Number(activity.pocketUnitPrice) : null
+  );
+
+  const withPayment: AdditionalPrintItemWithPayment[] = items.map((item) => {
+    const subtotal = Number(item.subtotal ?? 0);
+    const amountPaid = paidMap.get(item.id) ?? 0;
+    const state = resolvePocketPaymentState(subtotal, amountPaid);
+    return {
+      ...item,
+      amountPaid,
+      amountUnpaid: state.amountUnpaid,
+      /** 依實際分配金額判斷，不採用資料庫的 isPaid 快照 */
+      isPaid: state.isPaid,
+      paymentStatus: state.status,
+    };
+  });
+
+  return { ok: true, items: withPayment, activityPocketUnitPrice };
 }
 
 export type CreateAdditionalPrintItemInput = {
@@ -132,7 +196,34 @@ export async function createAdditionalPrintItem(
     return { ok: false, status: 400, error: "請輸入寶袋列印名稱" };
   }
 
-  const fee = computeAdditionalPrintItemFee(Boolean(input.isChargeable), input.unitPrice ?? null, input.quantity);
+  /**
+   * V13.3B 計價（三層來源，見 src/lib/pocketPricing.ts）：
+   *   1. 前端明確指定的 unitPrice
+   *   2. 該年度活動的 TempleEvent.pocketUnitPrice
+   *   3. 系統預設 300
+   *
+   * ⚠️ subtotal **一律由伺服器重算**，前端送來的 subtotal 完全不採用
+   *    （指令第四階段之 4）。
+   */
+  const isChargeable = input.isChargeable ?? true; // 寶袋正常新增預設收費
+  let unitPrice = input.unitPrice ?? null;
+  if (isChargeable && (unitPrice === null || unitPrice === undefined)) {
+    const activity = context.templeEventId
+      ? await prisma.templeEvent.findUnique({
+          where: { id: context.templeEventId },
+          select: { pocketUnitPrice: true },
+        })
+      : null;
+    unitPrice = resolvePocketUnitPrice(
+      activity?.pocketUnitPrice ? Number(activity.pocketUnitPrice) : null
+    );
+  }
+
+  const feeResult = computePocketSubtotal({ isChargeable, unitPrice, quantity: input.quantity });
+  if (!feeResult.ok) {
+    return { ok: false, status: 400, error: feeResult.error };
+  }
+  const fee = { subtotal: feeResult.subtotal };
 
   const created = await prisma.$transaction(async (tx) => {
     const item = await tx.additionalPrintItem.create({
@@ -150,9 +241,11 @@ export async function createAdditionalPrintItem(
         status: input.status ?? "PENDING_PRINT",
         note: input.note ?? null,
         isExtra: input.isExtra,
-        isChargeable: Boolean(input.isChargeable),
-        unitPrice: input.unitPrice ?? null,
+        isChargeable,
+        unitPrice,
         subtotal: fee.subtotal,
+        // isPaid 一律由實際收款分配決定，建立時必為 false（指令第四階段之 8、9）
+        isPaid: false,
         createdBy: operatorName?.trim() || null,
       },
     });
@@ -225,7 +318,26 @@ export async function updateAdditionalPrintItem(
   const isChargeable = input.isChargeable ?? existing.isChargeable;
   const unitPrice =
     input.unitPrice !== undefined ? input.unitPrice : existing.unitPrice ? existing.unitPrice.toNumber() : null;
-  const fee = computeAdditionalPrintItemFee(isChargeable, unitPrice, quantity);
+  /**
+   * V13.3B：改為由 pocketPricing 單一真實來源重算，並加上財務防呆。
+   * 前端送來的 subtotal 一律不採用。
+   */
+  const feeResult = computePocketSubtotal({ isChargeable, unitPrice, quantity });
+  if (!feeResult.ok) {
+    return { ok: false, status: 400, error: feeResult.error };
+  }
+  const fee = { subtotal: feeResult.subtotal };
+
+  /**
+   * 指令第五階段之二：新的應收金額**不得低於已收金額**。
+   * 否則會出現「已收 600、應收被改成 300」這種無法對帳的狀態。
+   * 必須先退款／沖銷差額，才能往下調。
+   */
+  const paidBefore = await getAdditionalPrintItemPaidAmount(itemId);
+  const guard = assertSubtotalNotBelowPaid(fee.subtotal ?? 0, paidBefore);
+  if (guard.ok === false) {
+    return { ok: false, status: 409, error: guard.error };
+  }
 
   // 修正：AdditionalPrintItem.templateId 是 @relation(fields: [templateId], ...)
   // 的純量外鍵欄位，Prisma 產生的「Checked」版 AdditionalPrintItemUpdateInput
@@ -285,6 +397,18 @@ export async function cancelAdditionalPrintItem(
   if (!existing || existing.deletedAt || existing.sourceEntryId !== entryId) {
     return { ok: false, status: 404, error: "找不到這筆附加列印項目" };
   }
+
+  /**
+   * V13.3B 指令第五階段之三：已有付款分配的寶袋**不得直接取消**。
+   * 必須先於收款中心辦理退款／沖銷，否則會留下「已收款但項目已取消」
+   * 的孤兒帳務。
+   */
+  const paidForCancel = await getAdditionalPrintItemPaidAmount(itemId);
+  const cancelGuard = assertNoPaymentBeforeRemoval(paidForCancel, "取消");
+  if (cancelGuard.ok === false) {
+    return { ok: false, status: 409, error: cancelGuard.error };
+  }
+
   if (existing.status === "CANCELLED") {
     return { ok: false, status: 400, error: "這筆項目已經是取消狀態" };
   }
@@ -325,6 +449,21 @@ export async function moveAdditionalPrintItemToRecycleBin(
     return { ok: false, status: 400, error: "只有已取消的項目可以移入回收區，請先執行取消" };
   }
 
+  /**
+   * V13.3B 指令第五階段之四：有任何付款分配的項目**禁止直接刪除**。
+   *
+   * ⚠️ 理論上走到這裡的項目一定已經是 CANCELLED，而 cancel 那一步已經
+   * 擋過一次；這裡是第二道防線——避免日後有人新增別的路徑直接把狀態
+   * 改成 CANCELLED 再刪除，繞過財務檢查。
+   *
+   * 絕不允許用刪除 PaymentAllocation／Receipt 來掩蓋歷史紀錄。
+   */
+  const paidForDelete = await getAdditionalPrintItemPaidAmount(itemId);
+  const deleteGuard = assertNoPaymentBeforeRemoval(paidForDelete, "刪除");
+  if (deleteGuard.ok === false) {
+    return { ok: false, status: 409, error: deleteGuard.error };
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const after = await tx.additionalPrintItem.update({
       where: { id: itemId },
@@ -348,7 +487,17 @@ export async function moveAdditionalPrintItemToRecycleBin(
   return { ok: true, item: updated };
 }
 
-/** 恢復一筆已取消的附加列印項目：依照是否已列印過，回到「待列印」或「已列印」狀態。 */
+/**
+ * 恢復一筆已取消的附加列印項目：依照是否已列印過，回到「待列印」或
+ * 「已列印」狀態。
+ *
+ * V13.3B 指令第五階段之五：恢復時**重新依 quantity／unitPrice／
+ * isChargeable 重算 subtotal**，讓它再次出現在待收款清單。
+ *
+ * ⚠️ 不會自動恢復成「已付款」：isPaid 由實際的 PaymentAllocation 決定。
+ * 若這筆的歷史付款已被正式退款（PaymentAdjustment），重算後已收金額
+ * 就是 0，會正確回到「未收」狀態，不會憑空變回已付款。
+ */
 export async function restoreCancelledAdditionalPrintItem(
   householdId: string,
   year: number,
@@ -371,7 +520,30 @@ export async function restoreCancelledAdditionalPrintItem(
   const nextStatus: AdditionalPrintItemStatusValue = existing.isPrinted ? "PRINTED" : "PENDING_PRINT";
 
   const updated = await prisma.$transaction(async (tx) => {
-    const after = await tx.additionalPrintItem.update({ where: { id: itemId }, data: { status: nextStatus } });
+    /**
+     * V13.3B：恢復時重新計算 subtotal（依目前的 quantity／unitPrice／
+     * isChargeable），讓這筆重新以正確金額回到待收款清單。
+     *
+     * isPaid 一併依實際 PaymentAllocation 重算——若歷史付款已被退款，
+     * 這裡會正確回到 false，不會憑空恢復成已付款。
+     */
+    const recomputed = computePocketSubtotal({
+      isChargeable: existing.isChargeable,
+      unitPrice: existing.unitPrice ? existing.unitPrice.toNumber() : null,
+      quantity: existing.quantity,
+    });
+    const restoredPaid = await getAdditionalPrintItemPaidAmount(itemId);
+    const restoredSubtotal = recomputed.ok ? recomputed.subtotal : Number(existing.subtotal ?? 0);
+    const restoredState = resolvePocketPaymentState(restoredSubtotal, restoredPaid);
+
+    const after = await tx.additionalPrintItem.update({
+      where: { id: itemId },
+      data: {
+        status: nextStatus,
+        subtotal: restoredSubtotal,
+        isPaid: restoredState.isPaid,
+      },
+    });
     await recordVersion(
       { entityType: "AdditionalPrintItem", entityId: itemId, action: "RESTORE", beforeData: existing, afterData: after, operatorName, changeNote: "取消後恢復" },
       tx

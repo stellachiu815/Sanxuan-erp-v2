@@ -319,6 +319,10 @@ export const receivableSourceTypeLabel: Record<string, string> = {
   MANUAL: "其他臨時應收項目",
   UNIVERSAL_SALVATION_SPONSOR: "普渡贊普",
   PURIFICATION_ENTRY: "祭改",
+  // V13.3B：寶袋等附加列印項目。目前實際使用的只有寶袋（POCKET），
+  // 名稱直接寫「寶袋」讓行政人員一眼看懂；若日後其他 itemType 也開放
+  // 收費，再改成較通用的名稱。
+  ADDITIONAL_PRINT_ITEM: "寶袋",
   PEACE_LANTERN: "平安燈（尚未開放，功能開發中）",
   TAISUI_LANTERN: "太歲燈（尚未開放，功能開發中）",
   TREASURY_REPAYMENT: "補庫（尚未開放，功能開發中）",

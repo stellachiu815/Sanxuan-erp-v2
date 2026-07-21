@@ -887,6 +887,30 @@ model TempleEvent {
   // 畫面開放修改。只對 OfferingType.behaviorKind = TURTLE 的供品種類有關。
   offeringTurtleExclusiveRule Boolean @default(true)
 
+  /// V13.3B：這個年度活動的**寶袋預設單價**。
+  ///
+  /// ── 為什麼放在 TempleEvent ──────────────────────────────
+  /// 評估過既有的活動層級價格架構 ActivityOffering（+ OfferingType.defaultPrice），
+  /// 結論是**不適合**：那一整套屬於「供品認捐」子系統，價格是掛在
+  /// OfferingType 上、由 OfferingClaim 消費、走 OFFERING_CLAIM 應收來源。
+  /// 寶袋是 AdditionalPrintItem，生命週期（列印／領取）與認捐完全不同。
+  /// 把寶袋價格塞進去，等於把一個概念拆到兩個子系統，還可能讓寶袋誤入
+  /// 供品認捐流程。
+  ///
+  /// TempleEvent 本身就是「活動層級設定」的所在（isRegistrationOpen /
+  /// isPrintOpen / numberingLocked / offeringTurtleExclusiveRule 都在這裡），
+  /// 所以寶袋單價放這裡與既有慣例一致，也不需要新建任何設定表。
+  ///
+  /// ⚠️ nullable 是刻意的：
+  ///   - 既有活動一律是 null，**不會被 migration 強制改價**
+  ///   - 程式讀取時 fallback 到 DEFAULT_POCKET_UNIT_PRICE（300）
+  ///     （見 src/lib/pocketPricing.ts，那裡是唯一的 fallback 來源）
+  ///   - 修改這個值**只影響之後新增的寶袋**，既有寶袋的 unitPrice 是
+  ///     建立當下的快照，不會被回頭重算
+  ///
+  /// 金額型別沿用全專案一致的 Decimal(12,2)，不使用浮點數。
+  pocketUnitPrice Decimal? @db.Decimal(12, 2)
+
   records                  RitualRecord[]
   bannedNumbers            TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）
   printBatches             TempleEventPrintBatch[]
@@ -1810,6 +1834,7 @@ enum ReceivableSourceType {
   MANUAL // 收款中心自建的臨時應收項目（ManualReceivable），正式已串接
   UNIVERSAL_SALVATION_SPONSOR // 普渡贊普（UniversalSalvationDetail + UniversalSalvationPayment 分錄，V11.0.1 起正式已串接）
   PURIFICATION_ENTRY // 祭改（PurificationEntry.feeStatus/amountDue + PurificationPayment 分錄，V11.0.1 起正式已串接）
+  ADDITIONAL_PRINT_ITEM // 附加列印項目－寶袋等（AdditionalPrintItem.subtotal，V13.3B 起正式已串接）
   // --- 以下為僅預留列舉值，沒有 Adapter、沒有登記/收費資料表，尚未有任何資料／畫面 ---
   PEACE_LANTERN // 平安燈（尚不存在：沒有對應的活動類型與登記資料）
   TAISUI_LANTERN // 太歲燈（尚不存在：沒有收費欄位或登記資料）

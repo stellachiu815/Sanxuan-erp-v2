@@ -65,6 +65,14 @@ export type AdditionalPrintItemJSON = {
   isChargeable: boolean;
   unitPrice: string | null;
   subtotal: string | null;
+  /**
+   * V13.3B：付款狀態。由 API 即時計算
+   * （PaymentAllocation − PaymentAdjustment），不是資料庫欄位。
+   */
+  amountPaid: number;
+  amountUnpaid: number;
+  isPaid: boolean;
+  paymentStatus: "FREE" | "UNPAID" | "PARTIAL" | "PAID";
 };
 
 /**

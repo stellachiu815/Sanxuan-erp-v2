@@ -42,6 +42,8 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<AdditionalPrintItemJSON | null>(null);
+  /** V13.3B：該年度活動的寶袋預設單價（API 已 fallback 為 300） */
+  const [activityPocketUnitPrice, setActivityPocketUnitPrice] = useState(300);
 
   const basePath = BASE_PATH(householdId, year, entryId);
 
@@ -54,6 +56,9 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
         return;
       }
       setItems(data.items);
+      if (typeof data.activityPocketUnitPrice === "number") {
+        setActivityPocketUnitPrice(data.activityPocketUnitPrice);
+      }
       setError(null);
     } catch {
       setError("網路錯誤，請稍後再試一次。");
@@ -172,6 +177,8 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
             <PrintItemRow
               key={item.id}
               item={item}
+              householdId={householdId}
+              year={year}
               busy={busyId === item.id}
               onEdit={() => setEditingId(item.id)}
               onCancel={() => handleCancel(item)}
@@ -187,6 +194,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
         <AddPrintItemForm
           basePath={basePath}
           sourceDisplayName={sourceDisplayName}
+          defaultUnitPrice={activityPocketUnitPrice}
           onDone={() => {
             setShowAddForm(false);
             reload();
@@ -234,6 +242,41 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
   );
 }
 
+
+/** V13.3B：付款狀態標籤與樣式。 */
+const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  FREE: "免費",
+  UNPAID: "未收款",
+  PARTIAL: "部分付款",
+  PAID: "已收款",
+};
+
+function paymentBadgeClass(status: string): string {
+  const base = "rounded-full px-2 py-0.5";
+  if (status === "PAID") return `${base} bg-sage-100 text-ink-soft`;
+  if (status === "PARTIAL") return `${base} bg-yolk-100 text-ink`;
+  if (status === "UNPAID") return `${base} bg-blossom-100 text-ink`;
+  return `${base} bg-cream-200 text-ink-soft`;
+}
+
+/**
+ * V13.3B：「前往收款」連結。
+ *
+ * ⚠️ 必須帶齊四個參數（指令第七階段之 9），收款中心才能正確定位這筆應收：
+ *   householdId / year / sourceType=ADDITIONAL_PRINT_ITEM / sourceId
+ *
+ * 連到既有的收款中心快速收款畫面，**不另建寶袋專用收款頁**。
+ */
+function collectionUrl(householdId: string, year: number, itemId: string): string {
+  const params = new URLSearchParams({
+    householdId,
+    year: String(year),
+    sourceType: "ADDITIONAL_PRINT_ITEM",
+    sourceId: itemId,
+  });
+  return `/collection-center/quick-payment?${params.toString()}`;
+}
+
 function extraTagClass(isExtra: boolean) {
   return isExtra
     ? "rounded-full bg-blossom-100 px-2 py-0.5 text-xs text-ink-soft"
@@ -248,6 +291,8 @@ function PrintItemRow({
   onRestore,
   onPrint,
   onRequestPurge,
+  householdId,
+  year,
 }: {
   item: AdditionalPrintItemJSON;
   busy: boolean;
@@ -256,6 +301,8 @@ function PrintItemRow({
   onRestore: () => void;
   onPrint: () => void;
   onRequestPurge: () => void;
+  householdId: string;
+  year: number;
 }) {
   const isCancelled = item.status === "CANCELLED";
   return (
@@ -277,6 +324,46 @@ function PrintItemRow({
             </span>
           )}
         </div>
+        {/*
+          V13.3B：金額與收款狀態。
+          ⚠️ 這裡顯示的 amountPaid／amountUnpaid 是 API 依實際
+          PaymentAllocation − PaymentAdjustment 即時算出來的，
+          **不是**資料庫的 isPaid 快照。畫面上也刻意不提供任何
+          「勾選已付款」的操作——收款一律走收款中心。
+        */}
+        {!isCancelled && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {item.isChargeable ? (
+              <>
+                <span className="text-ink-soft">
+                  單價 {item.unitPrice ? Number(item.unitPrice) : 0} 元 × {item.quantity}
+                  ＝<span className="text-ink">應收 {Number(item.subtotal ?? 0)} 元</span>
+                </span>
+                <span className={paymentBadgeClass(item.paymentStatus)}>
+                  {PAYMENT_STATUS_LABEL[item.paymentStatus]}
+                </span>
+                {item.amountPaid > 0 && (
+                  <span className="text-ink-soft">
+                    已收 {item.amountPaid} 元
+                    {item.amountUnpaid > 0 && `／未收 ${item.amountUnpaid} 元`}
+                  </span>
+                )}
+                {item.amountUnpaid > 0 && (
+                  <a
+                    href={collectionUrl(householdId, year, item.id)}
+                    className="rounded-full bg-yolk-200 px-2.5 py-1 text-xs text-ink transition hover:bg-yolk-300"
+                  >
+                    前往收款
+                  </a>
+                )}
+              </>
+            ) : (
+              <span className="rounded-full bg-cream-200 px-2 py-0.5 text-ink-soft">
+                免費贈送（不列入收款）
+              </span>
+            )}
+          </div>
+        )}
         {item.note && <p className="mt-0.5 text-xs text-ink-faint">備註：{item.note}</p>}
       </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -339,11 +426,14 @@ function AddPrintItemForm({
   sourceDisplayName,
   onDone,
   onCancel,
+  defaultUnitPrice,
 }: {
   basePath: string;
   sourceDisplayName: string;
   onDone: () => void;
   onCancel: () => void;
+  /** 該年度活動的寶袋預設單價（API 已 fallback 為 300） */
+  defaultUnitPrice: number;
 }) {
   const [itemType, setItemType] = useState<AdditionalPrintItemType>("POCKET");
   const [usesSourceName, setUsesSourceName] = useState(true);
@@ -353,6 +443,25 @@ function AddPrintItemForm({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * V13.3B：寶袋正常新增預設**收費**，單價自動帶入該年度活動的
+   * pocketUnitPrice（API 回傳；活動未設定時已 fallback 為 300）。
+   */
+  const [isChargeable, setIsChargeable] = useState(true);
+  const [unitPrice, setUnitPrice] = useState(String(defaultUnitPrice));
+
+  useEffect(() => {
+    setUnitPrice(String(defaultUnitPrice));
+  }, [defaultUnitPrice]);
+
+  /** 前端即時預估小計。⚠️ 最終金額仍由伺服器重算，這裡只是給使用者看的預覽。 */
+  const estimatedSubtotal = (() => {
+    if (!isChargeable) return 0;
+    const q = Number(quantity);
+    const p = Number(unitPrice);
+    if (!Number.isFinite(q) || !Number.isFinite(p) || q <= 0 || p < 0) return null;
+    return Math.round(p * 100) * q / 100;
+  })();
 
   async function handleSubmit() {
     const qty = Number(quantity);
@@ -377,6 +486,9 @@ function AddPrintItemForm({
           quantity: qty,
           isExtra,
           note: note.trim() || null,
+          // V13.3B：⚠️ 不送 subtotal——伺服器一律自行重算，前端送了也不採用
+          isChargeable,
+          unitPrice: isChargeable ? Number(unitPrice) : null,
         }),
       });
       const data = await res.json();
@@ -442,6 +554,46 @@ function AddPrintItemForm({
         是否為額外寶袋（取消勾選代表這是預設寶袋）
       </label>
 
+      {/* V13.3B：收費設定 */}
+      <div className="rounded-xl bg-white/70 p-3">
+        <label className={checkboxRowClass}>
+          <input
+            type="checkbox"
+            checked={isChargeable}
+            onChange={(e) => setIsChargeable(e.target.checked)}
+          />
+          收費（取消勾選代表免費贈送，不列入待收款）
+        </label>
+
+        {isChargeable && (
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>單價（元）</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                className={`${inputClass} w-32`}
+              />
+            </label>
+            <p className="pb-2 text-xs text-ink-soft">
+              預估小計：
+              {estimatedSubtotal === null ? (
+                <span className="text-blossom-300">數量或單價不正確</span>
+              ) : (
+                <span className="text-ink">{estimatedSubtotal} 元</span>
+              )}
+              <span className="ml-2 text-ink-faint">（實際金額以伺服器計算為準）</span>
+            </p>
+          </div>
+        )}
+        <p className="mt-1.5 text-xs text-ink-faint">
+          本年度預設單價 {defaultUnitPrice} 元，可於此筆單獨調整；修改活動預設價不會影響已建立的寶袋。
+        </p>
+      </div>
+
       <div>
         <label className={labelClass}>備註（選填）</label>
         <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -482,6 +634,19 @@ function EditPrintItemForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  /** V13.3B：收費設定。單價預設沿用這一筆既有的值（不是活動預設價）。 */
+  const [isChargeable, setIsChargeable] = useState(item.isChargeable);
+  const [unitPrice, setUnitPrice] = useState(item.unitPrice ? String(Number(item.unitPrice)) : "");
+
+  /** 前端即時預估小計（伺服器仍會重算） */
+  const estimatedSubtotal = (() => {
+    if (!isChargeable) return 0;
+    const q = Number(quantity);
+    const p = Number(unitPrice);
+    if (!Number.isFinite(q) || !Number.isFinite(p) || q <= 0 || p < 0) return null;
+    return Math.round(p * 100) * q / 100;
+  })();
+
 
   async function handleSave() {
     const qty = Number(quantity);
@@ -491,6 +656,18 @@ function EditPrintItemForm({
     }
     if (!usesSourceName && !customPrintName.trim()) {
       setError("請輸入自訂寶袋名稱");
+      return;
+    }
+    /**
+     * V13.3B 指令第七階段之 6：新的應收金額低於已收金額時，**前端先阻擋**。
+     * ⚠️ 這只是提前提示，伺服器的 409 才是最終防線
+     * （assertSubtotalNotBelowPaid，見 src/lib/pocketPricing.ts）。
+     */
+    if (estimatedSubtotal !== null && item.amountPaid > 0 && estimatedSubtotal < item.amountPaid) {
+      setError(
+        `這筆寶袋已收款 ${item.amountPaid} 元，新的應收金額 ${estimatedSubtotal} 元低於已收金額。` +
+          `請先於收款中心辦理退款或沖銷差額後再調整。`
+      );
       return;
     }
     setSubmitting(true);
@@ -505,10 +682,14 @@ function EditPrintItemForm({
           quantity: qty,
           isExtra,
           note: note.trim() || null,
+          // ⚠️ 不送 subtotal——伺服器一律重算
+          isChargeable,
+          unitPrice: isChargeable && unitPrice !== "" ? Number(unitPrice) : null,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
+        // 伺服器的明確錯誤（例如 409 金額低於已收）一律原樣顯示，不靜默失敗
         setError(data.error ?? "儲存失敗，請稍後再試一次。");
         return;
       }
@@ -551,6 +732,51 @@ function EditPrintItemForm({
         <input type="checkbox" checked={isExtra} onChange={(e) => setIsExtra(e.target.checked)} />
         是否為額外寶袋
       </label>
+      {/* V13.3B：收費設定與收款狀態 */}
+      <div className="rounded-xl bg-cream-50 p-3">
+        {item.amountPaid > 0 && (
+          <p className="mb-2 rounded-lg bg-yolk-100 px-3 py-2 text-xs leading-relaxed text-ink">
+            這筆已收款 {item.amountPaid} 元
+            {item.amountUnpaid > 0 && `，尚未收 ${item.amountUnpaid} 元`}。
+            調整後的應收金額不得低於已收金額；若要調降，請先於收款中心辦理退款或沖銷。
+          </p>
+        )}
+
+        <label className={checkboxRowClass}>
+          <input
+            type="checkbox"
+            checked={isChargeable}
+            onChange={(e) => setIsChargeable(e.target.checked)}
+          />
+          收費（取消勾選代表免費贈送，不列入待收款）
+        </label>
+
+        {isChargeable && (
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>單價（元）</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                className={`${inputClass} w-32`}
+              />
+            </label>
+            <p className="pb-2 text-xs text-ink-soft">
+              預估小計：
+              {estimatedSubtotal === null ? (
+                <span className="text-blossom-300">數量或單價不正確</span>
+              ) : (
+                <span className="text-ink">{estimatedSubtotal} 元</span>
+              )}
+              <span className="ml-2 text-ink-faint">（實際金額以伺服器計算為準）</span>
+            </p>
+          </div>
+        )}
+      </div>
+
       <div>
         <label className={labelClass}>備註</label>
         <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
