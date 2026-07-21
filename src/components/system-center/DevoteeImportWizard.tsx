@@ -573,7 +573,6 @@ export default function DevoteeImportWizard() {
           <p className="text-xs text-ink-faint">
             正式格式一列代表一戶，「所有成員」欄以逗號分隔，內含一般家戶成員、歷代祖先與乙位正魂三種資料，
             系統會依名稱自動分類（含「歷代祖先」→ 歷代祖先牌位；含「乙位正魂」→ 乙位正魂牌位；其餘 → 一般成員）。
-            「家庭成員」與「普渡牌位資料筆數」兩個數量欄僅供核對，不會寫入資料。
             支援 .xlsx、.xls、.csv，單次僅能上傳一個檔案，檔案大小上限 10MB。上傳後不會立即寫入任何正式資料。
           </p>
           <div>
@@ -627,6 +626,39 @@ export default function DevoteeImportWizard() {
           <p className="text-xs text-ink-faint">
             系統已依欄位名稱自動猜測對應，請確認或手動調整每一欄要對應到哪個系統欄位；選「不匯入」的欄位不會被讀取。
           </p>
+
+          {/*
+            V13.2：兩個數量核對欄的完整說明。
+
+            舊版只寫「兩個數量欄僅供核對，不會寫入資料」，沒有說明各自的
+            涵蓋範圍，導致「家戶固定牌位筆數」被誤解成「普渡牌位只支援
+            兩種」。這裡把範圍講清楚，並明確區分「家戶固定資料」與
+            「年度普渡報名內容」兩件事。
+
+            文字刻意不出現任何資料表名稱或程式術語。
+          */}
+          <div className="rounded-2xl bg-cream-100 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+            <p className="mb-1.5 font-medium text-ink">關於兩個「數量核對」欄位</p>
+            <ul className="list-disc space-y-1 pl-4">
+              <li>
+                <span className="text-ink">家庭成員數量</span>
+                ：只核對一般家戶成員的人數。
+              </li>
+              <li>
+                <span className="text-ink">家戶固定牌位筆數</span>
+                ：只核對歷代祖先與乙位正魂的合計筆數。
+              </li>
+              <li>
+                冤親債主、無緣子女與寶袋屬於<span className="text-ink">每年度普渡活動的報名內容</span>，
+                每年可能不同，因此<span className="text-ink">不由家戶 Excel 匯入</span>，
+                請於當年度的普渡報名畫面另行新增。
+              </li>
+              <li>
+                這兩個數量欄<span className="text-ink">只用來核對名單有沒有漏掉</span>，
+                本身不會存入系統；對不上時只會提醒，不會擋住匯入。
+              </li>
+            </ul>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>

@@ -17,7 +17,19 @@ import { normalizeName, toNullableText, splitMultiValue, toHalfWidthDigits } fro
  *
  *   含「歷代祖先」→ 歷代祖先牌位／含「乙位正魂」→ 乙位正魂牌位／其餘 → 一般成員
  *
- * 兩個數量欄位僅供核對，不會寫入任何資料，對不上只會產生警告。
+ * 兩個數量欄位僅供核對，不會寫入任何資料，對不上只會產生警告：
+ *   「家庭成員」        → 只核對一般家戶成員人數
+ *   「普渡牌位資料筆數」 → 只核對歷代祖先 + 乙位正魂的合計筆數
+ *
+ * ⚠️ V13.2 釐清（Excel 標題列不變，只調整系統內的顯示文字為
+ * 「家戶固定牌位筆數」）：這個欄位核對的是**家戶固定登記**的牌位，
+ * 家戶固定牌位本來就只有歷代祖先與乙位正魂兩類。
+ *
+ * 冤親債主、無緣子女、寶袋**不由家戶 Excel 匯入**——它們屬於每年度普渡
+ * 活動的報名內容，每年可能不同，由普渡報名畫面手動新增：
+ *   冤親債主／無緣子女 → UniversalSalvationEntry（四類別已完整支援）
+ *   寶袋               → AdditionalPrintItem（獨立管理，有數量與單價）
+ * 因此 classifyAllMembers() 只辨識三種類型，這是正確設計，不是缺漏。
  *
  * ⚠️ 向下相容：舊檔案若已經把成員／歷代祖先／乙位正魂拆成三個獨立欄位，
  * 照樣可以匯入（沒有「所有成員」時自動退回舊路徑），不需要重做檔案。
@@ -187,8 +199,21 @@ export function normalizeAndValidateDevoteeRow(
     );
   }
   if (expectedTabletCount !== null && expectedTabletCount !== ancestorNames.length + spiritNames.length) {
+    /**
+     * V13.2：訊息補上完整的計算過程與涵蓋範圍。
+     *
+     * 舊訊息只說「實際解析出 N 筆牌位」，使用者看到數字對不上時，常會
+     * 誤以為是冤親債主或寶袋沒被算進去，進而想把它們加進家戶 Excel。
+     * 這裡明確說出這個欄位**不含**哪些項目，以及它們應該去哪裡登記。
+     *
+     * ⚠️ 只改訊息文字，判斷條件（歷代祖先 + 乙位正魂）完全未變。
+     */
     warnings.push(
-      `「普渡牌位資料筆數」為 ${expectedTabletCount}，但實際解析出 ${ancestorNames.length + spiritNames.length} 筆牌位（歷代祖先 ${ancestorNames.length}、乙位正魂 ${spiritNames.length}），請確認名單是否完整。`
+      `「家戶固定牌位筆數」填寫 ${expectedTabletCount}，` +
+        `但系統解析到歷代祖先 ${ancestorNames.length} 筆、乙位正魂 ${spiritNames.length} 筆，` +
+        `合計 ${ancestorNames.length + spiritNames.length} 筆，數量不一致，請確認名單是否完整。` +
+        `此欄只核對歷代祖先與乙位正魂，不包含一般家戶成員，也不包含冤親債主、無緣子女及寶袋` +
+        `（後三項屬於每年度普渡活動報名內容，請於普渡報名畫面另行新增）。`
     );
   }
 
