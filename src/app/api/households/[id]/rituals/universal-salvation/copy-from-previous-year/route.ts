@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { copyUniversalSalvationFromPreviousYear } from "@/lib/ritual";
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 
 /**
  * 「複製去年資料」API。
@@ -17,9 +19,19 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "create");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId } = await params;
 
-  const body = await request.json().catch(() => null);
+  const body = await readJsonBody(request);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }

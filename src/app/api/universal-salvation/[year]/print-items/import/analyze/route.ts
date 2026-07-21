@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { parseSpreadsheetBuffer, suggestColumnMapping, getTargetFields } from "@/lib/smartImport";
 import { analyzeAdditionalPrintItemImport } from "@/lib/additionalPrintItems";
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 
 /**
  * V9.1「附加列印項目」Excel/CSV 匯入方式二（明細工作表）——第一步：上傳
@@ -18,6 +20,16 @@ import { analyzeAdditionalPrintItemImport } from "@/lib/additionalPrintItems";
  *   mapping（選填，JSON 字串）: 使用者手動調整過的欄位對應
  */
 export async function POST(request: Request, { params }: { params: Promise<{ year: string }> }) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "view");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { year: yearParam } = await params;
 
   const year = Number(yearParam);

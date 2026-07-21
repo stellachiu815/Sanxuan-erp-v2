@@ -6,6 +6,8 @@ import {
   type UpdateUniversalSalvationEntryInput,
 } from "@/lib/ritual";
 
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 /**
  * 修改單一筆普渡登記項目（名稱／陽上姓名／備註）。
  *
@@ -16,6 +18,16 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "update");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, year: yearParam, entryId } = await params;
 
   const year = Number(yearParam);
@@ -23,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => null);
+  const body = await readJsonBody(request);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
@@ -50,7 +62,7 @@ export async function PATCH(
     year,
     entryId,
     input,
-    toNullableString(body.operatorName)
+    check.operator.name
   );
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
@@ -72,6 +84,16 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "delete");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, year: yearParam, entryId } = await params;
 
   const year = Number(yearParam);
@@ -79,11 +101,9 @@ export async function DELETE(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await readJsonBody(request)) ?? {};
   const operatorName =
-    body && typeof body === "object" && typeof body.operatorName === "string"
-      ? body.operatorName
-      : null;
+    check.operator.name;
 
   const result = await deleteUniversalSalvationEntry(householdId, year, entryId, operatorName);
   if (!result.ok) {

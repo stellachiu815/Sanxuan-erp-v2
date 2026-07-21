@@ -29,10 +29,12 @@ import {
   canApproveReceiptVoidOrReissue,
   canSystem,
   canDevotee,
+  canUniversalSalvation,
   type Role,
   type ReceiptAction,
   type SystemAction,
   type DevoteeAction,
+  type UniversalSalvationAction,
 } from "@/lib/permissions";
 
 export type ResolvedOperator = {
@@ -125,6 +127,36 @@ export async function assertSystemPermissionForOperator(
  * 角色，不能只靠前端隱藏按鈕）。刻意沿用這裡既有的 resolveOperator()／
  * ResolvedOperator／OperatorCheckResult，不另外重新設計一套權限驗證機制。
  */
+/**
+ * V13.3A：普渡模組 API 的權限檢查入口。
+ *
+ * 用法與其他三支 assert*ForOperator 完全一致，沿用同一套
+ * resolveOperator() / OperatorCheckResult / 401·403 語意，
+ * **不是第二套權限系統**：
+ *
+ *   const check = await assertUniversalSalvationPermissionForOperator(
+ *     body.operatorUserId, "create"
+ *   );
+ *   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+ *   const operatorName = check.operator.name;   // ← 一律用這個，不用 body
+ *
+ * 找不到／已停用的 userId → 401；角色沒有該權限 → 403。
+ * 兩種情況都在任何資料庫寫入**之前**就回傳，不會產生半套寫入。
+ */
+export async function assertUniversalSalvationPermissionForOperator(
+  userId: string | null | undefined,
+  action: UniversalSalvationAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "找不到有效的操作人員身分，請重新選擇目前操作人員" };
+  }
+  if (!canUniversalSalvation(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個操作` };
+  }
+  return { ok: true, operator };
+}
+
 export async function assertDevoteePermissionForOperator(
   userId: string | null | undefined,
   action: DevoteeAction

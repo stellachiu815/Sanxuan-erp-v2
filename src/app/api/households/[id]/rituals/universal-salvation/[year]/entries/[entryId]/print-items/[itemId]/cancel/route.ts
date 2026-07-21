@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { cancelAdditionalPrintItem } from "@/lib/additionalPrintItems";
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 
 /**
  * 取消一筆附加列印項目（需求「十三」：狀態改為取消，保留列印歷史，
@@ -13,6 +15,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string; itemId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "delete");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, year: yearParam, entryId, itemId } = await params;
 
   const year = Number(yearParam);
@@ -20,9 +32,9 @@ export async function POST(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await readJsonBody(request)) ?? {};
   const operatorName =
-    body && typeof body === "object" && typeof body.operatorName === "string" ? body.operatorName : null;
+    check.operator.name;
 
   const result = await cancelAdditionalPrintItem(householdId, year, entryId, itemId, operatorName);
   if (!result.ok) {

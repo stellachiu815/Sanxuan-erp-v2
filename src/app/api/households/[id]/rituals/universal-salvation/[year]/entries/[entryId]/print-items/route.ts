@@ -7,6 +7,8 @@ import {
   type CreateAdditionalPrintItemInput,
 } from "@/lib/additionalPrintItems";
 import { additionalPrintItemTypeLabel } from "@/lib/labels";
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 
 /**
  * V9.1「寶袋與附加列印」面板：某一筆普渡登記項目（歷代祖先／個人乙位正魂／
@@ -29,9 +31,19 @@ import { additionalPrintItemTypeLabel } from "@/lib/labels";
  * }
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "view");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, year: yearParam, entryId } = await params;
 
   const year = Number(yearParam);
@@ -51,6 +63,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "create");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, year: yearParam, entryId } = await params;
 
   const year = Number(yearParam);
@@ -58,7 +80,7 @@ export async function POST(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => null);
+  const body = await readJsonBody(request);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
@@ -101,7 +123,7 @@ export async function POST(
     year,
     entryId,
     input,
-    toNullableString(body.operatorName)
+    check.operator.name
   );
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

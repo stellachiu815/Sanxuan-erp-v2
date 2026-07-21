@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { moveAdditionalPrintItemToRecycleBin } from "@/lib/additionalPrintItems";
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 
 /**
  * 將一筆已取消的附加列印項目移入回收區（需求「十三」：永久刪除的第一步，
@@ -23,11 +25,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; year: string; entryId: string; itemId: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "delete");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { id: householdId, itemId } = await params;
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await readJsonBody(request)) ?? {};
   const operatorName =
-    body && typeof body === "object" && typeof body.operatorName === "string" ? body.operatorName : null;
+    check.operator.name;
 
   const result = await moveAdditionalPrintItemToRecycleBin(itemId, operatorName);
   if (!result.ok) {

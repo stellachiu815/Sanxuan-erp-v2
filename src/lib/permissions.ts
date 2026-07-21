@@ -641,6 +641,72 @@ const DEVOTEE_PERMISSIONS: Record<Role, DevoteeAction[]> = {
   FINANCE_CLERK: [],
 };
 
+// ============================================================
+// V13.3A「普渡模組權限安全修正」
+//
+// 在此之前，普渡的 15 支 API **完全沒有任何權限檢查**——這是全專案唯一
+// 整組漏掉的模組（其他 69 支 API 都有 assert*PermissionForOperator）。
+// 任何人知道網址即可新增／修改／刪除任何家戶的普渡登記與列印項目。
+//
+// ── 為什麼新增一組 action，而不是沿用既有的 ──────────────────
+// 評估過兩個既有候選，都不適用：
+//
+//   1. DevoteeAction —— 語意是「信眾關係中心」，普渡是祭典模組，
+//      借用會讓「誰能改普渡」與「誰能改信眾資料」永久綁在一起，
+//      日後要分開就得回頭拆，代價更大。
+//
+//   2. AdditionalPrintItemAction（V9.1 既有）—— 語意最接近，但它的
+//      STAFF 只有 ["createExtra", "modifyBeforePrint", "print", "reprint"]，
+//      **與 V13.3A 指定的「STAFF 可新增／編輯／刪除／恢復」不符**。
+//      要沿用就得改動那份矩陣，而它是 V9.1 為附加列印項目定義的，
+//      改了會影響普渡以外的用途——屬於指令禁止的「重構整份權限架構」。
+//
+// 因此這裡**只新增普渡自己的 action 定義**，不動任何既有矩陣。
+//
+// ⚠️ 已知重疊，誠實記錄：AdditionalPrintItemAction 目前是**休眠狀態**
+// （全專案 grep 只出現在 permissions.ts 自己與兩處註解，沒有任何 API
+// 真正呼叫它）。V13.3A 之後，普渡底下的寶袋等附加列印項目改由
+// UniversalSalvationAction 管控。若日後要讓那組矩陣正式上線，需要一併
+// 決定兩者的關係——這不是本輪範圍，但必須讓後續維護的人知道。
+// ============================================================
+
+export type UniversalSalvationAction =
+  | "view" // 查看普渡報名資料與列印預覽
+  | "create" // 新增普渡報名、四類牌位、附加列印項目
+  | "update" // 編輯既有資料（含寶袋數量、價格）
+  | "delete" // 刪除／取消（軟刪除）
+  | "restore" // 從回收區恢復
+  | "print" // 執行列印、更新列印狀態、建立列印批次
+  | "reprint"; // 補印
+
+/**
+ * V13.3A 指定的角色矩陣（逐字對應指令「一、權限規則確定如下」）：
+ *
+ *   SUPER_ADMIN／ADMIN／STAFF：讀、新增、編輯、刪除、恢復、列印、補印 全開
+ *   READONLY：**只有 view**
+ *   FINANCE_CLERK：普渡不開放（該角色目前未開放給任何使用者，維持既有慣例）
+ *
+ * READONLY 刻意不給 print——「更新列印狀態」「建立補印紀錄」都會寫入資料庫，
+ * 指令明確要求 READONLY 不得修改列印狀態、不得建立補印紀錄。
+ * 唯讀人員要看列印內容，走 view（列印預覽 API 是 GET）。
+ */
+const UNIVERSAL_SALVATION_PERMISSIONS: Record<Role, UniversalSalvationAction[]> = {
+  SUPER_ADMIN: ["view", "create", "update", "delete", "restore", "print", "reprint"],
+  ADMIN: ["view", "create", "update", "delete", "restore", "print", "reprint"],
+  STAFF: ["view", "create", "update", "delete", "restore", "print", "reprint"],
+  READONLY: ["view"],
+  FINANCE_CLERK: [],
+};
+
+export function canUniversalSalvation(role: Role, action: UniversalSalvationAction): boolean {
+  return UNIVERSAL_SALVATION_PERMISSIONS[role]?.includes(action) ?? false;
+}
+
+/** 供測試與稽核使用的完整矩陣快照（唯讀）。 */
+export const UNIVERSAL_SALVATION_PERMISSION_MATRIX: Readonly<
+  Record<Role, readonly UniversalSalvationAction[]>
+> = UNIVERSAL_SALVATION_PERMISSIONS;
+
 export function canDevotee(role: Role, action: DevoteeAction): boolean {
   return DEVOTEE_PERMISSIONS[role]?.includes(action) ?? false;
 }

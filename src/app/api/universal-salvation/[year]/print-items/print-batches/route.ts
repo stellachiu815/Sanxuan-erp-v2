@@ -6,6 +6,8 @@ import {
   type PrintCenterFilters,
 } from "@/lib/additionalPrintItems";
 
+import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 /**
  * 普渡列印中心：產生列印批次（需求「九」：全部列印/只印預設寶袋/只印額外
  * 寶袋/指定寶袋補印/指定家戶列印/指定名稱搜尋，都是同一支 API，只是
@@ -33,6 +35,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ year: string }> }
 ) {
+  /**
+   * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
+   * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
+   */
+  const operatorUserId = await readOperatorUserId(request);
+  const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "print");
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: check.status });
+  }
+
   const { year: yearParam } = await params;
 
   const year = Number(yearParam);
@@ -40,7 +52,7 @@ export async function POST(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => null);
+  const body = await readJsonBody(request);
   if (!body || typeof body !== "object" || !body.filter || typeof body.filter !== "object") {
     return NextResponse.json({ error: "請提供正確的篩選條件（filter）" }, { status: 400 });
   }
@@ -87,9 +99,9 @@ export async function POST(
     return NextResponse.json({ error: "沒有符合條件、可以列印的項目" }, { status: 400 });
   }
 
-  const printedByName = typeof body.printedByName === "string" ? body.printedByName : null;
+  const printedByName = check.operator.name;
   const templateVersionId = typeof body.templateVersionId === "string" ? body.templateVersionId : null;
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const operatorName = check.operator.name;
 
   const result = await generateAdditionalPrintItemBatch(
     itemIds,
