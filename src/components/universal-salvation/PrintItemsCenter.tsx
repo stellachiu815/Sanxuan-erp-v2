@@ -17,6 +17,7 @@ import {
 } from "@/lib/labels";
 import { summarizePrintItems, type AdditionalPrintItemStatusValue } from "@/lib/additionalPrintItemRules";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type PrintCenterItem = {
   id: string;
   household: { id: string; name: string };
@@ -76,7 +77,7 @@ export default function PrintItemsCenter({ year }: Props) {
       if (extraFilter) query.set("isExtra", extraFilter);
       if (statusFilter) query.set("status", statusFilter);
 
-      const res = await fetch(`/api/universal-salvation/${year}/print-items?${query.toString()}`);
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items?${query.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         setLoadError(data.error ?? "讀取失敗，請稍後再試一次。");
@@ -115,7 +116,7 @@ export default function PrintItemsCenter({ year }: Props) {
     setActionError(null);
     setToast(null);
     try {
-      const res = await fetch(`/api/universal-salvation/${year}/print-items/print-batches`, {
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/print-batches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filter }),
@@ -334,7 +335,7 @@ function ImportPanel({ year, onImported }: { year: number; onImported: () => voi
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`/api/universal-salvation/${year}/print-items/import/analyze`, {
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/import/analyze`, {
         method: "POST",
         body: formData,
       });
@@ -362,7 +363,7 @@ function ImportPanel({ year, onImported }: { year: number; onImported: () => voi
       const formData = new FormData();
       formData.append("file", file);
       formData.append("mapping", JSON.stringify(mapping));
-      const res = await fetch(`/api/universal-salvation/${year}/print-items/import/commit`, {
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/import/commit`, {
         method: "POST",
         body: formData,
       });

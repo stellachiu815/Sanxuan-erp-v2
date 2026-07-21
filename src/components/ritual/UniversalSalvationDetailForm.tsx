@@ -11,6 +11,7 @@ import {
 import { ritualRecordStatusLabel } from "@/lib/labels";
 import type { DetailJSON, RecordJSON } from "./types";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
   householdId: string;
   year: number;
@@ -64,7 +65,7 @@ export default function UniversalSalvationDetailForm({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(
+      const res = await fetchUniversalSalvation(
         `/api/households/${householdId}/rituals/universal-salvation/${year}`,
         {
           method: "PATCH",

@@ -8,6 +8,7 @@ import EntryCategorySection from "./EntryCategorySection";
 import Toast from "./Toast";
 import { CATEGORY_SECTIONS, type RecordJSON } from "./types";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
   householdId: string;
   householdName: string;
@@ -134,7 +135,7 @@ function AskSameAsLastYear({
     setSubmitting("copy");
     setError(null);
     try {
-      const res = await fetch(
+      const res = await fetchUniversalSalvation(
         `/api/households/${householdId}/rituals/universal-salvation/copy-from-previous-year`,
         {
           method: "POST",
@@ -159,7 +160,7 @@ function AskSameAsLastYear({
     setSubmitting("blank");
     setError(null);
     try {
-      const res = await fetch(`/api/households/${householdId}/rituals/universal-salvation`, {
+      const res = await fetchUniversalSalvation(`/api/households/${householdId}/rituals/universal-salvation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year }),

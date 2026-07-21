@@ -11,6 +11,7 @@ import {
 import AdditionalPrintItemsPanel from "./AdditionalPrintItemsPanel";
 import type { EntryJSON, RecordJSON } from "./types";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
   householdId: string;
   year: number;
@@ -44,7 +45,7 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
     setSubmitting("save");
     setError(null);
     try {
-      const res = await fetch(
+      const res = await fetchUniversalSalvation(
         `/api/households/${householdId}/rituals/universal-salvation/${year}/entries/${entry.id}`,
         {
           method: "PATCH",
@@ -85,7 +86,7 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
     setSubmitting("delete");
     setError(null);
     try {
-      const res = await fetch(
+      const res = await fetchUniversalSalvation(
         `/api/households/${householdId}/rituals/universal-salvation/${year}/entries/${entry.id}`,
         { method: "DELETE" }
       );

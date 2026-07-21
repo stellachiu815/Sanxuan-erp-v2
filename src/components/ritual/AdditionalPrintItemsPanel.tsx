@@ -17,6 +17,7 @@ import {
 } from "@/lib/labels";
 import type { AdditionalPrintItemJSON, AdditionalPrintItemType } from "./types";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
   householdId: string;
   year: number;
@@ -49,7 +50,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
 
   async function reload() {
     try {
-      const res = await fetch(basePath);
+      const res = await fetchUniversalSalvation(basePath);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "讀取失敗，請稍後再試一次。");
@@ -74,7 +75,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
     setBusyId(item.id);
     setError(null);
     try {
-      const res = await fetch(`/api/universal-salvation/${year}/print-items/print-batches`, {
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/print-batches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filter: { kind: "IDS", ids: [item.id] } }),
@@ -96,7 +97,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
     setBusyId(item.id);
     setError(null);
     try {
-      const res = await fetch(`${basePath}/${item.id}/cancel`, { method: "POST" });
+      const res = await fetchUniversalSalvation(`${basePath}/${item.id}/cancel`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "取消失敗，請稍後再試一次。");
@@ -114,7 +115,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
     setBusyId(item.id);
     setError(null);
     try {
-      const res = await fetch(`${basePath}/${item.id}/restore`, { method: "POST" });
+      const res = await fetchUniversalSalvation(`${basePath}/${item.id}/restore`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "恢復失敗，請稍後再試一次。");
@@ -132,7 +133,7 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
     setBusyId(item.id);
     setError(null);
     try {
-      const res = await fetch(`${basePath}/${item.id}/delete`, { method: "POST" });
+      const res = await fetchUniversalSalvation(`${basePath}/${item.id}/delete`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "永久刪除失敗，請稍後再試一次。");
@@ -476,7 +477,7 @@ function AddPrintItemForm({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(basePath, {
+      const res = await fetchUniversalSalvation(basePath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -673,7 +674,7 @@ function EditPrintItemForm({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`${basePath}/${item.id}`, {
+      const res = await fetchUniversalSalvation(`${basePath}/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

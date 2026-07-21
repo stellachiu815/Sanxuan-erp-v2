@@ -11,6 +11,7 @@ import EntryRow from "./EntryRow";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
 import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON } from "./types";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
   householdId: string;
   year: number;
@@ -49,7 +50,7 @@ export default function EntryCategorySection({
     yangshangName?: string | null;
     notes?: string | null;
   }) {
-    const res = await fetch(
+    const res = await fetchUniversalSalvation(
       `/api/households/${householdId}/rituals/universal-salvation/${year}/entries`,
       {
         method: "POST",

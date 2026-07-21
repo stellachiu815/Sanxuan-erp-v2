@@ -13,6 +13,7 @@ import {
 } from "./tablets";
 import { exportSheetsToPdf } from "./pdfExport";
 
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type PrintEntry = PrintTabletEntry;
 
 type PrintCategoryKey = "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "DEBT_CREDITOR" | "UNBORN_CHILD";
@@ -70,7 +71,7 @@ export default function PrintCenter({ householdId, householdName, year }: Props)
       setLoading(true);
       setLoadError(null);
       try {
-        const res = await fetch(
+        const res = await fetchUniversalSalvation(
           `/api/households/${householdId}/rituals/universal-salvation/${year}/print`
         );
         const data = await res.json();
