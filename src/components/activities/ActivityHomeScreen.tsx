@@ -128,6 +128,7 @@ export default function ActivityHomeScreen({ templeEventId, initialHome, initial
           setParticipants={setParticipants}
           showToast={showToast}
           onChanged={refreshHome}
+          activityType={home.activityType}
         />
       )}
       {tab === "IMPORT" && <ImportPanel templeEventId={templeEventId} showToast={showToast} onChanged={refreshHome} />}
@@ -188,8 +189,11 @@ function ParticipantsPanel({
   setParticipants,
   showToast,
   onChanged,
+  activityType,
 }: {
   templeEventId: string;
+  /** V13.3B 驗收修正：普渡才顯示「普渡登記／寶袋」入口 */
+  activityType: string;
   participants: Participant[];
   setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>;
   showToast: (m: string) => void;
@@ -340,11 +344,30 @@ function ParticipantsPanel({
                 <td className="px-4 py-3">{p.notes ?? "—"}</td>
                 <td className="px-4 py-3">{p.status === "CANCELLED" ? "已移除" : "有效"}</td>
                 <td className="px-4 py-3">
-                  {p.status !== "CANCELLED" && (
-                    <button type="button" className="text-xs text-blossom-300 underline-offset-4 hover:underline" onClick={() => setRemoveTargetId(p.id)}>
-                      移除
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/*
+                      V13.3B 驗收修正：參加名單原本只有「移除」，沒有任何
+                      進入普渡登記的入口——寶袋（AdditionalPrintItemsPanel）
+                      掛在普渡登記的每一筆牌位項目底下，使用者必須先進到
+                      該戶的普渡登記畫面才看得到。
+
+                      這裡補上明確入口，不需要使用者猜。
+                      ⚠️ 只在普渡活動顯示：其他活動類型沒有普渡登記畫面。
+                    */}
+                    {p.status !== "CANCELLED" && activityType === "UNIVERSAL_SALVATION" && (
+                      <a
+                        href={`/household/${p.householdId}/rituals/universal-salvation`}
+                        className="rounded-full bg-yolk-200 px-3 py-1.5 text-xs text-ink transition hover:bg-yolk-300"
+                      >
+                        普渡登記／寶袋
+                      </a>
+                    )}
+                    {p.status !== "CANCELLED" && (
+                      <button type="button" className="text-xs text-blossom-300 underline-offset-4 hover:underline" onClick={() => setRemoveTargetId(p.id)}>
+                        移除
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
