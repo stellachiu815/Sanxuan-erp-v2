@@ -11,6 +11,7 @@ import {
 } from "@/components/household/formStyles";
 import ParticipantSelector from "./ParticipantSelector";
 import LanternRegistrationEditor from "./LanternRegistrationEditor";
+import RegisteredItemsPanel from "./RegisteredItemsPanel";
 import UniversalSalvationScreen from "@/components/ritual/UniversalSalvationScreen";
 
 /**
@@ -184,6 +185,9 @@ function RegistrationEditorInner({ overview }: Props) {
         </section>
       ) : (
         <>
+          {/* ── V14：已報名項目（多項目架構）── */}
+          <RegisteredItemsPanel ritualRecordId={overview.ritualRecordId} />
+
           {/* ── 成員（所有活動共用） ── */}
           <ParticipantSelector
             ritualRecordId={overview.ritualRecordId}

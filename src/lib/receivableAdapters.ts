@@ -1097,6 +1097,160 @@ const lanternRegistrationAdapter: ReceivableSourceAdapter = {
 };
 
 // ============================================================
+// Adapter 7～10：V14 多項目架構的收費項目（RitualRegistrationItem）
+//
+// 白米／訂桌／龍鳳燈／補褲四種收費來源都存在同一張 ritual_registration_items，
+// 用同一個工廠產生 adapter，依報名項目 key 過濾，避免四套重複程式。
+// 全部沿用既有：DRAFT 不進待收款、原子條件式 UPDATE、不吞錯、金額用 Decimal。
+// ============================================================
+
+function makeRegistrationItemAdapter(
+  sourceType: string,
+  itemKeys: string[],
+  fallbackLabel: string
+): ReceivableSourceAdapter {
+  return {
+    sourceType,
+    isWired: true,
+
+    async listPending(filters) {
+      const where: Prisma.RitualRegistrationItemWhereInput = {
+        deletedAt: null,
+        // DRAFT／CANCELLED 項目不進待收款（指令七）——即使主報名已確認，
+        // 之後新增、尚未確認的項目也不得進待收款。
+        status: "CONFIRMED",
+        amountUnpaid: { gt: 0 },
+        registrationItemType: { key: { in: itemKeys } },
+        ritualRecord: { deletedAt: null, status: "CONFIRMED" },
+      };
+      if (filters.sponsorHouseholdId) {
+        where.ritualRecord = {
+          deletedAt: null,
+          status: "CONFIRMED",
+          householdId: filters.sponsorHouseholdId,
+        };
+      }
+
+      const rows = await prisma.ritualRegistrationItem.findMany({
+        where,
+        include: {
+          registrationItemType: true,
+          ritualRecord: { include: { household: true, templeEvent: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+
+      return rows
+        .map((r) => {
+          const rec = r.ritualRecord;
+          const itemName = r.customName ?? r.registrationItemType.name;
+          const amountDue = Number(r.amountDue);
+          const amountPaid = Number(r.amountPaid);
+          const amountUnpaid = Number(r.amountUnpaid);
+          const view: UniversalReceivableView = {
+            sourceType,
+            sourceId: r.id,
+            householdId: rec.householdId,
+            memberId: r.memberId,
+            payerName: rec.household.contactName || rec.household.name,
+            phone: rec.household.phone,
+            activityId: rec.templeEventId,
+            activityName: rec.templeEvent?.name ?? `${rec.year}年度${r.registrationItemType.activityGroupName}`,
+            itemName: `${itemName}（${rec.household.name}）`,
+            receivableAmount: amountDue,
+            paidAmount: amountPaid,
+            unpaidAmount: amountUnpaid,
+            paymentStatus: amountPaid <= 0 ? "UNPAID" : "PARTIAL",
+            sourceYear: rec.year,
+            sourceDate: r.createdAt.toISOString(),
+            sourceUrl: `/registration/${rec.id}`,
+            canCollect: true,
+            cannotCollectReason: null,
+            isCrossYear: isCrossYearUnpaid(
+              rec.year,
+              filters.currentYear,
+              amountPaid <= 0 ? "UNPAID" : "PARTIAL"
+            ),
+            note: r.notes,
+            createdAt: r.createdAt,
+          };
+          return view;
+        })
+        .filter((v) => (filters.onlyCrossYear ? v.isCrossYear : true));
+    },
+
+    async applyPayment(tx, sourceId, amount, ctx) {
+      const rows = await tx.$queryRaw<
+        { id: string; amountDue: Prisma.Decimal; amountPaid: Prisma.Decimal }[]
+      >`
+        UPDATE "ritual_registration_items" AS ri
+        SET "amountPaid" = ri."amountPaid" + ${amount},
+            "amountUnpaid" = GREATEST(ri."amountDue" - (ri."amountPaid" + ${amount}), 0)
+        FROM "ritual_records" AS rr
+        WHERE ri."id" = ${sourceId}
+          AND ri."ritualRecordId" = rr."id"
+          AND ri."deletedAt" IS NULL
+          AND rr."deletedAt" IS NULL
+          AND rr."status" = 'CONFIRMED'
+          AND ri."amountUnpaid" >= ${amount}
+        RETURNING ri."id", ri."amountDue", ri."amountPaid"
+      `;
+      if (rows.length === 0) {
+        const current = await tx.ritualRegistrationItem.findUnique({
+          where: { id: sourceId },
+          include: { ritualRecord: true },
+        });
+        if (!current || current.deletedAt) throw new Error(`找不到這筆報名項目（${sourceId}）`);
+        if (current.ritualRecord.status !== "CONFIRMED") {
+          throw new Error("這筆報名尚未確認，無法收款");
+        }
+        throw new Error("收款金額超過目前未收金額（可能剛被其他人收款），請重新整理後再試");
+      }
+
+      const item = await tx.ritualRegistrationItem.findUnique({
+        where: { id: sourceId },
+        include: { registrationItemType: true, ritualRecord: { include: { household: true } } },
+      });
+      await recordVersion(
+        {
+          entityType: "RitualRegistrationItem",
+          entityId: sourceId,
+          action: "UPDATE",
+          operatorName: ctx.operatorName,
+          changeNote: `收款中心合併收款 ${amount} 元（${ctx.transactionNo}）`,
+        },
+        tx
+      );
+      return {
+        ledgerId: sourceId,
+        label: `${item?.registrationItemType.name ?? fallbackLabel}－${item?.ritualRecord.household.name ?? ""}（${item?.ritualRecord.year ?? ""}年度）`,
+        year: item?.ritualRecord.year ?? ctx.paidOn.getFullYear() - 1911,
+      };
+    },
+
+    async applyReversal(tx, sourceId, amount, _ctx) {
+      const item = await tx.ritualRegistrationItem.findUnique({ where: { id: sourceId } });
+      if (!item) throw new Error("找不到這筆報名項目");
+      const amountPaid = round2(Math.max(0, Number(item.amountPaid) - amount));
+      const amountDue = Number(item.amountDue);
+      await tx.ritualRegistrationItem.update({
+        where: { id: sourceId },
+        data: {
+          amountPaid,
+          amountUnpaid: round2(Math.max(0, amountDue - amountPaid)),
+        },
+      });
+    },
+  };
+}
+
+const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION", ["US_RICE"], "白米登記");
+const celebrationTableAdapter = makeRegistrationItemAdapter("CELEBRATION_TABLE", ["CELEBRATION_TABLE"], "宮慶訂桌");
+const dragonPhoenixLanternAdapter = makeRegistrationItemAdapter("DRAGON_PHOENIX_LANTERN", ["DRAGON_PHOENIX"], "龍鳳燈");
+const storageTrousersAdapter = makeRegistrationItemAdapter("STORAGE_TROUSERS", ["STORAGE_TROUSERS"], "補褲");
+
+// ============================================================
 // Registry
 // ============================================================
 
@@ -1107,6 +1261,10 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   purificationEntryAdapter,
   additionalPrintItemAdapter,
   lanternRegistrationAdapter,
+  riceRegistrationAdapter,
+  celebrationTableAdapter,
+  dragonPhoenixLanternAdapter,
+  storageTrousersAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

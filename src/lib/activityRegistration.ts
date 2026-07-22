@@ -328,6 +328,13 @@ export async function confirmRegistration(
       data: { status: "CONFIRMED" satisfies RitualRecordStatus },
     });
 
+    // V14：主報名確認時，旗下所有未刪除的報名項目一律同步 CONFIRMED，
+    // 不可讓主報名已確認、子項目仍停留 DRAFT（指令一）。
+    await tx.ritualRegistrationItem.updateMany({
+      where: { ritualRecordId, deletedAt: null, status: "DRAFT" },
+      data: { status: "CONFIRMED" satisfies RitualRecordStatus },
+    });
+
     await recordVersion(
       {
         entityType: "RitualRecord",
@@ -361,6 +368,12 @@ export async function cancelRegistration(
   await prisma.$transaction(async (tx) => {
     const after = await tx.ritualRecord.update({
       where: { id: ritualRecordId },
+      data: { status: "CANCELLED" satisfies RitualRecordStatus },
+    });
+    // V14：取消主報名時，旗下所有未刪除的報名項目一律同步 CANCELLED，
+    // 使其不再進入待收款與列印（指令一）。
+    await tx.ritualRegistrationItem.updateMany({
+      where: { ritualRecordId, deletedAt: null },
       data: { status: "CANCELLED" satisfies RitualRecordStatus },
     });
     await recordVersion(

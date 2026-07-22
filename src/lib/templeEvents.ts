@@ -53,6 +53,7 @@ export type CreateTempleEventInput = {
 };
 
 const ACTIVITY_TYPE_LABEL_FOR_NAME: Record<ActivityType, string> = {
+  DRAGON_PHOENIX_LANTERN: "龍鳳燈",
   ANNUAL_LANTERN: "年度燈",
   UNIVERSAL_SALVATION: "中元普渡",
   TEMPLE_CELEBRATION: "宮慶",

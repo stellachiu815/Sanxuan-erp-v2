@@ -6,70 +6,70 @@ import Modal from "@/components/Modal";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 import {
   labelClass,
-  checkboxRowClass,
   primaryButtonClass,
   secondaryButtonClass,
   errorTextClass,
 } from "@/components/household/formStyles";
 
 /**
- * V13.4：從信眾詳情頁新增活動報名。
+ * V14：信眾詳情頁「新增活動報名」——兩段式多項目報名。
  *
- * 流程（指令三、六）：
- *   ① 選活動（清單完全從 TempleEvent 動態取得，前端零寫死）
- *   ② 選「沿用去年」或「全新手動建立」
- *   ③ 勾選本人與同家戶成員
- *   ④ 建立／取得唯一的 RitualRecord，寫入成員
- *   ⑤ 導向共用報名編輯器填內容
+ * 流程（指令八）：
+ *   ① 先選主活動（普渡／年度燈／宮慶／補褲／龍鳳燈，動態來自 RegistrationItemType）
+ *   ② 顯示該主活動的報名項目 → 選一個具體項目 + 年度 + 成員
+ *   ③ 建立報名項目（掛在既有 RitualRecord 之下）→ 進統一報名編輯頁
  *
- * ⚠️ 已有報名時**不是錯誤**——直接開啟既有那一筆並提示。
+ * ⚠️ 不再有舊版那種「未設定報名表就整個不能按」的死路：只要該項目的
+ *    活動類型有開放年度即可報名。
+ * 同一位信眾可在同一主活動下報名多個不同項目（回編輯頁再加即可）。
  */
 
-type AvailableActivity = {
-  templeEventId: string;
-  activityType: string;
-  year: number;
+type ItemView = {
+  id: string;
+  key: string;
   name: string;
-  eventDate: string | null;
-  status: string;
-  formSupported: boolean;
-  formUnsupportedReason: string | null;
-  alreadyRegistered: boolean;
-  existingRitualRecordId: string | null;
-  existingStatus: string | null;
+  activityType: string;
+  activityGroup: string;
+  activityGroupName: string;
+  contentKind: string;
+  feeMode: string;
+  defaultUnitPrice: number | null;
+  defaultQuantity: number;
+  allowMultiplePerMember: boolean;
 };
-
+type GroupView = { activityGroup: string; activityGroupName: string; items: ItemView[] };
+type OpenYear = { year: number; templeEventId: string; name: string };
 type HouseholdMember = { id: string; name: string; role: string; isDeceased: boolean };
 
-type Props = {
-  memberId: string;
-  onClose: () => void;
-};
+type Props = { memberId: string; onClose: () => void };
 
 export default function NewActivityRegistrationDialog({ memberId, onClose }: Props) {
   const router = useRouter();
-  const [activities, setActivities] = useState<AvailableActivity[] | null>(null);
-  const [householdMembers, setHouseholdMembers] = useState<HouseholdMember[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>("");
-  const [mode, setMode] = useState<"NEW" | "CARRY_OVER">("NEW");
+  const [groups, setGroups] = useState<GroupView[] | null>(null);
+  const [openYears, setOpenYears] = useState<Record<string, OpenYear[]>>({});
+  const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string>("");
+  const [selectedItemId, setSelectedItemId] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState<number | "">("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-  const [carryTableNumber, setCarryTableNumber] = useState(false);
+  const [quantity, setQuantity] = useState<number>(1);
+  const [feeChoice, setFeeChoice] = useState<"FIXED" | "CUSTOM">("FIXED");
+  const [customAmount, setCustomAmount] = useState<string>("");
+  const [customName, setCustomName] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetchRegistration(
-        `/api/devotee-center/${memberId}/available-activities`
-      );
+      const res = await fetchRegistration(`/api/devotee-center/${memberId}/activity-groups`);
       const data = await res.json();
       if (!res.ok) {
         setError(toFriendlyError(res.status, data?.error));
         return;
       }
-      setActivities(data.activities);
-      setHouseholdMembers(data.householdMembers);
-      // 預設勾選本人
+      setGroups(data.groups);
+      setOpenYears(data.openYearsByActivityType ?? {});
+      setMembers(data.householdMembers ?? []);
       setSelectedMemberIds([memberId]);
     } catch {
       setError("網路連線問題，請稍後再試一次。");
@@ -80,7 +80,19 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     void load();
   }, [load]);
 
-  const selected = activities?.find((a) => a.templeEventId === selectedEventId) ?? null;
+  const group = groups?.find((g) => g.activityGroup === selectedGroup) ?? null;
+  const item = group?.items.find((i) => i.id === selectedItemId) ?? null;
+  const yearsForItem = item ? openYears[item.activityType] ?? [] : [];
+
+  useEffect(() => {
+    // 選了項目後自動帶入預設數量與可選年度
+    if (item) {
+      setQuantity(item.defaultQuantity);
+      if (yearsForItem.length > 0) setSelectedYear(yearsForItem[0].year);
+      else setSelectedYear("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItemId]);
 
   function toggleMember(id: string) {
     setSelectedMemberIds((prev) =>
@@ -88,28 +100,35 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     );
   }
 
+  const needsQuantity = item ? ["PER_UNIT"].includes(item.feeMode) || item.contentKind === "TURTLE" : false;
+  const needsFeeChoice = item?.feeMode === "FIXED_OR_CUSTOM";
+  const needsCustomAmount =
+    item?.feeMode === "CUSTOM" || (needsFeeChoice && feeChoice === "CUSTOM");
+  const canCustomName = item ? ["POCKET"].includes(item.contentKind) : false;
+
+  const canSubmit =
+    item !== null &&
+    selectedYear !== "" &&
+    selectedMemberIds.length > 0 &&
+    (!needsCustomAmount || Number(customAmount) >= 0);
+
   async function submit() {
-    if (!selected) return;
-
-    // 已有報名 → 直接開啟既有那一筆
-    if (selected.alreadyRegistered && selected.existingRitualRecordId) {
-      router.push(`/registration/${selected.existingRitualRecordId}?from=${memberId}`);
-      return;
-    }
-
+    if (!item || selectedYear === "") return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetchRegistration(
-        `/api/devotee-center/${memberId}/activity-registrations`,
+        `/api/devotee-center/${memberId}/registration-items`,
         {
           method: "POST",
           body: JSON.stringify({
-            templeEventId: selected.templeEventId,
-            memberIds: selectedMemberIds,
-            mode,
-            carryOverOptions:
-              mode === "CARRY_OVER" ? { copyTableNumber: carryTableNumber } : undefined,
+            registrationItemTypeId: item.id,
+            year: selectedYear,
+            participantMemberIds: selectedMemberIds,
+            quantity: needsQuantity ? quantity : undefined,
+            customName: canCustomName && customName.trim() ? customName.trim() : undefined,
+            customAmount: needsCustomAmount ? Number(customAmount) : undefined,
+            feeChoice: needsFeeChoice ? feeChoice : undefined,
           }),
         }
       );
@@ -126,121 +145,95 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     }
   }
 
-  const canSubmit =
-    selected !== null &&
-    (selected.alreadyRegistered || (selected.formSupported && selectedMemberIds.length > 0));
-
   return (
     <Modal title="新增活動報名" onClose={onClose}>
-      {activities === null ? (
+      {groups === null ? (
         <p className="py-8 text-center text-sm text-ink-soft">{error ?? "讀取中…"}</p>
       ) : (
         <div className="flex flex-col gap-4">
           {error && <p className={errorTextClass}>{error}</p>}
 
-          {/* ── ① 選活動 ── */}
+          {/* ── ① 選主活動 ── */}
           <div>
-            <label className={labelClass}>選擇活動</label>
-            {activities.length === 0 ? (
-              <p className="rounded-2xl bg-cream-100 px-4 py-3 text-sm text-ink-soft">
-                目前沒有開放報名的活動。請先於活動中心建立活動年度並開放報名。
-              </p>
-            ) : (
-              <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
-                {activities.map((a) => (
-                  <button
-                    key={a.templeEventId}
-                    type="button"
-                    onClick={() => setSelectedEventId(a.templeEventId)}
-                    className={`rounded-xl px-4 py-3 text-left text-sm transition ${
-                      selectedEventId === a.templeEventId
-                        ? "bg-sage-100 text-ink"
-                        : "bg-cream-50 text-ink-soft hover:bg-cream-100"
-                    }`}
-                  >
-                    <span className="text-ink">
-                      民國 {a.year} 年　{a.name}
-                    </span>
-                    <span className="ml-2 text-xs text-ink-faint">
-                      {a.eventDate ?? "日期未定"}
-                    </span>
-                    {a.alreadyRegistered && (
-                      <span className="ml-2 rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">
-                        已有報名
-                      </span>
-                    )}
-                    {!a.formSupported && (
-                      <span className="ml-2 rounded-full bg-blossom-100 px-2 py-0.5 text-xs text-ink">
-                        尚未設定報名表
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
+            <label className={labelClass}>① 選擇主活動</label>
+            <div className="flex flex-wrap gap-2">
+              {groups.map((g) => (
+                <button
+                  key={g.activityGroup}
+                  type="button"
+                  onClick={() => {
+                    setSelectedGroup(g.activityGroup);
+                    setSelectedItemId("");
+                  }}
+                  className={`min-h-11 rounded-full px-4 py-2 text-sm transition ${
+                    selectedGroup === g.activityGroup
+                      ? "bg-sage-200 text-ink"
+                      : "bg-cream-100 text-ink-soft hover:bg-cream-200"
+                  }`}
+                >
+                  {g.activityGroupName}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {selected && !selected.formSupported && (
-            <p className="rounded-2xl bg-blossom-100 px-4 py-3 text-xs leading-relaxed text-ink">
-              {selected.formUnsupportedReason}
-            </p>
+          {/* ── ② 選報名項目 ── */}
+          {group && (
+            <div>
+              <label className={labelClass}>② 選擇報名項目（{group.activityGroupName}）</label>
+              <div className="flex flex-col gap-1.5">
+                {group.items.map((i) => {
+                  const hasYear = (openYears[i.activityType] ?? []).length > 0;
+                  return (
+                    <button
+                      key={i.id}
+                      type="button"
+                      disabled={!hasYear}
+                      onClick={() => setSelectedItemId(i.id)}
+                      className={`rounded-xl px-4 py-3 text-left text-sm transition ${
+                        selectedItemId === i.id
+                          ? "bg-sage-100 text-ink"
+                          : hasYear
+                            ? "bg-cream-50 text-ink-soft hover:bg-cream-100"
+                            : "cursor-not-allowed bg-cream-100 text-ink-faint"
+                      }`}
+                    >
+                      <span className="text-ink">{i.name}</span>
+                      {!hasYear && (
+                        <span className="ml-2 text-xs text-ink-faint">（本年度尚未開放此活動）</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
 
-          {selected?.alreadyRegistered && (
-            <p className="rounded-2xl bg-yolk-100 px-4 py-3 text-sm text-ink">
-              此家戶本年度已有這項活動資料，將為你開啟原報名紀錄
-              （目前狀態：{selected.existingStatus === "CONFIRMED" ? "已確認" : "草稿"}）。
-            </p>
-          )}
-
-          {/* ── ② 沿用 or 全新 ── */}
-          {selected && selected.formSupported && !selected.alreadyRegistered && (
+          {/* ── ③ 年度 + 成員 + 收費 ── */}
+          {item && (
             <>
               <div>
-                <label className={labelClass}>建立方式</label>
+                <label className={labelClass}>年度</label>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode("NEW")}
-                    className={`min-h-11 rounded-full px-4 py-2 text-sm transition ${
-                      mode === "NEW" ? "bg-mist-200 text-ink" : "bg-cream-100 text-ink-soft"
-                    }`}
-                  >
-                    全新手動建立
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("CARRY_OVER")}
-                    className={`min-h-11 rounded-full px-4 py-2 text-sm transition ${
-                      mode === "CARRY_OVER" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"
-                    }`}
-                  >
-                    沿用去年資料
-                  </button>
+                  {yearsForItem.map((y) => (
+                    <button
+                      key={y.templeEventId}
+                      type="button"
+                      onClick={() => setSelectedYear(y.year)}
+                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
+                        selectedYear === y.year ? "bg-mist-200 text-ink" : "bg-cream-100 text-ink-soft"
+                      }`}
+                    >
+                      民國 {y.year} 年
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
-                  {mode === "NEW"
-                    ? "完全不帶入去年任何內容，所有欄位手動填寫。"
-                    : "沿用去年的報名內容與人員；付款、收據、列印與對帳狀態一律不沿用，全部重新開始。"}
-                </p>
               </div>
 
-              {mode === "CARRY_OVER" && selected.activityType === "UNIVERSAL_SALVATION" && (
-                <label className={checkboxRowClass}>
-                  <input
-                    type="checkbox"
-                    checked={carryTableNumber}
-                    onChange={(e) => setCarryTableNumber(e.target.checked)}
-                  />
-                  同時沿用去年的普渡桌號（預設不沿用，桌號通常每年重新安排）
-                </label>
-              )}
-
-              {/* ── ③ 選成員 ── */}
               <div>
                 <label className={labelClass}>本次報名成員</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {householdMembers.map((m) => {
+                  {members.map((m) => {
                     const on = selectedMemberIds.includes(m.id);
                     return (
                       <button
@@ -258,10 +251,68 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
                     );
                   })}
                 </div>
-                <p className="mt-1.5 text-xs text-ink-faint">
-                  同一家戶只會建立一筆活動報名，勾選的成員都會納入這一筆，不會重複建立。
-                </p>
               </div>
+
+              {needsQuantity && (
+                <div>
+                  <label className={labelClass}>數量</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={quantity}
+                    onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-24 rounded-xl border border-cream-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+
+              {canCustomName && (
+                <div>
+                  <label className={labelClass}>自訂名稱（額外寶袋，可空）</label>
+                  <input
+                    type="text"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    placeholder="例如：地基主寶袋"
+                    className="w-full rounded-xl border border-cream-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+
+              {needsFeeChoice && (
+                <div>
+                  <label className={labelClass}>贊普收費方式</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFeeChoice("FIXED")}
+                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs ${feeChoice === "FIXED" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}
+                    >
+                      每年固定費用
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFeeChoice("CUSTOM")}
+                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs ${feeChoice === "CUSTOM" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}
+                    >
+                      其他自訂金額
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {needsCustomAmount && (
+                <div>
+                  <label className={labelClass}>自訂金額</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={customAmount}
+                    onChange={(e) => setCustomAmount(e.target.value)}
+                    className="w-32 rounded-xl border border-cream-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
             </>
           )}
 
@@ -275,11 +326,7 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
               onClick={() => void submit()}
               disabled={busy || !canSubmit}
             >
-              {busy
-                ? "處理中…"
-                : selected?.alreadyRegistered
-                  ? "開啟既有報名"
-                  : "建立並填寫內容"}
+              {busy ? "處理中…" : "建立報名並填寫內容"}
             </button>
           </div>
         </div>
