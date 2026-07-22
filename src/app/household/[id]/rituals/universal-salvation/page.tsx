@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCurrentRitualYear, getUniversalSalvationRecord } from "@/lib/ritual";
@@ -25,6 +25,26 @@ export default async function UniversalSalvationPage({
   if (!household) notFound();
 
   const year = getCurrentRitualYear();
+
+  /**
+   * V13.4：若這一戶本年度已有普渡報名，導向**共用報名編輯器**。
+   *
+   * 全系統只有一個編輯器（/registration/[id]），家戶頁與信眾詳情頁
+   * 都走同一條路——避免新舊兩頁各自保留一份相同表單。
+   */
+  const existing = await prisma.ritualRecord.findUnique({
+    where: {
+      householdId_year_activityType: {
+        householdId: household.id,
+        year,
+        activityType: "UNIVERSAL_SALVATION",
+      },
+    },
+    select: { id: true, deletedAt: true },
+  });
+  if (existing && !existing.deletedAt) {
+    redirect(`/registration/${existing.id}`);
+  }
   const record = await getUniversalSalvationRecord(householdId, year);
 
   // 傳給 Client Component 之前先做一次 JSON 序列化：Prisma 回傳的

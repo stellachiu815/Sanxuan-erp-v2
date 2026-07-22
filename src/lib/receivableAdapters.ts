@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import { resolvePocketPaymentState } from "@/lib/pocketPricing";
-import { additionalPrintItemTypeLabel } from "@/lib/labels";
+import { additionalPrintItemTypeLabel, activityTypeLabel } from "@/lib/labels";
 import {
   round2,
   deriveUniversalPaymentStatus,
@@ -378,7 +378,12 @@ const universalSalvationSponsorAdapter: ReceivableSourceAdapter = {
     const where: Prisma.UniversalSalvationDetailWhereInput = {
       isSponsor: true,
       amountUnpaid: { gt: 0 },
-      ritualRecord: { deletedAt: null },
+      /**
+       * V13.4 指令七：**草稿不得進入待收款。**
+       * 只有 RitualRecord.status = CONFIRMED 的報名才是有效應收。
+       * DRAFT 階段可以先填金額，但不可收款、不可開收據、不可正式列印。
+       */
+      ritualRecord: { deletedAt: null, status: "CONFIRMED" },
     };
     const rows = await prisma.universalSalvationDetail.findMany({
       where,
@@ -497,6 +502,12 @@ const purificationEntryAdapter: ReceivableSourceAdapter = {
       status: "ACTIVE",
       feeStatus: "CHARGEABLE",
       amountUnpaid: { gt: 0 },
+      /**
+       * V13.4 指令七：**草稿不得進入待收款。**
+       * 只有 RitualRecord.status = CONFIRMED 的報名才是有效應收。
+       * DRAFT 階段可以先填金額，但不可收款、不可開收據、不可正式列印。
+       */
+      ritualRecord: { deletedAt: null, status: "CONFIRMED" },
     };
     if (filters.sponsorMemberId) where.memberId = filters.sponsorMemberId;
     const rows = await prisma.purificationEntry.findMany({
@@ -769,6 +780,12 @@ const additionalPrintItemAdapter: ReceivableSourceAdapter = {
       subtotal: { gt: 0 },
       deletedAt: null,
       status: { not: "CANCELLED" },
+      /**
+       * V13.4 指令七：**草稿不得進入待收款。**
+       * 只有 RitualRecord.status = CONFIRMED 的報名才是有效應收。
+       * DRAFT 階段可以先填金額，但不可收款、不可開收據、不可正式列印。
+       */
+      ritualRecord: { deletedAt: null, status: "CONFIRMED" },
     };
     if (filters.sponsorHouseholdId) where.householdId = filters.sponsorHouseholdId;
     if (filters.sponsorMemberId) where.memberId = filters.sponsorMemberId;
@@ -919,6 +936,166 @@ const additionalPrintItemAdapter: ReceivableSourceAdapter = {
   },
 };
 
+
+// ============================================================
+// Adapter 6：LANTERN_REGISTRATION（年度燈，V13.4 新串接）
+// ============================================================
+
+const lanternRegistrationAdapter: ReceivableSourceAdapter = {
+  sourceType: "LANTERN_REGISTRATION",
+  isWired: true,
+
+  async listPending(filters) {
+    const where: Prisma.LanternRegistrationWhereInput = {
+      deletedAt: null,
+      amountUnpaid: { gt: 0 },
+      /**
+       * V13.4 指令七：草稿不得進入待收款。
+       * 只有 CONFIRMED 的報名才是有效應收。
+       */
+      ritualRecord: { deletedAt: null, status: "CONFIRMED" },
+    };
+    if (filters.sponsorHouseholdId) {
+      where.ritualRecord = {
+        deletedAt: null,
+        status: "CONFIRMED",
+        householdId: filters.sponsorHouseholdId,
+      };
+    }
+
+    const rows = await prisma.lanternRegistration.findMany({
+      where,
+      include: {
+        ritualRecord: {
+          include: {
+            household: true,
+            templeEvent: true,
+            participants: { where: { deletedAt: null }, take: 3 },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+
+    return rows
+      .map((r) => {
+        const rec = r.ritualRecord;
+        const typeLabel = activityTypeLabel[rec.activityType] ?? rec.activityType;
+        const names = rec.participants.map((p) => p.nameSnapshot).join("、");
+        const amountDue = Number(r.amountDue);
+        const amountPaid = Number(r.amountPaid);
+        const amountUnpaid = Number(r.amountUnpaid);
+
+        const view: UniversalReceivableView = {
+          sourceType: "LANTERN_REGISTRATION",
+          sourceId: r.id,
+          householdId: rec.householdId,
+          memberId: null,
+          payerName: rec.household.contactName || rec.household.name,
+          phone: rec.household.phone,
+          activityId: rec.templeEventId,
+          activityName: rec.templeEvent?.name ?? `${rec.year}年度${typeLabel}`,
+          itemName: `${typeLabel}（${rec.household.name}${names ? `：${names}` : ""}）`,
+          receivableAmount: amountDue,
+          paidAmount: amountPaid,
+          unpaidAmount: amountUnpaid,
+          paymentStatus: amountPaid <= 0 ? "UNPAID" : "PARTIAL",
+          sourceYear: rec.year,
+          sourceDate: r.createdAt.toISOString(),
+          sourceUrl: `/registration/${rec.id}`,
+          canCollect: true,
+          cannotCollectReason: null,
+          isCrossYear: isCrossYearUnpaid(
+            rec.year,
+            filters.currentYear,
+            amountPaid <= 0 ? "UNPAID" : "PARTIAL"
+          ),
+          note: r.notes,
+          createdAt: r.createdAt,
+        };
+        return view;
+      })
+      .filter((v) => (filters.onlyCrossYear ? v.isCrossYear : true));
+  },
+
+  async applyPayment(tx, sourceId, amount, ctx) {
+    /**
+     * 原子條件式 UPDATE：狀態與未收金額寫在同一條 SQL 的 WHERE，
+     * 兩人同時收同一筆時只有一個會成功（比照贊普／供品既有做法）。
+     *
+     * ⚠️ 同時檢查主檔必須是 CONFIRMED——草稿不可收款。
+     */
+    const rows = await tx.$queryRaw<
+      { id: string; amountDue: Prisma.Decimal; amountPaid: Prisma.Decimal }[]
+    >`
+      UPDATE "lantern_registrations" AS lr
+      SET "amountPaid" = lr."amountPaid" + ${amount},
+          "amountUnpaid" = GREATEST(lr."amountDue" - (lr."amountPaid" + ${amount}), 0)
+      FROM "ritual_records" AS rr
+      WHERE lr."id" = ${sourceId}
+        AND lr."ritualRecordId" = rr."id"
+        AND lr."deletedAt" IS NULL
+        AND rr."deletedAt" IS NULL
+        AND rr."status" = 'CONFIRMED'
+        AND lr."amountUnpaid" >= ${amount}
+      RETURNING lr."id", lr."amountDue", lr."amountPaid"
+    `;
+    if (rows.length === 0) {
+      const current = await tx.lanternRegistration.findUnique({
+        where: { id: sourceId },
+        include: { ritualRecord: true },
+      });
+      if (!current || current.deletedAt) throw new Error(`找不到這筆年度燈報名（${sourceId}）`);
+      if (current.ritualRecord.status !== "CONFIRMED") {
+        throw new Error("這筆年度燈報名尚未確認，無法收款");
+      }
+      throw new Error("收款金額超過目前未收金額（可能剛被其他人收款），請重新整理後再試");
+    }
+
+    const reg = await tx.lanternRegistration.findUnique({
+      where: { id: sourceId },
+      include: { ritualRecord: { include: { household: true, templeEvent: true } } },
+    });
+
+    await recordVersion(
+      {
+        entityType: "LanternRegistration",
+        entityId: sourceId,
+        action: "UPDATE",
+        operatorName: ctx.operatorName,
+        changeNote: `收款中心合併收款 ${amount} 元（${ctx.transactionNo}）`,
+      },
+      tx
+    );
+
+    const typeLabel = reg
+      ? activityTypeLabel[reg.ritualRecord.activityType] ?? reg.ritualRecord.activityType
+      : "年度燈";
+    return {
+      // 年度燈沒有專屬分錄表，PaymentAllocation 本身就是正式分錄
+      ledgerId: sourceId,
+      label: `${typeLabel}－${reg?.ritualRecord.household.name ?? ""}（${reg?.ritualRecord.year ?? ""}年度）`,
+      year: reg?.ritualRecord.year ?? ctx.paidOn.getFullYear() - 1911,
+    };
+  },
+
+  async applyReversal(tx, sourceId, amount, _ctx) {
+    const reg = await tx.lanternRegistration.findUnique({ where: { id: sourceId } });
+    if (!reg) throw new Error("找不到這筆年度燈報名");
+
+    const amountPaid = round2(Math.max(0, Number(reg.amountPaid) - amount));
+    const amountDue = Number(reg.amountDue);
+    await tx.lanternRegistration.update({
+      where: { id: sourceId },
+      data: {
+        amountPaid,
+        amountUnpaid: round2(Math.max(0, amountDue - amountPaid)),
+      },
+    });
+  },
+};
+
 // ============================================================
 // Registry
 // ============================================================
@@ -929,6 +1106,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   universalSalvationSponsorAdapter,
   purificationEntryAdapter,
   additionalPrintItemAdapter,
+  lanternRegistrationAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

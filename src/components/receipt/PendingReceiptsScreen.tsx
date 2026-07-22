@@ -199,6 +199,8 @@ export default function PendingReceiptsScreen({ initialRows }: { initialRows: Pe
           <option value="PURIFICATION_ENTRY">祭改</option>
           {/* V13.3B：寶袋（AdditionalPrintItem）已正式串接收款 */}
           <option value="ADDITIONAL_PRINT_ITEM">寶袋</option>
+          {/* V13.4：年度燈已正式串接收款 */}
+          <option value="LANTERN_REGISTRATION">年度燈</option>
           <option value="MANUAL">其他臨時應收項目</option>
         </select>
         <select

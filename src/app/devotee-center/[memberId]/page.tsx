@@ -14,6 +14,8 @@ import { DEVOTEE_INTERACTION_TYPE_LABEL } from "@/components/devotee/labels";
 import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOptions } from "@/lib/labels";
 // V13.2：性別選項與生日輸入都共用既有元件，不維護第二套。
 import { GENDER_OPTIONS } from "@/lib/genderNormalize";
+import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
+import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
 import BirthdayField, {
   createEmptyBirthdayValue,
   type BirthdayValue,
@@ -282,7 +284,19 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
           />
         )}
         {tab === "時間軸" && <TimelineTab items={overview.timeline} />}
-        {tab === "活動" && <ActivitiesTab rituals={overview.rituals} stats={overview.activityStats} />}
+        {tab === "活動" && (
+          <ActivitiesTab
+            rituals={overview.rituals}
+            stats={overview.activityStats}
+            memberId={memberId}
+            canEdit={
+              operatorUser?.role === "SUPER_ADMIN" ||
+              operatorUser?.role === "ADMIN" ||
+              operatorUser?.role === "STAFF"
+            }
+            onChanged={() => setReloadTick((t) => t + 1)}
+          />
+        )}
         {tab === "收款" && <PaymentsTab payments={overview.payments} />}
         {tab === "收據" && <ReceiptsTab receipts={overview.receipts} />}
         {tab === "供品" && <OfferingsTab offerings={overview.offerings} />}
@@ -626,6 +640,8 @@ function BaseEditForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** V13.4：首次標記辭世後的後續詢問 */
+  const [showDeceasedFollowUp, setShowDeceasedFollowUp] = useState(false);
 
   /**
    * V12.5 指令六：資料品質提醒（電話／生日格式、重複地址）。
@@ -727,9 +743,22 @@ function BaseEditForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "儲存失敗");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "儲存失敗");
       setSaved(true);
       onChanged();
+
+      /**
+       * V13.4 指令二十二：辭世流程接通。
+       *
+       * 只有信眾**第一次**由「在世」改成「已辭世」且儲存成功時，
+       * 伺服器才會回 justMarkedDeceased=true（判定條件見
+       * src/lib/devoteeBaseEdit.ts）。一般編輯不會觸發，
+       * 按過「暫不處理」的也不會再問。
+       */
+      if (data?.justMarkedDeceased === true) {
+        setShowDeceasedFollowUp(true);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "儲存失敗");
     } finally {
@@ -797,18 +826,45 @@ function BaseEditForm({
         <BirthdayField value={birthday} onChange={setBirthday} />
       </div>
 
-      <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
-        <input type="checkbox" checked={isDeceased} onChange={(e) => setIsDeceased(e.target.checked)} />
-        已辭世
-      </label>
-      {isDeceased && (
-        <input
-          type="date"
-          value={deceasedAt}
-          onChange={(e) => setDeceasedAt(e.target.value)}
-          className="mt-2 min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
-        />
-      )}
+      {/*
+        V13.4 指令二十二之 2／3：「已辭世」移出一般基本資料區。
+
+        放在表單較下方的獨立可收合區塊，預設收合——日常編輯電話、地址、
+        備註時不會誤觸，也不會讓這個敏感欄位夾在姓名與生日中間。
+      */}
+      <details className="mt-4 rounded-2xl bg-cream-50 px-4 py-3">
+        <summary className="cursor-pointer text-xs text-ink-soft">
+          特殊狀態（已辭世）
+          {isDeceased && (
+            <span className="ml-2 rounded-full bg-cream-300 px-2 py-0.5 text-xs text-ink">
+              目前標記為已辭世
+            </span>
+          )}
+        </summary>
+
+        <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={isDeceased}
+            onChange={(e) => setIsDeceased(e.target.checked)}
+          />
+          已辭世
+        </label>
+        {isDeceased && (
+          <input
+            type="date"
+            value={deceasedAt}
+            onChange={(e) => setDeceasedAt(e.target.value)}
+            className="mt-2 min-h-11 rounded-full border border-cream-200 bg-white px-3 py-1.5 text-sm text-ink"
+          />
+        )}
+        <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+          第一次標記為已辭世並儲存後，系統會詢問是否建立乙位正魂。
+          <span className="text-ink-soft">不會自動建立</span>，也不會自動加入普渡。
+          取消已辭世不會刪除任何已建立的牌位、普渡或收款紀錄。
+        </p>
+      </details>
+
       <label className="mt-2 flex items-center gap-2 text-sm text-ink-soft">
         <input type="checkbox" checked={isPrimaryContact} onChange={(e) => setIsPrimaryContact(e.target.checked)} />
         是主要聯絡人
@@ -917,6 +973,20 @@ function BaseEditForm({
         {saved && <span className="text-xs text-ink-faint">已儲存</span>}
         {error && <span className="text-xs text-blossom-300">{error}</span>}
       </div>
+
+      {/*
+        V13.4：首次標記辭世後的兩段式詢問（建立乙位正魂 → 加入普渡）。
+        只有伺服器回 justMarkedDeceased=true 才會出現，一般編輯不會打擾。
+      */}
+      {showDeceasedFollowUp && (
+        <DeceasedFollowUpDialog
+          memberId={memberId}
+          memberName={name}
+          operatorUserId={operatorUserId}
+          onClose={() => setShowDeceasedFollowUp(false)}
+          onFinished={onChanged}
+        />
+      )}
     </div>
   );
 }
@@ -1088,12 +1158,52 @@ function TimelineTab({ items }: { items: Overview["timeline"] }) {
   );
 }
 
-function ActivitiesTab({ rituals, stats }: { rituals: Overview["rituals"]; stats: Overview["activityStats"] }) {
+function ActivitiesTab({
+  rituals,
+  stats,
+  memberId,
+  canEdit,
+  onChanged,
+}: {
+  rituals: Overview["rituals"];
+  stats: Overview["activityStats"];
+  memberId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const [showNewRegistration, setShowNewRegistration] = useState(false);
+
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-ink-faint">
-        首次參加：{stats.firstActivityAt ?? "無"}・最近參加：{stats.lastActivityAt ?? "無"}
-      </p>
+      {/*
+        V13.4：信眾詳情頁的活動報名入口。
+        所有已建立且開放報名的活動都能從這裡新增，不限普渡——
+        清單完全由 TempleEvent 動態取得，前端沒有寫死任何活動種類。
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-ink-faint">
+          首次參加：{stats.firstActivityAt ?? "無"}・最近參加：{stats.lastActivityAt ?? "無"}
+        </p>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setShowNewRegistration(true)}
+            className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink transition hover:bg-yolk-300"
+          >
+            ＋新增活動報名
+          </button>
+        )}
+      </div>
+
+      {showNewRegistration && (
+        <NewActivityRegistrationDialog
+          memberId={memberId}
+          onClose={() => {
+            setShowNewRegistration(false);
+            onChanged();
+          }}
+        />
+      )}
       {rituals.length === 0 ? (
         <EmptyState />
       ) : (

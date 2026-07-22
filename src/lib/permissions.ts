@@ -698,6 +698,46 @@ const UNIVERSAL_SALVATION_PERMISSIONS: Record<Role, UniversalSalvationAction[]> 
   FINANCE_CLERK: [],
 };
 
+// ============================================================
+// V13.4「信眾詳情 × 全活動報名」權限
+//
+// 沿用既有的「每個模組一組獨立 Record<Role, XxxAction[]>」慣例
+// （permissions.ts 沒有 exhaustive switch，新增一組不影響其他模組）。
+//
+// ⚠️ 範圍界線：
+//   - 這組只管「報名本身」（建立、成員、沿用、確認、取消）
+//   - **收款與退款**沿用收款中心既有權限——STAFF 可以報名，
+//     不代表可以退款
+//   - **列印**沿用 UniversalSalvationAction.print
+//   - **建立乙位正魂**沿用 DevoteeAction.updateProfile
+// ============================================================
+
+export type RitualRegistrationAction =
+  | "view" // 查看活動報名
+  | "register" // 新增活動報名
+  | "manageParticipant" // 新增／移除／恢復參加成員
+  | "carryOver" // 沿用去年資料
+  | "createLantern" // 建立年度燈報名與金額
+  | "cancel"; // 取消報名
+
+const RITUAL_REGISTRATION_PERMISSIONS: Record<Role, RitualRegistrationAction[]> = {
+  SUPER_ADMIN: ["view", "register", "manageParticipant", "carryOver", "createLantern", "cancel"],
+  ADMIN: ["view", "register", "manageParticipant", "carryOver", "createLantern", "cancel"],
+  STAFF: ["view", "register", "manageParticipant", "carryOver", "createLantern", "cancel"],
+  // READONLY 只能看，任何寫入一律拒絕
+  READONLY: ["view"],
+  FINANCE_CLERK: [],
+};
+
+export function canRitualRegistration(role: Role, action: RitualRegistrationAction): boolean {
+  return RITUAL_REGISTRATION_PERMISSIONS[role]?.includes(action) ?? false;
+}
+
+/** 供測試與稽核使用的完整矩陣快照（唯讀）。 */
+export const RITUAL_REGISTRATION_PERMISSION_MATRIX: Readonly<
+  Record<Role, readonly RitualRegistrationAction[]>
+> = RITUAL_REGISTRATION_PERMISSIONS;
+
 export function canUniversalSalvation(role: Role, action: UniversalSalvationAction): boolean {
   return UNIVERSAL_SALVATION_PERMISSIONS[role]?.includes(action) ?? false;
 }

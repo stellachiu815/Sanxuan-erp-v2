@@ -172,6 +172,8 @@ model Member {
 
   worshipRecords           WorshipRecord[]
   ritualRecords            RitualRecord[]
+  /// V13.4：這位信眾參加過的活動報名（RitualParticipant 子表）
+  ritualParticipants       RitualParticipant[]
   purificationEntries      PurificationEntry[] // V8.1 起：祭改報名項目已併入通用 RitualRecord 架構，見下方 PurificationEntry
   additionalPrintItems     AdditionalPrintItem[] // V9.1「附加列印項目（寶袋等）」，可為空（memberId 選填）
   offeringClaims           OfferingClaim[] // V10.1「供品認捐中心」：本人的認捐紀錄
@@ -348,7 +350,10 @@ model RitualRecord {
   householdId String
   household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
-  memberId String? // 信眾ID（可為空；若這筆祭祀是針對特定成員才會填）
+  /// @deprecated V13.4：報名成員改由 RitualParticipant 子表管理。
+  /// 這個欄位全專案已無寫入路徑，保留只為相容可能存在的歷史資料
+  /// （devotee360 仍會讀取並標示為「舊版個人關聯」）。本輪不移除。
+  memberId String?
   member   Member? @relation(fields: [memberId], references: [id])
 
   year         Int // 年度（民國年，例如 115）
@@ -363,6 +368,17 @@ model RitualRecord {
 
   status RitualRecordStatus @default(DRAFT)
   notes  String?            @db.Text
+
+  /// V13.4：本次報名納入的成員（唯一的報名成員來源）
+  participants        RitualParticipant[]
+  /// V13.4：年度燈財務（光明燈／太歲燈／全家燈）
+  lanternRegistration LanternRegistration?
+
+  /// V13.4：這筆報名由哪個入口建立。
+  /// DEVOTEE_PAGE / HOUSEHOLD_PAGE / ACTIVITY_PAGE / CARRY_OVER / IMPORT
+  registrationSource       String?
+  /// V13.4：沿用去年時的來源報名 id；全新建立為 null
+  copiedFromRitualRecordId String?
 
   universalSalvation   UniversalSalvationDetail?
   purificationEntries  PurificationEntry[] // V8.1：祭改報名項目（activityType = PURIFICATION 時使用）
@@ -385,6 +401,95 @@ model RitualRecord {
   @@index([deletedAt])
   @@index([templeEventId])
   @@map("ritual_records")
+}
+
+/// V13.4：活動報名的「參加成員」明細。
+///
+/// ⚠️ 這是 RitualRecord 的**子表**，不是第二套報名主檔。
+/// RitualRecord 仍是唯一的活動報名主檔（@@unique[householdId, year, activityType]），
+/// 同一戶同年同活動只有一筆；本表只記錄「這一筆報名納入了哪些成員」。
+///
+/// ── 為什麼 onDelete 用 Restrict 而不是 Cascade ──────────────
+/// src/lib/recycleBin.ts 確實會執行 `tx.member.delete()`（永久刪除）。
+/// 若用 Cascade，永久刪除一位信眾會讓他所有歷史活動報名一起消失——
+/// 那是財務與稽核資料。用 Restrict 讓「有報名紀錄的信眾無法被永久刪除」，
+/// 這是正確的保護，呼叫端需給出可理解的錯誤訊息。
+///
+/// ── 快照策略（V13.4 指令二／三／十）────────────────────────
+/// 確認報名時保存農曆生日與活動年度歲數，避免日後修改信眾基本資料
+/// 導致舊年度列印內容改變。全家燈等多人活動，**每一位成員都有自己的
+/// 快照**，不是只存代表人的一份。
+model RitualParticipant {
+  id             String       @id @default(cuid())
+  ritualRecordId String
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  /// 報名當下的身分快照（比照 OfferingClaim.sponsorNameSnapshot 慣例）
+  nameSnapshot    String
+  addressSnapshot String?
+
+  /// 活動年度列印快照。確認報名時由共用的活動年度列印 profile 產生。
+  /// ⚠️ 一律是**農曆**生日；全系統列印不使用國曆生日（V13.4 指令二）。
+  lunarBirthYearSnapshot   Int?
+  lunarBirthMonthSnapshot  Int?
+  lunarBirthDaySnapshot    Int?
+  lunarIsLeapMonthSnapshot Boolean   @default(false)
+  /// 依**活動使用年度**計算的虛歲（不是報名當天的虛歲）
+  nominalAgeSnapshot       Int?
+  zodiacSnapshot           String?
+  taisuiSnapshot           String?
+  /// 快照產生時間。null = 尚未產生（草稿階段）
+  printProfileSnapshotAt   DateTime?
+  /// 重新產生列印快照的次數（V13.4 指令十一：不得靜默覆蓋歷史列印內容）
+  printProfileVersion      Int       @default(0)
+
+  notes String? @db.Text
+
+  /// 移除成員＝軟刪除。個別成員**不另設 status**——整筆報名狀態
+  /// 一律由 RitualRecord.status 管理（V13.4 指令二：避免三套狀態不一致）。
+  deletedAt     DateTime?
+  deletedByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ritualRecordId, memberId])
+  @@index([memberId])
+  @@index([ritualRecordId])
+  @@index([deletedAt])
+  @@map("ritual_participants")
+}
+
+/// V13.4：年度燈（光明燈／太歲燈／全家燈）的財務資料。
+///
+/// ⚠️ 這裡**只放金額**。列印所需的姓名、農曆生日、虛歲、生肖、太歲
+/// 全部在 RitualParticipant 上，每位成員各自一份——全家燈列印多位家人時，
+/// 不能用代表人的單一快照代替全戶（V13.4 指令十）。
+///
+/// 三種燈是各自獨立的 ActivityType → 各自獨立的 TempleEvent →
+/// 各自獨立的 RitualRecord，所以這裡一筆報名一筆財務即可。
+/// 全家燈是整戶一筆應收，個人燈同一 RitualRecord 下多位成員也共用一筆應收。
+model LanternRegistration {
+  id             String       @id @default(cuid())
+  ritualRecordId String       @unique
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+
+  /// 應收金額。草稿階段可先填，但 adapter 只會列出 CONFIRMED 的報名
+  /// （V13.4 指令七：DRAFT 不得進入待收款）。
+  amountDue    Decimal @default(0) @db.Decimal(12, 2)
+  amountPaid   Decimal @default(0) @db.Decimal(12, 2)
+  amountUnpaid Decimal @default(0) @db.Decimal(12, 2)
+
+  notes String? @db.Text
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("lantern_registrations")
 }
 
 /// 普渡登記明細：RitualRecord.activityType = UNIVERSAL_SALVATION 時，
@@ -886,6 +991,16 @@ model TempleEvent {
   // 必須由最高管理權限另外寫專用的一次性程式處理，不能透過一般活動管理
   // 畫面開放修改。只對 OfferingType.behaviorKind = TURTLE 的供品種類有關。
   offeringTurtleExclusiveRule Boolean @default(true)
+
+  /// V13.4：報名表單型態，決定 /registration/[id] 分派哪一個編輯器。
+  ///
+  /// 值：UNIVERSAL_SALVATION / PURIFICATION / LANTERN / GENERIC
+  ///
+  /// ⚠️ null 代表**尚未設定報名表**——畫面顯示「此活動尚未完成報名表設定」
+  /// 並禁止確認報名。**絕不自動降級成通用參加型**（V13.4 指令十四）：
+  /// 未來新增需要專屬欄位的活動，若沒設定這個欄位就被當成通用報名，
+  /// 會產生「看起來完成、實際缺資料」的錯誤報名。
+  registrationFormType String?
 
   /// V13.3B：這個年度活動的**寶袋預設單價**。
   ///
@@ -1835,6 +1950,7 @@ enum ReceivableSourceType {
   UNIVERSAL_SALVATION_SPONSOR // 普渡贊普（UniversalSalvationDetail + UniversalSalvationPayment 分錄，V11.0.1 起正式已串接）
   PURIFICATION_ENTRY // 祭改（PurificationEntry.feeStatus/amountDue + PurificationPayment 分錄，V11.0.1 起正式已串接）
   ADDITIONAL_PRINT_ITEM // 附加列印項目－寶袋等（AdditionalPrintItem.subtotal，V13.3B 起正式已串接）
+  LANTERN_REGISTRATION // 年度燈－光明燈／太歲燈／全家燈（LanternRegistration.amountDue，V13.4 起正式已串接）
   // --- 以下為僅預留列舉值，沒有 Adapter、沒有登記/收費資料表，尚未有任何資料／畫面 ---
   PEACE_LANTERN // 平安燈（尚不存在：沒有對應的活動類型與登記資料）
   TAISUI_LANTERN // 太歲燈（尚不存在：沒有收費欄位或登記資料）

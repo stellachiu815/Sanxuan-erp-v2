@@ -17,6 +17,7 @@ import { checkPurificationPrintReadiness } from "@/lib/purificationConsistency";
 import { formatTempleEventName } from "@/lib/templeEventNaming";
 import { resolveFeeStatusUpdate } from "@/lib/collectionCenterRules";
 
+import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 /**
  * 祭改（PURIFICATION）核心業務邏輯。
  *
@@ -303,6 +304,7 @@ async function getOrCreateRitualRecordForEvent(
       activityType: "PURIFICATION",
       templeEventId: event.id,
       status: "CONFIRMED",
+      registrationSource: "ACTIVITY_PAGE",
     },
   });
 }
@@ -383,6 +385,20 @@ export async function copyPurificationYearFromPrevious(
         },
         tx
       );
+
+      /**
+       * V13.4 指令十八：祭改報名也要寫入 RitualParticipant。
+       * 臨時報名者（isTemporaryName，沒有 memberId）不寫——他們不是
+       * 系統裡的信眾，沒有 Member 可以關聯。
+       */
+      if (newEntry.memberId) {
+        await upsertParticipantsInTransaction(
+          tx,
+          ritualRecord.id,
+          [newEntry.memberId],
+          operatorName
+        );
+      }
     }
 
     await recordVersion(

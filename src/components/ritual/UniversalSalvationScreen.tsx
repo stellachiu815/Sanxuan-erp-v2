@@ -13,7 +13,17 @@ type Props = {
   householdId: string;
   householdName: string;
   year: number;
-  initialRecord: RecordJSON | null;
+  initialRecord?: RecordJSON | null;
+  /**
+   * V13.4：從共用報名編輯器 /registration/[id] 進入時傳入。
+   *
+   * 有值代表**報名主檔已經存在**（由信眾詳情頁或家戶頁建立），
+   * 這個元件只負責編輯內容——不會再顯示一次「今年跟去年一樣嗎」的
+   * 沿用／全新建立選擇畫面（那個選擇已經在新增報名對話框做過了）。
+   */
+  existingRitualRecordId?: string;
+  /** V13.4：列印連結的返回目標。未提供時沿用家戶路徑（相容既有呼叫端） */
+  printBasePath?: string;
 };
 
 /**
@@ -35,8 +45,32 @@ export default function UniversalSalvationScreen({
   householdName,
   year,
   initialRecord,
+  existingRitualRecordId,
 }: Props) {
-  const [record, setRecord] = useState<RecordJSON | null>(initialRecord);
+  const [record, setRecord] = useState<RecordJSON | null>(initialRecord ?? null);
+  /** V13.4：從共用編輯器進入時自行載入資料（那條路由沒有 SSR 預載） */
+  const [loading, setLoading] = useState(
+    Boolean(existingRitualRecordId) && !initialRecord
+  );
+
+  useEffect(() => {
+    if (!existingRitualRecordId || initialRecord) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchUniversalSalvation(
+          `/api/households/${householdId}/rituals/universal-salvation/${year}`
+        );
+        const data = await res.json();
+        if (!cancelled && res.ok) setRecord(data.record ?? data);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [existingRitualRecordId, initialRecord, householdId, year]);
   const [toastTick, setToastTick] = useState(0);
   const [toastVisible, setToastVisible] = useState(false);
 
@@ -50,6 +84,29 @@ export default function UniversalSalvationScreen({
   function handleUpdated(nextRecord: RecordJSON) {
     setRecord(nextRecord);
     setToastTick((tick) => tick + 1);
+  }
+
+  if (loading) {
+    return (
+      <section className="rounded-3xl bg-white/70 p-10 text-center shadow-card">
+        <p className="text-sm text-ink-faint">讀取普渡登記資料…</p>
+      </section>
+    );
+  }
+
+  /**
+   * V13.4：從共用報名編輯器進入時，報名主檔已經存在——
+   * 不再顯示「今年跟去年一樣嗎」的選擇畫面（指令六）。
+   * 若此時仍讀不到明細，代表資料還在建立中，顯示提示而不是選擇畫面。
+   */
+  if (existingRitualRecordId && (!record || !record.universalSalvation)) {
+    return (
+      <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+        <p className="text-sm text-ink-soft">
+          這筆普渡報名尚未建立登記明細，請重新整理頁面；若持續發生請聯絡系統管理者。
+        </p>
+      </section>
+    );
   }
 
   if (!record || !record.universalSalvation) {

@@ -31,6 +31,7 @@ import {
 } from "@/lib/worshipRecordCreate";
 import { resolveDefaultUniversalSalvationYear, type ActivityYearDecision } from "@/lib/activityYear";
 
+import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 // ────────────────────────────────────────────────────────────
 // 詢問① 建立乙位正魂 — 預覽資料
 // ────────────────────────────────────────────────────────────
@@ -305,6 +306,7 @@ export async function joinUniversalSalvation(params: {
           activityType: "UNIVERSAL_SALVATION",
           templeEventId: templeEvent.id,
           status: "DRAFT",
+          registrationSource: "DEVOTEE_PAGE",
         },
         include: { universalSalvation: true },
       });
@@ -332,6 +334,19 @@ export async function joinUniversalSalvation(params: {
         entryId: existingEntry.id,
         year: params.year,
       };
+    }
+
+    /**
+     * V13.4 指令十八：辭世流程加入普渡時，也要寫入 RitualParticipant。
+     * 這筆牌位若關聯回原信眾（memberId），就把那位信眾納入報名成員。
+     */
+    if (record.memberId) {
+      await upsertParticipantsInTransaction(
+        tx,
+        ritual.id,
+        [record.memberId],
+        params.operatorName
+      );
     }
 
     const entry = await tx.universalSalvationEntry.create({

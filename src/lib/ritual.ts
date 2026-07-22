@@ -94,11 +94,47 @@ export type CopyUniversalSalvationResult =
  *    其餘欄位（陽上姓名、安奉位置、贊普、普渡桌、備註、所有登記項目）原樣複製，
  *    當作今年資料輸入的起點。
  */
+/**
+ * V13.4：沿用去年的可選項目。
+ *
+ * ⚠️ 固定規則（不可設定、一律不複製）：
+ *   付款紀錄／已付款狀態／收據號碼與開立狀態／對帳與代收繳回狀態／
+ *   交易 ID／列印完成狀態／列印次數／已列印時間／列印批次／
+ *   作廢與核銷狀態／舊年度主鍵與活動關聯／建立與修改人
+ *
+ * 新年度一律建立全新的主檔與子資料，財務與作業狀態全部初始化。
+ */
+export type CarryOverOptions = {
+  /** 四類牌位（名稱／陽上人／排序／worshipRecordId） */
+  copyEntries?: boolean;
+  /** 贊普設定（數量／單價／金額）。⚠️ 不含付款狀態 */
+  copySponsor?: boolean;
+  /** 備註 */
+  copyNotes?: boolean;
+  /**
+   * 普渡桌號。
+   * ⚠️ **預設不沿用**——桌號屬於年度作業資料，每年重新安排。
+   * 只有使用者明確勾選確認時才帶入。
+   */
+  copyTableNumber?: boolean;
+  operatorName?: string | null;
+};
+
 export async function copyUniversalSalvationFromPreviousYear(
   householdId: string,
   targetYear: number,
-  sourceYear?: number
+  sourceYearOrOptions?: number | CarryOverOptions,
+  maybeOptions?: CarryOverOptions
 ): Promise<CopyUniversalSalvationResult> {
+  // 相容既有呼叫端（householdId, targetYear, sourceYear?）
+  const sourceYear =
+    typeof sourceYearOrOptions === "number" ? sourceYearOrOptions : undefined;
+  const options: CarryOverOptions =
+    (typeof sourceYearOrOptions === "object" ? sourceYearOrOptions : maybeOptions) ?? {};
+  const copyEntries = options.copyEntries !== false;
+  const copySponsor = options.copySponsor !== false;
+  const copyNotes = options.copyNotes !== false;
+  const copyTableNumber = options.copyTableNumber === true;
   const household = await prisma.household.findFirst({
     where: { id: householdId, deletedAt: null },
   });
@@ -147,33 +183,70 @@ export async function copyUniversalSalvationFromPreviousYear(
     const record = await tx.ritualRecord.create({
       data: {
         householdId,
-        memberId: source.memberId,
+        // V13.4 修正：不再複製 deprecated 的 memberId——報名成員改由
+        // RitualParticipant 記錄，由呼叫端在 copy 之後補上。
         year: targetYear,
         activityType: "UNIVERSAL_SALVATION",
+        // 沿用建立的一律是草稿，內容確認後才 CONFIRMED
         status: "DRAFT",
-        notes: source.notes,
+        registrationSource: "CARRY_OVER",
+        copiedFromRitualRecordId: source.id,
+        notes: copyNotes ? source.notes : null,
         universalSalvation: {
           create: {
             isRegistered: false,
             yangshangName: universalSalvation.yangshangName,
             enshrinementLocation: universalSalvation.enshrinementLocation,
-            isSponsor: universalSalvation.isSponsor,
-            sponsorQuantity: universalSalvation.sponsorQuantity,
-            sponsorUnitPrice: universalSalvation.sponsorUnitPrice,
-            sponsorAmount: universalSalvation.sponsorAmount,
-            sponsorNotes: universalSalvation.sponsorNotes,
-            tableNumber: universalSalvation.tableNumber,
-            notes: universalSalvation.notes,
-            entries: {
-              create: universalSalvation.entries.map((entry) => ({
-                category: entry.category,
-                displayName: entry.displayName,
-                yangshangName: entry.yangshangName,
-                worshipRecordId: entry.worshipRecordId,
-                sortOrder: entry.sortOrder,
-                notes: entry.notes,
-              })),
-            },
+
+            // ── 贊普設定（可選）──
+            isSponsor: copySponsor ? universalSalvation.isSponsor : false,
+            sponsorQuantity: copySponsor ? universalSalvation.sponsorQuantity : null,
+            sponsorUnitPrice: copySponsor ? universalSalvation.sponsorUnitPrice : null,
+            sponsorAmount: copySponsor ? universalSalvation.sponsorAmount : null,
+            sponsorNotes: copySponsor ? universalSalvation.sponsorNotes : null,
+
+            /**
+             * V13.4 修正：amountDue 必須依本年度沿用的贊普金額**重新計算**。
+             *
+             * 舊版只複製 sponsorAmount，amountDue 用預設 0——結果贊普顯示
+             * 800 元、應收卻是 0，收款中心完全看不到這筆。
+             *
+             * amountPaid / amountUnpaid 一律初始化：去年的付款絕不帶過來。
+             */
+            amountDue:
+              copySponsor && universalSalvation.isSponsor
+                ? (universalSalvation.sponsorAmount ?? 0)
+                : 0,
+            amountPaid: 0,
+            amountUnpaid:
+              copySponsor && universalSalvation.isSponsor
+                ? (universalSalvation.sponsorAmount ?? 0)
+                : 0,
+
+            /**
+             * V13.4 修正：桌號**預設不沿用**。
+             * 桌號是年度作業資料，每年重新安排；只有使用者明確勾選才帶入。
+             */
+            tableNumber: copyTableNumber ? universalSalvation.tableNumber : null,
+
+            notes: copyNotes ? universalSalvation.notes : null,
+            entries: copyEntries
+              ? {
+                  create: universalSalvation.entries.map((entry) => ({
+                    category: entry.category,
+                    displayName: entry.displayName,
+                    yangshangName: entry.yangshangName,
+                    /**
+                     * worshipRecordId 可安全沿用：WorshipRecord 沒有 year 欄位，
+                     * 是**跨年度共用的牌位母資料**（歷代祖先／乙位正魂），
+                     * 不是年度報名資料。
+                     */
+                    worshipRecordId: entry.worshipRecordId,
+                    sortOrder: entry.sortOrder,
+                    notes: copyNotes ? entry.notes : null,
+                  })),
+                }
+              : undefined,
           },
         },
       },
@@ -250,6 +323,7 @@ export async function createBlankUniversalSalvationRecord(
         year,
         activityType: "UNIVERSAL_SALVATION",
         status: "DRAFT",
+        registrationSource: "HOUSEHOLD_PAGE",
         universalSalvation: {
           create: {
             isRegistered: false,

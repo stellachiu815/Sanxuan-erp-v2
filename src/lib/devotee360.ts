@@ -96,11 +96,49 @@ async function getBasicAndHousehold(memberId: string) {
   };
 }
 
-/** 3. 宮務活動紀錄（普渡/宮慶/補庫/年度燈/其他——不含祭改，祭改另外用 PurificationEntry.memberId 查詢，見下方）。 */
+/**
+ * 3. 宮務活動紀錄（普渡／宮慶／年度燈／其他——不含祭改，祭改另外用
+ *    PurificationEntry.memberId 查詢，見下方）。
+ *
+ * ── V13.4：三段合併查詢 ─────────────────────────────────────
+ * 舊版只查 `where: { memberId }`，但 `RitualRecord.memberId` **全專案
+ * 從未被寫入**——結果這個分頁對普渡永遠是空的。
+ *
+ * 現在改為三個來源合併，並明確標示每一筆的歸屬方式：
+ *
+ *   ① RitualParticipant.memberId = 此人   → 「個人報名」（V13.4 之後的新資料）
+ *   ② RitualRecord.memberId = 此人        → 「個人報名（舊版關聯）」（若有殘留資料）
+ *   ③ 同家戶、且完全沒有 participant       → 「家戶報名」（V13.4 之前的舊資料）
+ *
+ * ⚠️ ③ 絕不宣稱是「這位信眾的個人報名」——那是整戶的活動，
+ * 我們只知道他在這一戶，不知道當初有沒有納入他。
+ */
 async function getRitualRecordHistory(memberId: string) {
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { householdId: true },
+  });
+  if (!member) return [];
+
   const records = await prisma.ritualRecord.findMany({
-    where: { memberId, deletedAt: null, activityType: { not: "PURIFICATION" } },
-    include: { templeEvent: true, universalSalvation: { include: { payments: true } } },
+    where: {
+      deletedAt: null,
+      activityType: { not: "PURIFICATION" },
+      OR: [
+        // ① 新資料：報名成員明細
+        { participants: { some: { memberId, deletedAt: null } } },
+        // ② 舊版個人關聯（deprecated 欄位，可能有殘留資料）
+        { memberId },
+        // ③ 同家戶且無任何 participant → 家戶報名
+        { householdId: member.householdId, participants: { none: {} } },
+      ],
+    },
+    include: {
+      templeEvent: true,
+      universalSalvation: { include: { payments: true } },
+      lanternRegistration: true,
+      participants: { where: { deletedAt: null }, select: { memberId: true } },
+    },
     orderBy: { year: "desc" },
   });
 
@@ -119,6 +157,38 @@ async function getRitualRecordHistory(memberId: string) {
         paymentStatus = "未贊普（僅登記）";
       }
     }
+    // V13.4：年度燈的金額由 LanternRegistration 提供
+    if (r.lanternRegistration) {
+      const lr = r.lanternRegistration;
+      amount = Number(lr.amountDue);
+      paymentStatus =
+        Number(lr.amountUnpaid) <= 0 && amount > 0
+          ? "已收訖"
+          : Number(lr.amountPaid) > 0
+            ? "部分收款"
+            : "未收款";
+      receiptNumbers = await getReceiptNumbersForSource("LANTERN_REGISTRATION", lr.id);
+    }
+
+    /**
+     * V13.4：歸屬方式標記。
+     * 讓畫面清楚區分「這位信眾被納入報名」與「這是他家戶的活動」，
+     * 不把舊的家戶活動誤標成個人報名。
+     */
+    const isPersonal = r.participants.some((p) => p.memberId === memberId);
+    const isLegacyPersonal = !isPersonal && r.memberId === memberId;
+    const participationType: "PERSONAL" | "LEGACY_PERSONAL" | "HOUSEHOLD" = isPersonal
+      ? "PERSONAL"
+      : isLegacyPersonal
+        ? "LEGACY_PERSONAL"
+        : "HOUSEHOLD";
+    const participationLabel =
+      participationType === "PERSONAL"
+        ? "個人報名"
+        : participationType === "LEGACY_PERSONAL"
+          ? "個人報名（舊版關聯）"
+          : "家戶報名";
+
     results.push({
       ritualRecordId: r.id,
       activityName: r.templeEvent?.name ?? `${r.activityType}（無對應活動主檔）`,
@@ -130,6 +200,12 @@ async function getRitualRecordHistory(memberId: string) {
       paymentStatus,
       receiptNumbers,
       notes: r.notes,
+      // V13.4 新增
+      status: r.status,
+      participantCount: r.participants.length,
+      participationType,
+      participationLabel,
+      editorUrl: `/registration/${r.id}`,
     });
   }
   return results;

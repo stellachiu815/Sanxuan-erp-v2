@@ -323,6 +323,9 @@ export const receivableSourceTypeLabel: Record<string, string> = {
   // 名稱直接寫「寶袋」讓行政人員一眼看懂；若日後其他 itemType 也開放
   // 收費，再改成較通用的名稱。
   ADDITIONAL_PRINT_ITEM: "寶袋",
+  // V13.4：年度燈（光明燈／太歲燈／全家燈共用同一個應收來源型別，
+  // 實際是哪一種燈由 itemName 顯示）
+  LANTERN_REGISTRATION: "年度燈",
   PEACE_LANTERN: "平安燈（尚未開放，功能開發中）",
   TAISUI_LANTERN: "太歲燈（尚未開放，功能開發中）",
   TREASURY_REPAYMENT: "補庫（尚未開放，功能開發中）",

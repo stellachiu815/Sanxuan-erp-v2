@@ -12,6 +12,7 @@ import {
 import { copyActivityOfferingsForNewEvent } from "@/lib/activityOfferings";
 
 import { DEFAULT_POCKET_UNIT_PRICE, resolvePocketUnitPrice } from "@/lib/pocketPricing";
+import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 /**
  * V8.1「宮務活動中心」核心邏輯：活動精靈（Step1～Step4）＋活動 Checklist＋
  * 活動支出容器。這裡是所有宮務活動（普渡、祭改、光明燈、太歲燈、全家燈、
@@ -200,7 +201,7 @@ export async function copyTempleEventFromPrevious(
         where: { templeEventId: sourceEventId, activityType, deletedAt: null },
       });
       for (const record of sourceRecords) {
-        await tx.ritualRecord.create({
+        const created = await tx.ritualRecord.create({
           data: {
             householdId: record.householdId,
             year: newYear,
@@ -208,8 +209,29 @@ export async function copyTempleEventFromPrevious(
             templeEventId: event.id,
             status: "DRAFT",
             notes: record.notes,
+            registrationSource: "CARRY_OVER",
+            copiedFromRitualRecordId: record.id,
           },
         });
+
+        /**
+         * V13.4 指令十八：沿用去年的參加名單時，成員也要一起帶過來。
+         * ⚠️ 只複製「有哪些人」，不複製任何付款、收據、列印狀態
+         * （那些欄位根本不在 RitualParticipant 上）。
+         * 列印快照刻意不複製——新年度的虛歲不同，確認報名時才重新產生。
+         */
+        const sourceParticipants = await tx.ritualParticipant.findMany({
+          where: { ritualRecordId: record.id, deletedAt: null },
+          select: { memberId: true },
+        });
+        if (sourceParticipants.length > 0) {
+          await upsertParticipantsInTransaction(
+            tx,
+            created.id,
+            sourceParticipants.map((p) => p.memberId),
+            operatorName
+          );
+        }
       }
     }
 
@@ -386,7 +408,9 @@ export async function addGenericParticipant(
   templeEventId: string,
   householdId: string,
   notes: string | null,
-  operatorName?: string | null
+  operatorName?: string | null,
+  /** V13.4：本次納入的成員。未指定時預設納入戶長 */
+  memberIds?: string[]
 ): Promise<TempleEventResult<{ id: string }>> {
   const event = await prisma.templeEvent.findUnique({ where: { id: templeEventId } });
   if (!event) return { ok: false, status: 404, error: "找不到這個活動" };
@@ -407,12 +431,44 @@ export async function addGenericParticipant(
           data: { notes, templeEventId, status: "CONFIRMED", deletedAt: null },
         })
       : await tx.ritualRecord.create({
-          data: { householdId, year: event.year, activityType: event.activityType, templeEventId, notes, status: "CONFIRMED" },
+          data: {
+            householdId,
+            year: event.year,
+            activityType: event.activityType,
+            templeEventId,
+            notes,
+            status: "CONFIRMED",
+            registrationSource: "ACTIVITY_PAGE",
+          },
         });
     await recordVersion(
       { entityType: "RitualRecord", entityId: r.id, action: existing ? "UPDATE" : "CREATE", afterData: r, operatorName },
       tx
     );
+
+    /**
+     * V13.4 指令十八：所有建立 RitualRecord 的入口都必須同步寫入
+     * RitualParticipant——上線後不得再產生「沒有 participant」的新資料。
+     *
+     * 活動頁參加名單原本只選家戶、不選成員。這裡的相容做法：
+     *   有指定 memberIds → 寫入指定成員
+     *   沒指定           → 預設納入戶長；沒有戶長就納入第一位成員
+     * 使用者之後可在共用報名編輯器 /registration/[id] 調整成員。
+     */
+    let targetMemberIds = memberIds ?? [];
+    if (targetMemberIds.length === 0) {
+      const members = await tx.member.findMany({
+        where: { householdId, deletedAt: null },
+        select: { id: true, role: true },
+        orderBy: { createdAt: "asc" },
+      });
+      const head = members.find((m) => m.role === "HOUSEHOLD_HEAD") ?? members[0];
+      if (head) targetMemberIds = [head.id];
+    }
+    if (targetMemberIds.length > 0) {
+      await upsertParticipantsInTransaction(tx, r.id, targetMemberIds, operatorName);
+    }
+
     return r;
   });
 
