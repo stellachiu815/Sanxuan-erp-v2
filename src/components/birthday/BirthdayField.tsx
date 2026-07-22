@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { inputClass, labelClass, checkboxRowClass, errorTextClass } from "@/components/household/formStyles";
+// V13.4 驗收：生日預覽的國曆／農曆都用「唯一共用」的民國格式函式，
+// 與信眾詳情頁、convert API 同一套，元件內不自行拼字串、不用西元。
+import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
 
 export type BirthdayType = "none" | "solar" | "lunar";
 
@@ -320,8 +323,19 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
           {!converting && convertError && <p className={errorTextClass}>{convertError}</p>}
           {!converting && !convertError && result && (
             <div className="flex flex-wrap gap-x-5 gap-y-1">
-              <span>國曆：{result.solarFormatted}</span>
-              <span>{result.lunarFormatted}</span>
+              {/* 顯示一律民國：國曆走 formatIsoDateToMinguoLong、農曆走
+                  formatLunarDateToMinguoLong，資料取自 convert API 回傳的
+                  原始 solarDate（ISO）與 lunar 物件，不用 *Formatted 字串。 */}
+              <span>國曆：{formatIsoDateToMinguoLong(result.solarDate) || "—"}</span>
+              <span>
+                農曆：
+                {formatLunarDateToMinguoLong({
+                  year: result.lunar.year,
+                  month: result.lunar.month,
+                  day: result.lunar.day,
+                  isLeapMonth: result.lunar.isLeapMonth,
+                }) || "—"}
+              </span>
               <span>生肖：{result.zodiac}</span>
               <span>實歲：{result.actualAge}</span>
               <span>虛歲：{result.nominalAge}</span>
