@@ -207,6 +207,51 @@ export function formatIsoDateToMinguoLong(iso: string | null | undefined): strin
   return formatMinguoDateLong(built);
 }
 
+/** 農曆月份國字（索引 0＝正月）。 */
+const LUNAR_MONTH_NAMES = [
+  "正月", "二月", "三月", "四月", "五月", "六月",
+  "七月", "八月", "九月", "十月", "十一月", "十二月",
+] as const;
+
+/** 農曆日期國字（索引 0＝初一）。 */
+const LUNAR_DAY_NAMES = [
+  "初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+  "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+  "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十",
+] as const;
+
+/**
+ * 農曆生日 → 民國長格式「民國61年七月初七」（閏月為「民國61年閏七月初七」）。
+ *
+ * ── 為什麼與國曆共用同一個模組 ─────────────────────────────
+ * 驗收規則：國曆與農曆只是曆法不同，畫面上「年份一律用民國」。所以農曆顯示
+ * 也在這支唯一的共用模組完成，畫面不得各自拼字串。
+ *
+ * 傳入的 `year` 是資料庫儲存的**農曆西元年**（例如 1972，與
+ * src/lib/lunar.ts 的 lunar.year 同一套），這裡 −1911 換成民國年。
+ *
+ * ⚠️ 這只負責「畫面顯示」。列印一律走農曆生日與活動年度虛歲
+ * （src/lib/activityPrintProfile.ts），與這支無關、不得混用。
+ *
+ * 規則（指令三）：年、月、日任一缺失或不合法 → 回空字串（畫面留白），
+ * 絕不顯示「西元1972…」「1972-…」「只有月日沒有年份」或「Invalid Date」。
+ */
+export function formatLunarDateToMinguoLong(input: {
+  year: number | null | undefined;
+  month: number | null | undefined;
+  day: number | null | undefined;
+  isLeapMonth?: boolean | null;
+}): string {
+  const { year, month, day, isLeapMonth } = input;
+  if (year === null || year === undefined || !Number.isInteger(year)) return "";
+  if (month === null || month === undefined || !Number.isInteger(month) || month < 1 || month > 12) return "";
+  if (day === null || day === undefined || !Number.isInteger(day) || day < 1 || day > 30) return "";
+
+  const minguo = adToMinguo(year);
+  const leapTag = isLeapMonth ? "閏" : "";
+  return `民國${minguo}年${leapTag}${LUNAR_MONTH_NAMES[month - 1]}${LUNAR_DAY_NAMES[day - 1]}`;
+}
+
 /** Date → 西元 yyyy-MM-dd（給 <input type="date"> 與 API 傳輸用）。 */
 export function toIsoDateString(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return "";

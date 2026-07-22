@@ -17,7 +17,7 @@ import { GENDER_OPTIONS } from "@/lib/genderNormalize";
 import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
 import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
 // V13.4 驗收：國曆生日一律以民國長格式顯示，唯一來源在 minguoDate。
-import { formatIsoDateToMinguoLong } from "@/lib/minguoDate";
+import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
 import BirthdayField, {
   createEmptyBirthdayValue,
   type BirthdayValue,
@@ -199,7 +199,14 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
                 國曆：<span className="text-ink-soft">{formatIsoDateToMinguoLong(b.solarBirthDate) || "未填寫"}</span>
               </span>
               <span>
-                農曆：<span className="text-ink-soft">{b.lunarBirthDisplay ?? "未填寫"}</span>
+                {/* V13.4 驗收：農曆生日同樣使用民國年份「民國61年七月初七」，
+                    與國曆一致，走 minguoDate 的唯一共用函式；不顯示西元/1972-/無年份。 */}
+                農曆：<span className="text-ink-soft">{formatLunarDateToMinguoLong({
+                  year: b.lunarBirthYear,
+                  month: b.lunarBirthMonth,
+                  day: b.lunarBirthDay,
+                  isLeapMonth: b.lunarIsLeapMonth,
+                }) || "未填寫"}</span>
               </span>
               <span>
                 生肖：<span className="text-ink-soft">{b.zodiac ?? "未填寫"}</span>

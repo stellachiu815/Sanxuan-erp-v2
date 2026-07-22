@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-// V13.4 驗收：國曆生日預覽改用民國長格式（「民國61年8月15日」），
-// 與信眾詳情頁同一個唯一共用函式，畫面不再出現西元 1972/08/15。
-import { formatMinguoDateLong } from "@/lib/minguoDate";
+// V13.4 驗收：國曆與農曆生日預覽都改用民國長格式，與信眾詳情頁同一組
+// 唯一共用函式，畫面不再出現西元 1972/08/15 或「農曆 1972 年…」。
+import { formatMinguoDateLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
 import {
-  formatLunarDate,
   getActualAge,
   getNominalAge,
   getZodiacByLunarYear,
@@ -75,7 +74,12 @@ export async function POST(request: NextRequest) {
     solarDate: toIsoDateString(solarDate),
     solarFormatted: formatMinguoDateLong(solarDate),
     lunar,
-    lunarFormatted: formatLunarDate(lunar),
+    lunarFormatted: formatLunarDateToMinguoLong({
+      year: lunar.year,
+      month: lunar.month,
+      day: lunar.day,
+      isLeapMonth: lunar.isLeapMonth,
+    }),
     zodiac: getZodiacByLunarYear(lunar.year),
     actualAge: getActualAge(solarDate),
     nominalAge: getNominalAge(lunar.year),
