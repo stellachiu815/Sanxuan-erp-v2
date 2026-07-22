@@ -3,7 +3,16 @@ import { composeDevoteeSummary, DEVOTEE_SUMMARY_INCLUDE } from "@/lib/devoteePro
 import { getMemberOfferingHistory } from "@/lib/offeringClaims";
 import { getDevoteeTagsForMember } from "@/lib/devoteeTags";
 import { listDevoteeInteractions } from "@/lib/devoteeInteractions";
-import type { ReceivableSourceType } from "@prisma/client";
+import type { Prisma, ReceivableSourceType } from "@prisma/client";
+
+/**
+ * P2024 修正（指令三）：捐款統計與活動統計都需要「這位信眾的普渡活動」與
+ * 「祭改明細」。過去兩支各查一次（同一 request 對同兩張表重複四次查詢），
+ * 現在由 getDevotee360Overview 一次查好、共用給兩支，型別即這兩個共用查詢
+ * 的回傳形狀。
+ */
+type MemberRitualForStats = Prisma.RitualRecordGetPayload<{ include: { universalSalvation: true } }>;
+type MemberPurificationForStats = Prisma.PurificationEntryGetPayload<{ include: { ritualRecord: true } }>;
 
 /**
  * V12.0「360°信眾總覽」（對應指令「六」）。
@@ -31,21 +40,55 @@ function toRocYear(date: Date): number {
   return date.getFullYear() - ROC_OFFSET;
 }
 
-/** 查詢某個應收來源（sourceType+sourceId）目前有效（未作廢）的收據號碼清單。 */
-async function getReceiptNumbersForSource(sourceType: ReceivableSourceType, sourceId: string): Promise<string[]> {
+/** (sourceType, sourceId) → 唯一鍵字串，供分組使用。 */
+function receiptSourceKey(sourceType: ReceivableSourceType, sourceId: string): string {
+  return `${sourceType}::${sourceId}`;
+}
+
+/**
+ * V13.4 驗收（P2024 修正，指令六）：批次查詢多筆應收來源的有效收據號碼。
+ *
+ * 舊寫法在每一筆活動／祭改／供品的迴圈裡各呼叫一次 getReceiptNumbersForSource，
+ * 一位信眾有 N 筆紀錄就打 N 次 paymentAllocation.findMany（N+1 查詢，正是
+ * 日誌裡 paymentAllocation.findMany／receipt 大量重複的來源）。這裡改成
+ * 「先收集全部 (sourceType, sourceId)，用一次 findMany（OR）撈回，再分組」，
+ * 把 N 次併成 1 次。結果與逐筆查完全相同，不改任何金額或收據判斷。
+ *
+ * 空陣列 → 直接回傳空 Map，不打 DB。
+ */
+async function getReceiptNumbersForSources(
+  pairs: readonly { sourceType: ReceivableSourceType; sourceId: string }[]
+): Promise<Map<string, string[]>> {
+  const grouped = new Map<string, Set<string>>();
+  if (pairs.length === 0) return new Map();
+
+  // 去重，避免 OR 條件塞入重複組合。
+  const uniquePairs = Array.from(
+    new Map(pairs.map((p) => [receiptSourceKey(p.sourceType, p.sourceId), p])).values()
+  );
+
   const allocations = await prisma.paymentAllocation.findMany({
-    where: { sourceType, sourceId },
+    where: { OR: uniquePairs.map((p) => ({ sourceType: p.sourceType, sourceId: p.sourceId })) },
     include: { receiptLines: { include: { receipt: true } } },
   });
-  const numbers = new Set<string>();
+
   for (const alloc of allocations) {
+    const key = receiptSourceKey(alloc.sourceType, alloc.sourceId);
+    let set = grouped.get(key);
+    if (!set) {
+      set = new Set<string>();
+      grouped.set(key, set);
+    }
     for (const line of alloc.receiptLines) {
       if (line.receipt.status === "ISSUED" && line.receipt.receiptNumber) {
-        numbers.add(line.receipt.receiptNumber);
+        set.add(line.receipt.receiptNumber);
       }
     }
   }
-  return Array.from(numbers);
+
+  const result = new Map<string, string[]>();
+  for (const [key, set] of grouped) result.set(key, Array.from(set));
+  return result;
 }
 
 async function getBasicAndHousehold(memberId: string) {
@@ -142,6 +185,19 @@ async function getRitualRecordHistory(memberId: string) {
     orderBy: { year: "desc" },
   });
 
+  // P2024 修正：先收集所有需要查收據的 (來源, id)，一次批次撈回，取代
+  // 迴圈內逐筆查 paymentAllocation（N+1）。分組與金額判斷邏輯完全不變。
+  const receiptPairs: { sourceType: ReceivableSourceType; sourceId: string }[] = [];
+  for (const r of records) {
+    if (r.universalSalvation?.isSponsor) {
+      receiptPairs.push({ sourceType: "UNIVERSAL_SALVATION_SPONSOR", sourceId: r.universalSalvation.id });
+    }
+    if (r.lanternRegistration) {
+      receiptPairs.push({ sourceType: "LANTERN_REGISTRATION", sourceId: r.lanternRegistration.id });
+    }
+  }
+  const receiptMap = await getReceiptNumbersForSources(receiptPairs);
+
   const results = [];
   for (const r of records) {
     let amount = 0;
@@ -152,7 +208,7 @@ async function getRitualRecordHistory(memberId: string) {
       if (u.isSponsor) {
         amount = Number(u.amountDue);
         paymentStatus = Number(u.amountUnpaid) <= 0 ? "已收訖" : Number(u.amountPaid) > 0 ? "部分收款" : "未收款";
-        receiptNumbers = await getReceiptNumbersForSource("UNIVERSAL_SALVATION_SPONSOR", u.id);
+        receiptNumbers = receiptMap.get(receiptSourceKey("UNIVERSAL_SALVATION_SPONSOR", u.id)) ?? [];
       } else {
         paymentStatus = "未贊普（僅登記）";
       }
@@ -167,7 +223,7 @@ async function getRitualRecordHistory(memberId: string) {
           : Number(lr.amountPaid) > 0
             ? "部分收款"
             : "未收款";
-      receiptNumbers = await getReceiptNumbersForSource("LANTERN_REGISTRATION", lr.id);
+      receiptNumbers = receiptMap.get(receiptSourceKey("LANTERN_REGISTRATION", lr.id)) ?? [];
     }
 
     /**
@@ -219,9 +275,14 @@ async function getPurificationHistory(memberId: string) {
     orderBy: { createdAt: "desc" },
   });
 
+  // P2024 修正：一次批次撈回所有可收費祭改的收據，取代迴圈內逐筆查詢。
+  const receiptMap = await getReceiptNumbersForSources(
+    entries.filter((e) => e.feeStatus === "CHARGEABLE").map((e) => ({ sourceType: "PURIFICATION_ENTRY" as const, sourceId: e.id }))
+  );
+
   const results = [];
   for (const e of entries) {
-    const receiptNumbers = e.feeStatus === "CHARGEABLE" ? await getReceiptNumbersForSource("PURIFICATION_ENTRY", e.id) : [];
+    const receiptNumbers = e.feeStatus === "CHARGEABLE" ? receiptMap.get(receiptSourceKey("PURIFICATION_ENTRY", e.id)) ?? [] : [];
     results.push({
       entryId: e.id,
       year: e.ritualRecord.year,
@@ -248,9 +309,13 @@ async function getPurificationHistory(memberId: string) {
 /** 4. 供品認捐紀錄（沿用既有 getMemberOfferingHistory()，不重寫查詢邏輯）。 */
 async function getOfferingHistory(memberId: string) {
   const claims = await getMemberOfferingHistory(memberId);
+  // P2024 修正：一次批次撈回所有供品認捐的收據，取代迴圈內逐筆查詢。
+  const receiptMap = await getReceiptNumbersForSources(
+    claims.map((c) => ({ sourceType: "OFFERING_CLAIM" as const, sourceId: c.id }))
+  );
   const results = [];
   for (const c of claims) {
-    const receiptNumbers = await getReceiptNumbersForSource("OFFERING_CLAIM", c.id);
+    const receiptNumbers = receiptMap.get(receiptSourceKey("OFFERING_CLAIM", c.id)) ?? [];
     results.push({
       claimId: c.id,
       year: c.year,
@@ -316,22 +381,23 @@ async function getReceiptHistory(memberId: string) {
  * 8. 捐款統計——依「真實收款資料」統計，不得把未付款算入實收（指令
  * 「六、8」「二十一、13/14」）。分類方式見本檔案開頭的誠實揭露說明。
  */
-async function getDonationStats(memberId: string, now: Date) {
+async function getDonationStats(
+  memberId: string,
+  now: Date,
+  // P2024 修正（指令三）：ritual／purification 由呼叫端一次查好共用，
+  // 不再由 donation 與 activity 各查一次（同一 request 重複查詢）。
+  sharedRituals: MemberRitualForStats[],
+  sharedPurifications: MemberPurificationForStats[]
+) {
   const currentYear = toRocYear(now);
 
-  const [offeringClaims, universalSalvation, purificationEntries] = await Promise.all([
-    prisma.offeringClaim.findMany({ where: { sponsorMemberId: memberId, deletedAt: null }, include: { offeringType: true } }),
-    prisma.ritualRecord.findMany({
-      where: { memberId, deletedAt: null, activityType: "UNIVERSAL_SALVATION" },
-      include: { universalSalvation: true },
-    }),
-    // 修正：原本這裡沒有 include ritualRecord，但下面「祭改」區塊會讀取
-    // p.ritualRecord（見下方），導致 Render Build 出現 TypeScript 錯誤
-    // （"Property 'ritualRecord' does not exist on type PurificationEntry"）。
-    // 這裡補上 include: { ritualRecord: true }，只補齊查詢帶出的關聯資料，
-    // 不改 schema、不改下面的判斷邏輯、不新增功能。
-    prisma.purificationEntry.findMany({ where: { memberId, deletedAt: null }, include: { ritualRecord: true } }),
-  ]);
+  const offeringClaims = await prisma.offeringClaim.findMany({
+    where: { sponsorMemberId: memberId, deletedAt: null },
+    include: { offeringType: true },
+  });
+  // 贊普只可能出現在普渡活動；沿用既有判斷，只是資料來自共用查詢。
+  const universalSalvation = sharedRituals.filter((r) => r.activityType === "UNIVERSAL_SALVATION");
+  const purificationEntries = sharedPurifications;
 
   type YearAmount = { year: number; received: number; due: number };
   const byCategory: Record<string, YearAmount[]> = {
@@ -410,12 +476,15 @@ async function getDonationStats(memberId: string, now: Date) {
 }
 
 /** 9. 活動統計。 */
-async function getActivityStats(memberId: string, now: Date) {
-  const [ritualRecords, purificationEntries] = await Promise.all([
-    prisma.ritualRecord.findMany({ where: { memberId, deletedAt: null }, select: { createdAt: true } }),
-    prisma.purificationEntry.findMany({ where: { memberId, deletedAt: null }, select: { createdAt: true } }),
-  ]);
-  const allDates = [...ritualRecords, ...purificationEntries].map((r) => r.createdAt).sort((a, b) => a.getTime() - b.getTime());
+function getActivityStats(
+  now: Date,
+  // P2024 修正（指令三）：沿用共用查詢，不再另外查一次 ritual／purification。
+  sharedRituals: MemberRitualForStats[],
+  sharedPurifications: MemberPurificationForStats[]
+) {
+  const allDates = [...sharedRituals, ...sharedPurifications]
+    .map((r) => r.createdAt)
+    .sort((a, b) => a.getTime() - b.getTime());
 
   if (allDates.length === 0) {
     return {
@@ -472,17 +541,49 @@ export async function getDevotee360Overview(memberId: string, now: Date = new Da
   const base = await getBasicAndHousehold(memberId);
   if (!base) return null;
 
-  const [rituals, purifications, offerings, payments, receipts, tags, interactions, donationStats, activityStats] = await Promise.all([
+  /**
+   * P2024 修正（指令一、三、四）：
+   *
+   * 舊版一次 `Promise.all([...9 個查詢])`，而其中 donation／activity 內部
+   * 又各自 `Promise.all`，冷啟動瞬間要 12+ 條連線 → 超過連線池上限 9。
+   *
+   * 現在改為：
+   *  (1) 先一次查好兩支統計共用的 ritual／purification（原本各查一次，共 4 次
+   *      → 現在 2 次），避免同一 request 重複查詢。
+   *  (2) 其餘讀取分批執行（每批最多 3 個 Promise.all），任何時刻同時在跑的
+   *      查詢數都壓在連線池容量以內，不再一次全部啟動十幾個。
+   *
+   * 全程不改任何金額／收據判斷，不吞錯、不把失敗當 0（指令八）。
+   */
+  const [sharedRituals, sharedPurifications] = await Promise.all([
+    prisma.ritualRecord.findMany({
+      where: { memberId, deletedAt: null },
+      include: { universalSalvation: true },
+    }),
+    prisma.purificationEntry.findMany({
+      where: { memberId, deletedAt: null },
+      include: { ritualRecord: true },
+    }),
+  ]);
+
+  // 受控並行：每批最多 DEVOTEE_OVERVIEW_DB_CONCURRENCY 個讀取，做完一批再下一批。
+  // 各 history 內部已把逐筆收據查詢併成一次批次查詢，故每個任務最多 2 次序列
+  // 查詢；一批 3 個 → 尖峰約 3 條連線，遠低於連線池上限 9。
+  const [rituals, purifications, offerings] = await Promise.all([
     getRitualRecordHistory(memberId),
     getPurificationHistory(memberId),
     getOfferingHistory(memberId),
+  ]);
+  const [payments, receipts, tags] = await Promise.all([
     getPaymentHistory(memberId),
     getReceiptHistory(memberId),
     getDevoteeTagsForMember(memberId),
-    listDevoteeInteractions(memberId),
-    getDonationStats(memberId, now),
-    getActivityStats(memberId, now),
   ]);
+  const interactions = await listDevoteeInteractions(memberId);
+
+  // 統計改用上面共用查到的資料計算（不再各自打 DB）。
+  const donationStats = await getDonationStats(memberId, now, sharedRituals, sharedPurifications);
+  const activityStats = getActivityStats(now, sharedRituals, sharedPurifications);
 
   const timeline = buildTimeline({ summary: base.summary, rituals, purifications, offerings, payments, receipts, interactions });
 

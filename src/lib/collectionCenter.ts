@@ -18,6 +18,15 @@ import {
   type PendingReceivableFilters,
 } from "@/lib/receivableAdapters";
 import { getAllocationReceiptImpact } from "@/lib/receipt";
+import { mapWithConcurrency } from "@/lib/concurrency";
+
+/**
+ * P2024 修正：收款中心「待收款」一次要問所有已串接來源的 adapter，每個
+ * adapter 內部又各自查 2～4 次（來源表 + 付款分錄 + 收據）。過去用
+ * Promise.all 全部一起跑，冷啟動時瞬間十幾～二十條連線超過池上限。
+ * 這裡把 adapter 的並行數壓在 2，做完一個補一個，結果完全不變。
+ */
+const RECEIVABLE_ADAPTER_CONCURRENCY = 2;
 
 /**
  * V11.0.1「全宮共用收款中心」核心邏輯——整合驗收修正輪重寫版。
@@ -59,8 +68,12 @@ export type { UniversalReceivableView, PendingReceivableFilters };
 /** 需求「待收款項」「快速收款」共用：目前所有已串接來源的未收/部分收款清單。 */
 export async function listPendingReceivables(filters: PendingReceivableFilters): Promise<UniversalReceivableView[]> {
   const sourceTypes = listWiredSourceTypes();
-  const lists = await Promise.all(
-    sourceTypes.map((sourceType) => getReceivableAdapter(sourceType)!.listPending(filters))
+  // 受控並行：一次最多 RECEIVABLE_ADAPTER_CONCURRENCY 個 adapter 查詢，
+  // 取代原本一次全部 Promise.all（P2024 修正，指令四）。
+  const lists = await mapWithConcurrency(
+    sourceTypes,
+    RECEIVABLE_ADAPTER_CONCURRENCY,
+    (sourceType) => getReceivableAdapter(sourceType)!.listPending(filters)
   );
   const views = lists.flat();
   return views.sort((a, b) => a.sourceYear - b.sourceYear || a.createdAt.getTime() - b.createdAt.getTime());

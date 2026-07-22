@@ -26,6 +26,7 @@ import {
   type Role,
 } from "../src/lib/permissions";
 import { formatIsoDateToMinguoLong } from "../src/lib/minguoDate";
+import { mapWithConcurrency, runWithConcurrency } from "../src/lib/concurrency";
 
 /**
  * V13.4：信眾詳情 × 全活動報名 × 年度沿用 測試。
@@ -674,4 +675,148 @@ test("17. 列印流程不受畫面格式修改影響（仍走農曆生日）", (
   });
   // 列印用的是農曆生日文字，與畫面的民國國曆顯示是兩條路。
   assert.equal(profile.lunarBirthText.includes("農曆"), true);
+});
+
+// ============================================================
+// 八、連線池 P2024 修正：受控並行、去重、批次查詢
+// ============================================================
+
+test("18. mapWithConcurrency 尖峰並行不超過上限，且結果順序正確", async () => {
+  let active = 0;
+  let peak = 0;
+  const items = Array.from({ length: 20 }, (_, i) => i);
+  const out = await mapWithConcurrency(items, 3, async (n) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active -= 1;
+    return n * 2;
+  });
+  assert.equal(peak <= 3, true, `尖峰並行 ${peak} 不得超過 3`);
+  assert.deepEqual(out, items.map((n) => n * 2), "結果需與輸入順序一致");
+});
+
+test("18. runWithConcurrency 同樣受控，且任一失敗會往上拋（不吞錯回 0）", async () => {
+  let active = 0;
+  let peak = 0;
+  const mk = (n: number) => async () => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 3));
+    active -= 1;
+    return n;
+  };
+  const res = await runWithConcurrency([mk(1), mk(2), mk(3), mk(4), mk(5)], 2);
+  assert.deepEqual(res, [1, 2, 3, 4, 5]);
+  assert.equal(peak <= 2, true);
+
+  // 失敗必須傳遞，不得被默默當成 0（指令八）。
+  await assert.rejects(
+    runWithConcurrency(
+      [async () => 1, async () => { throw new Error("boom"); }, async () => 3],
+      2
+    ),
+    /boom/
+  );
+});
+
+test("18. limit 非法值直接報錯（避免無限或零並行）", () => {
+  assert.throws(() => mapWithConcurrency([1], 0, async (x) => x));
+  assert.throws(() => mapWithConcurrency([1], -1, async (x) => x));
+});
+
+const DEVOTEE360 = readFileSync(join(ROOT, "src/lib/devotee360.ts"), "utf-8");
+const COLLECTION_CENTER = readFileSync(join(ROOT, "src/lib/collectionCenter.ts"), "utf-8");
+
+test("19. 信眾 360° 總覽不得一次 Promise.all 啟動過多平行查詢", () => {
+  /**
+   * 不用「數逗號」估算（多行物件參數會誤判），改為：掃描每個
+   * Promise.all([...]) 區塊，數其中出現幾個「昂貴讀取函式」的呼叫。
+   * 舊版一次把 9 個放進同一個 Promise.all，正是 P2024 主因；修正後每個
+   * 區塊最多 3 個。
+   */
+  const EXPENSIVE = [
+    "getRitualRecordHistory",
+    "getPurificationHistory",
+    "getOfferingHistory",
+    "getPaymentHistory",
+    "getReceiptHistory",
+    "getDevoteeTagsForMember",
+    "listDevoteeInteractions",
+    "getDonationStats",
+    "getActivityStats",
+  ];
+  const MAX_PARALLEL = 3;
+  const blocks = DEVOTEE360.match(/Promise\.all\(\[[\s\S]*?\]\)/g) ?? [];
+  const offenders: string[] = [];
+  for (const block of blocks) {
+    const count = EXPENSIVE.filter((fn) => block.includes(`${fn}(`)).length;
+    if (count > MAX_PARALLEL) offenders.push(`${count} 個昂貴查詢在同一 Promise.all`);
+  }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+  // 明確保證舊的 9 合一寫法已消失：ritual 與 payment 兩支歷史不得同框。
+  const nineInOne = blocks.some(
+    (b) => b.includes("getRitualRecordHistory(") && b.includes("getReceiptHistory(")
+  );
+  assert.equal(nineInOne, false, "舊的 9 合一 Promise.all 必須拆開");
+});
+
+test("19. 逐筆收據查詢已改為批次（消除 N+1）", () => {
+  // 批次解析器存在，且三個歷史查詢都改用它，不再於迴圈內逐筆查 allocation。
+  assert.equal(DEVOTEE360.includes("async function getReceiptNumbersForSources"), true);
+  assert.equal(
+    /getReceiptNumbersForSource\(/.test(DEVOTEE360.replace(/getReceiptNumbersForSources/g, "")),
+    false,
+    "不得再殘留單筆 getReceiptNumbersForSource 呼叫（已被批次版取代）"
+  );
+});
+
+test("19. ritual／purification 統計改用共用查詢，不在同一 request 重複查", () => {
+  // donation 與 activity 都接收共用資料參數，不再各自 findMany。
+  assert.equal(DEVOTEE360.includes("sharedRituals: MemberRitualForStats[]"), true);
+  assert.equal(DEVOTEE360.includes("sharedPurifications: MemberPurificationForStats[]"), true);
+  // getActivityStats 不再自行查 DB（純計算）。
+  const actStart = DEVOTEE360.indexOf("function getActivityStats");
+  const actBody = DEVOTEE360.slice(actStart, DEVOTEE360.indexOf("\nfunction ", actStart + 1));
+  assert.equal(
+    actBody.includes("prisma."),
+    false,
+    "getActivityStats 應純計算，不得再自行查資料庫"
+  );
+});
+
+test("19. 收款中心 adapter 以受控並行執行，非一次全部 Promise.all", () => {
+  assert.equal(COLLECTION_CENTER.includes("mapWithConcurrency"), true);
+  assert.equal(
+    /Promise\.all\(\s*sourceTypes\.map/.test(COLLECTION_CENTER),
+    false,
+    "不得再用 Promise.all 一次啟動全部 adapter"
+  );
+});
+
+test("19. 統計函式不得吞掉錯誤後回傳 0（避免財務數字錯誤顯示為零）", () => {
+  // 掃描 donation/activity 區塊不得出現 catch 後 return 0 的樣式。
+  const donStart = DEVOTEE360.indexOf("function getDonationStats");
+  const donBody = DEVOTEE360.slice(donStart, DEVOTEE360.indexOf("\nfunction ", donStart + 1));
+  assert.equal(/catch[\s\S]{0,120}return\s+0/.test(donBody), false);
+  assert.equal(/catch[\s\S]{0,120}P2024/.test(DEVOTEE360), false, "不得針對 P2024 吞錯回 0");
+});
+
+test("19. 全專案僅一個 PrismaClient 實例（singleton）", () => {
+  function walk(dir: string, acc: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full, acc);
+      else if (/\.(ts|tsx)$/.test(name)) acc.push(full);
+    }
+    return acc;
+  }
+  const hits = walk(join(ROOT, "src")).filter((f) =>
+    readFileSync(f, "utf-8").includes("new PrismaClient")
+  );
+  assert.deepEqual(
+    hits.map((f) => f.replace(ROOT, "")),
+    ["/src/lib/prisma.ts"],
+    "只允許 src/lib/prisma.ts 建立 PrismaClient"
+  );
 });
