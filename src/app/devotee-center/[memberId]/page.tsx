@@ -444,9 +444,43 @@ function OverviewTab({
 }) {
   const canSeeFullStats = operatorRole === "SUPER_ADMIN";
   const canEdit = operatorRole === "SUPER_ADMIN" || operatorRole === "ADMIN";
+  // V13.4 驗收修正：活動報名入口原本只在「活動」分頁，落地的「總覽」分頁看不到。
+  // 報名權限沿用 ActivitiesTab 同一組角色（含 STAFF），不另立第二套判斷。
+  const canRegister =
+    operatorRole === "SUPER_ADMIN" || operatorRole === "ADMIN" || operatorRole === "STAFF";
+  const [showNewRegistration, setShowNewRegistration] = useState(false);
   const ds = overview.donationStats;
   return (
     <div className="flex flex-col gap-4">
+      {/* V13.4 驗收修正：活動報名入口直接顯示在總覽分頁最上方，
+          開啟的是與「活動」分頁完全相同的 NewActivityRegistrationDialog，
+          不是第二套實作。 */}
+      {canRegister && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sage-100/70 px-5 py-4">
+          <div>
+            <p className="text-sm text-ink">活動報名</p>
+            <p className="mt-0.5 text-xs text-ink-faint">
+              普渡、年度燈、宮慶等所有活動都可從這裡新增，支援沿用去年或全新建立。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowNewRegistration(true)}
+            className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink transition hover:bg-yolk-300"
+          >
+            ＋新增活動報名
+          </button>
+        </div>
+      )}
+      {showNewRegistration && (
+        <NewActivityRegistrationDialog
+          memberId={memberId}
+          onClose={() => {
+            setShowNewRegistration(false);
+            onChanged();
+          }}
+        />
+      )}
       {/* V12.5 指令二：資料完整度卡片放在最上面；手機版 sticky 置頂，
           捲動填寫時仍看得到還缺哪些欄位。 */}
       <DevoteeCompletenessCard
