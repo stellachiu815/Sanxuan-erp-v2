@@ -183,6 +183,30 @@ export function formatMinguoDateLong(d: Date | null | undefined): string {
   return `民國${minguo}年${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
 }
 
+/**
+ * 西元 ISO 日期字串（yyyy-MM-dd，devoteeProfile 等 API 對外輸出的國曆格式）
+ * → 民國長格式「民國61年8月15日」。
+ *
+ * ── 為什麼獨立一支 ────────────────────────────────────────
+ * 信眾詳情頁的「國曆生日」欄位收到的是 API 已格式化好的 ISO 字串
+ * （src/lib/devoteeProfile.ts 的 solarBirthDate: toISOString().slice(0,10)），
+ * 不是 Date 物件。過去畫面直接把這個字串印出來，就會看到「1972-08-15」。
+ * 這支把「ISO 字串 → 民國顯示」收斂成唯一一處，畫面不得再各自用 slice／
+ * toLocaleDateString 轉換（V13.4 驗收指令）。
+ *
+ * ⚠️ 這只負責「畫面顯示」。列印流程一律走農曆生日與活動年度歲數
+ * （src/lib/activityPrintProfile.ts），與這支完全無關、不得混用。
+ *
+ * 空字串／null／格式不符 → 回空字串（畫面留白，絕不顯示 Invalid Date）。
+ */
+export function formatIsoDateToMinguoLong(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(iso).trim());
+  if (!m) return "";
+  const built = buildUtcDate(Number(m[1]), Number(m[2]), Number(m[3]));
+  return formatMinguoDateLong(built);
+}
+
 /** Date → 西元 yyyy-MM-dd（給 <input type="date"> 與 API 傳輸用）。 */
 export function toIsoDateString(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return "";

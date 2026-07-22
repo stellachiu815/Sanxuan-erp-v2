@@ -16,6 +16,8 @@ import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOption
 import { GENDER_OPTIONS } from "@/lib/genderNormalize";
 import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
 import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
+// V13.4 驗收：國曆生日一律以民國長格式顯示，唯一來源在 minguoDate。
+import { formatIsoDateToMinguoLong } from "@/lib/minguoDate";
 import BirthdayField, {
   createEmptyBirthdayValue,
   type BirthdayValue,
@@ -192,7 +194,9 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
                 性別：<span className="text-ink-soft">{b.gender ?? "未填寫"}</span>
               </span>
               <span>
-                國曆：<span className="text-ink-soft">{b.solarBirthDate ?? "未填寫"}</span>
+                {/* V13.4 驗收：國曆生日顯示民國長格式「民國61年8月15日」，
+                    不顯示 1972-08-15。轉換走 minguoDate 的唯一共用函式。 */}
+                國曆：<span className="text-ink-soft">{formatIsoDateToMinguoLong(b.solarBirthDate) || "未填寫"}</span>
               </span>
               <span>
                 農曆：<span className="text-ink-soft">{b.lunarBirthDisplay ?? "未填寫"}</span>
@@ -452,27 +456,40 @@ function OverviewTab({
   const ds = overview.donationStats;
   return (
     <div className="flex flex-col gap-4">
-      {/* V13.4 驗收修正：活動報名入口直接顯示在總覽分頁最上方，
-          開啟的是與「活動」分頁完全相同的 NewActivityRegistrationDialog，
-          不是第二套實作。 */}
-      {canRegister && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sage-100/70 px-5 py-4">
-          <div>
-            <p className="text-sm text-ink">活動報名</p>
-            <p className="mt-0.5 text-xs text-ink-faint">
-              普渡、年度燈、宮慶等所有活動都可從這裡新增，支援沿用去年或全新建立。
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowNewRegistration(true)}
-            className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink transition hover:bg-yolk-300"
-          >
-            ＋新增活動報名
-          </button>
+      {/*
+        V13.4 驗收修正（第一項）：活動報名入口直接顯示在落地的「總覽」分頁最上方。
+        開啟的是與「活動」分頁完全相同的 NewActivityRegistrationDialog（非第二套）。
+
+        ⚠️ 這張卡片「一律渲染」，不再用 canRegister 把整段藏掉——
+        外層 DevoteeCenterGate 已保證進到這裡時 operatorUser 一定解析完成且
+        具信眾中心查看權限，所以不會因 operatorUser 載入中或比對失敗而整段消失
+        （對應指令：不得因 operatorUser／canEdit 未載入讓入口永久不渲染）。
+        只有「＋新增活動報名」這顆按鈕依角色決定啟用或停用：
+          SUPER_ADMIN／ADMIN／STAFF → 可點；READONLY → 停用並提示。
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sage-100/70 px-5 py-4">
+        <div>
+          <p className="text-sm text-ink">活動報名</p>
+          <p className="mt-0.5 text-xs text-ink-faint">
+            {canRegister
+              ? "普渡、年度燈、宮慶等所有活動都可從這裡新增，支援沿用去年或全新建立。"
+              : "唯讀人員可查看活動紀錄，但沒有新增報名的權限。"}
+          </p>
         </div>
-      )}
-      {showNewRegistration && (
+        <button
+          type="button"
+          onClick={() => setShowNewRegistration(true)}
+          disabled={!canRegister}
+          className={`min-h-11 rounded-full px-5 py-2 text-sm font-medium transition ${
+            canRegister
+              ? "bg-yolk-200 text-ink hover:bg-yolk-300"
+              : "cursor-not-allowed bg-cream-200 text-ink-faint"
+          }`}
+        >
+          ＋新增活動報名
+        </button>
+      </div>
+      {showNewRegistration && canRegister && (
         <NewActivityRegistrationDialog
           memberId={memberId}
           onClose={() => {

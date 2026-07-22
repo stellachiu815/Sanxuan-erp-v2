@@ -25,6 +25,7 @@ import {
   RITUAL_REGISTRATION_PERMISSION_MATRIX,
   type Role,
 } from "../src/lib/permissions";
+import { formatIsoDateToMinguoLong } from "../src/lib/minguoDate";
 
 /**
  * V13.4：信眾詳情 × 全活動報名 × 年度沿用 測試。
@@ -521,4 +522,156 @@ test("15. RitualRecord.memberId 保留並標記 deprecated", () => {
   );
   assert.equal(model.includes("memberId"), true, "memberId 不得移除");
   assert.equal(model.includes("@deprecated"), true, "memberId 應標記 deprecated");
+});
+
+// ============================================================
+// 六、信眾詳情頁「正式 render tree」實際掛載活動報名入口（第一項驗收）
+// ============================================================
+
+/**
+ * ⚠️ 這一節不是「檢查元件檔存在」，而是驗證正式路由
+ * /devotee-center/[memberId] 的**預設畫面 render tree** 真的掛上了入口：
+ *
+ *   DevoteeDetailPage（export default）
+ *     → DevoteeDetailInner            預設 tab = "總覽"
+ *       → tab==="總覽" && <OverviewTab …/>
+ *         → OverviewTab 內 render <NewActivityRegistrationDialog/>
+ *
+ * 只要其中一環斷掉（改了預設 tab、把入口搬去只在別的 tab、OverviewTab 不再
+ * 引用對話框），這個測試就會紅，避免再次「功能有寫但正式畫面看不到」。
+ */
+const DEVOTEE_PAGE = readFileSync(
+  join(ROOT, "src/app/devotee-center/[memberId]/page.tsx"),
+  "utf-8"
+);
+
+/** 取出某個具名 function 的函式主體（到下一個 top-level `\nfunction ` 為止）。 */
+function fnBody(src: string, name: string): string {
+  const start = src.indexOf(`function ${name}(`);
+  if (start < 0) return "";
+  const after = src.indexOf("\nfunction ", start + 1);
+  return src.slice(start, after < 0 ? undefined : after);
+}
+
+test("16. 正式詳情頁預設 tab 是「總覽」，且總覽掛載 OverviewTab", () => {
+  assert.equal(
+    /useState<\(typeof TABS\)\[number\]>\("總覽"\)/.test(DEVOTEE_PAGE),
+    true,
+    "預設 tab 必須是總覽——若改掉，落地畫面就不是總覽了"
+  );
+  assert.equal(
+    /tab === "總覽" &&\s*[\s\S]{0,80}<OverviewTab/.test(DEVOTEE_PAGE),
+    true,
+    "總覽 tab 必須渲染 OverviewTab"
+  );
+});
+
+test("16. 落地的 OverviewTab render tree 確實掛載 NewActivityRegistrationDialog", () => {
+  const body = fnBody(DEVOTEE_PAGE, "OverviewTab");
+  assert.notEqual(body, "", "找不到 OverviewTab 函式");
+  assert.equal(
+    body.includes("<NewActivityRegistrationDialog"),
+    true,
+    "OverviewTab（正式落地畫面）必須實際 render NewActivityRegistrationDialog"
+  );
+  assert.equal(
+    body.includes("＋新增活動報名"),
+    true,
+    "OverviewTab 必須有『＋新增活動報名』入口按鈕"
+  );
+});
+
+test("16. 活動報名卡片不得整段被 canRegister 藏掉（載入中/唯讀仍要看得到區塊）", () => {
+  const body = fnBody(DEVOTEE_PAGE, "OverviewTab");
+  // 卡片本體（活動報名標題）不可被 `{canRegister && ...}` 包住；
+  // 只有按鈕以 disabled 控制。用最直接的方式驗證：卡片標題出現在
+  // 任何 `canRegister &&` 之前不足以證明，改為檢查按鈕使用 disabled 屬性。
+  assert.equal(
+    /disabled=\{!canRegister\}/.test(body),
+    true,
+    "＋新增活動報名 應以 disabled={!canRegister} 控制，而非把整張卡片藏掉"
+  );
+  // READONLY 仍需看到區塊：卡片標題「活動報名」必須存在於非條件區塊
+  assert.equal(body.includes("活動報名"), true, "活動報名卡片標題必須存在");
+});
+
+test("16. 使用既有 NewActivityRegistrationDialog，未建立第二套對話框", () => {
+  // 全 repo 只能有一個 NewActivityRegistrationDialog 元件定義。
+  const dialog = join(ROOT, "src/components/devotee/NewActivityRegistrationDialog.tsx");
+  assert.equal(existsSync(dialog), true);
+  // page.tsx 以 import 使用它，不是在頁面內重新定義一個對話框。
+  assert.equal(
+    /import NewActivityRegistrationDialog from "@\/components\/devotee\/NewActivityRegistrationDialog"/.test(
+      DEVOTEE_PAGE
+    ),
+    true
+  );
+});
+
+// ============================================================
+// 七、國曆生日以民國格式顯示（第二項驗收）
+// ============================================================
+
+test("17. 1972-08-15 → 民國61年8月15日", () => {
+  assert.equal(formatIsoDateToMinguoLong("1972-08-15"), "民國61年8月15日");
+});
+
+test("17. 1912-01-01 → 民國1年1月1日（民國元年）", () => {
+  assert.equal(formatIsoDateToMinguoLong("1912-01-01"), "民國1年1月1日");
+});
+
+test("17. 空值 / null / undefined → 空字串（畫面留白）", () => {
+  assert.equal(formatIsoDateToMinguoLong(""), "");
+  assert.equal(formatIsoDateToMinguoLong(null), "");
+  assert.equal(formatIsoDateToMinguoLong(undefined), "");
+});
+
+test("17. 無效日期不得顯示 Invalid Date（回空字串）", () => {
+  for (const bad of ["1972-13-40", "not-a-date", "1972/08/15", "19720815", "2000-02-30"]) {
+    const out = formatIsoDateToMinguoLong(bad);
+    assert.equal(out.includes("Invalid"), false, `「${bad}」不得產生 Invalid Date`);
+    assert.equal(out.includes("NaN"), false, `「${bad}」不得產生 NaN`);
+  }
+});
+
+test("17. 詳情頁國曆欄位改用民國共用函式，不再直接印 ISO 字串", () => {
+  assert.equal(
+    DEVOTEE_PAGE.includes("formatIsoDateToMinguoLong(b.solarBirthDate)"),
+    true,
+    "國曆顯示必須經過 formatIsoDateToMinguoLong"
+  );
+  // 舊寫法（直接印 b.solarBirthDate）不得殘留在國曆欄位
+  assert.equal(
+    /國曆：<span[^>]*>\{b\.solarBirthDate \?\? "未填寫"\}/.test(DEVOTEE_PAGE),
+    false,
+    "國曆欄位不得再直接輸出西元 ISO 字串"
+  );
+});
+
+test("17. 編輯表單國曆預覽（convert API）也回民國格式，不回西元", () => {
+  const convert = readFileSync(
+    join(ROOT, "src/app/api/birthday/convert/route.ts"),
+    "utf-8"
+  );
+  assert.equal(
+    convert.includes("solarFormatted: formatMinguoDateLong(solarDate)"),
+    true,
+    "國曆預覽 solarFormatted 必須用民國長格式"
+  );
+});
+
+test("17. 列印流程不受畫面格式修改影響（仍走農曆生日）", () => {
+  // 這次只動「畫面國曆顯示」；列印一律走 activityPrintProfile 的農曆生日。
+  const profile = buildActivityPrintProfile({
+    activityMinguoYear: 116,
+    solarBirthDate: new Date(Date.UTC(1972, 7, 15)),
+    lunarBirthYear: null,
+    lunarBirthMonth: null,
+    lunarBirthDay: null,
+    lunarIsLeapMonth: false,
+    gender: "男",
+    referenceDate: null,
+  });
+  // 列印用的是農曆生日文字，與畫面的民國國曆顯示是兩條路。
+  assert.equal(profile.lunarBirthText.includes("農曆"), true);
 });
