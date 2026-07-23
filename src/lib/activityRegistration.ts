@@ -255,10 +255,16 @@ export async function validateForConfirm(
 
   switch (formResolution.formType) {
     case "UNIVERSAL_SALVATION": {
-      const entryCount = record.universalSalvation?.entries.length ?? 0;
-      const isSponsor = record.universalSalvation?.isSponsor ?? false;
+      const detail = record.universalSalvation;
+      const entryCount = detail?.entries.length ?? 0;
+      const isSponsor = detail?.isSponsor ?? false;
       if (entryCount === 0 && !isSponsor) {
         reasons.push("普渡報名至少需要一筆牌位登記，或勾選贊普");
+      }
+      // V14.1 回歸修正三：贊普不得以應收 0 確認。單價來源是 sponsorUnitPrice
+      // （登記時填寫，無活動層價格設定）；金額尚未設定時保留數量、明確擋住確認。
+      if (isSponsor && Number(detail?.sponsorAmount ?? 0) <= 0) {
+        reasons.push("尚未設定贊普單價／金額——請於贊普區塊填寫後再確認（不可以應收 0 確認）");
       }
       break;
     }

@@ -24,10 +24,12 @@ async function linkItemToExistingDetail(
   params: {
     registrationItemId: string;
     contentKind: string;
+    feeMode: string;
     activityType: ActivityType;
     ritualRecordId: string;
     itemAmountDue: number;
     unitPrice: number | null;
+    quantity: number;
     participantCount: number;
     operatorName?: string | null;
   }
@@ -60,21 +62,52 @@ async function linkItemToExistingDetail(
 
   if (params.contentKind === "SPONSOR") {
     // 普渡贊普：金額寫進既有 UniversalSalvationDetail（既有贊普收款來源）。
+    // ⚠️ 同步初始化「贊普數量」，不再讓編輯頁顯示 0（V14.1 回歸修正一）。
+    //
+    // V14.1：贊普單價**來源是活動層 TempleEvent.sponsorUnitPrice**（宮方每年設定一次）。
+    //   - 贊普（FIXED）：讀本筆報名所屬 TempleEvent.sponsorUnitPrice：
+    //       尚未設定 → 保留數量、單價/金額皆 null/0（不默默用 0；confirm 會被擋）。
+    //       已設定   → sponsorAmount = 數量 × 單價。
+    //   - 隨喜贊普（CUSTOM）：金額為使用者自訂，已算進 itemAmountDue，單價不適用。
+    let sponsorUnitPrice: number | null;
+    let sponsorAmount: number;
+    if (params.feeMode === "CUSTOM") {
+      sponsorUnitPrice = null;
+      sponsorAmount = params.itemAmountDue;
+    } else {
+      const rec = await tx.ritualRecord.findUnique({
+        where: { id: params.ritualRecordId },
+        select: { templeEvent: { select: { sponsorUnitPrice: true } } },
+      });
+      sponsorUnitPrice =
+        rec?.templeEvent?.sponsorUnitPrice != null
+          ? Number(rec.templeEvent.sponsorUnitPrice)
+          : null;
+      sponsorAmount =
+        sponsorUnitPrice !== null
+          ? Math.round(sponsorUnitPrice * params.quantity * 100) / 100
+          : 0;
+    }
+
     const detail = await tx.universalSalvationDetail.upsert({
       where: { ritualRecordId: params.ritualRecordId },
       create: {
         ritualRecordId: params.ritualRecordId,
         isRegistered: true,
         isSponsor: true,
-        sponsorAmount: params.itemAmountDue,
-        amountDue: params.itemAmountDue,
-        amountUnpaid: params.itemAmountDue,
+        sponsorQuantity: params.quantity,
+        sponsorUnitPrice,
+        sponsorAmount,
+        amountDue: sponsorAmount,
+        amountUnpaid: sponsorAmount,
       },
       update: {
         isSponsor: true,
-        sponsorAmount: params.itemAmountDue,
-        amountDue: params.itemAmountDue,
-        amountUnpaid: params.itemAmountDue,
+        sponsorQuantity: params.quantity,
+        sponsorUnitPrice,
+        sponsorAmount,
+        amountDue: sponsorAmount,
+        amountUnpaid: sponsorAmount,
       },
       select: { id: true },
     });
@@ -277,10 +310,12 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
       await linkItemToExistingDetail(tx, {
         registrationItemId: created.id,
         contentKind: itemType.contentKind,
+        feeMode: itemType.feeMode,
         activityType: itemType.activityType,
         ritualRecordId: rec.id,
         itemAmountDue: amount.amountDue,
         unitPrice: itemType.defaultUnitPrice,
+        quantity,
         participantCount: participantIds.length,
         operatorName: input.operatorName,
       });
@@ -436,10 +471,12 @@ export async function registerItemsBatch(
         await linkItemToExistingDetail(tx, {
           registrationItemId: created.id,
           contentKind: p.itemType.contentKind,
+          feeMode: p.itemType.feeMode,
           activityType: p.itemType.activityType,
           ritualRecordId: recordId,
           itemAmountDue: p.amountDue,
           unitPrice: p.itemType.defaultUnitPrice === null ? null : Number(p.itemType.defaultUnitPrice),
+          quantity: p.quantity,
           participantCount: 1,
           operatorName,
         });

@@ -643,3 +643,61 @@ export async function updateTempleEventPocketUnitPrice(
     },
   };
 }
+
+/**
+ * V14.1：中元普渡活動層的**贊普單價**（宮方每年設定一次）。
+ *
+ * 與寶袋單價（pocketUnitPrice）同一套模式，但**沒有 fallback 預設值**——
+ * 贊普不得寫死金額；未設定時報名保留數量、擋住確認並顯示「尚未設定贊普單價」。
+ * null 代表明確清除設定。回傳資料庫實際值（可為 null）。
+ */
+export async function updateTempleEventSponsorUnitPrice(
+  eventId: string,
+  sponsorUnitPrice: number | null,
+  operatorName?: string | null
+): Promise<TempleEventResult<{ id: string; sponsorUnitPrice: number | null }>> {
+  const existing = await prisma.templeEvent.findUnique({ where: { id: eventId } });
+  if (!existing) return { ok: false, status: 404, error: "找不到這個活動" };
+
+  if (sponsorUnitPrice !== null) {
+    if (!Number.isFinite(sponsorUnitPrice)) {
+      return { ok: false, status: 400, error: "贊普單價必須是數字" };
+    }
+    if (sponsorUnitPrice < 0) {
+      return { ok: false, status: 400, error: "贊普單價不得小於 0" };
+    }
+    if (sponsorUnitPrice > 999999) {
+      return { ok: false, status: 400, error: "贊普單價超出合理範圍，請確認是否輸入錯誤" };
+    }
+  }
+
+  const before = existing.sponsorUnitPrice ? Number(existing.sponsorUnitPrice) : null;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const after = await tx.templeEvent.update({
+      where: { id: eventId },
+      data: { sponsorUnitPrice },
+    });
+    await recordVersion(
+      {
+        entityType: "TempleEvent",
+        entityId: eventId,
+        action: "UPDATE",
+        beforeData: { sponsorUnitPrice: before },
+        afterData: { sponsorUnitPrice },
+        operatorName,
+        changeNote: `修改贊普年度單價：${before ?? "未設定"} → ${sponsorUnitPrice ?? "未設定"} 元`,
+      },
+      tx
+    );
+    return after;
+  });
+
+  return {
+    ok: true,
+    data: {
+      id: updated.id,
+      sponsorUnitPrice: updated.sponsorUnitPrice ? Number(updated.sponsorUnitPrice) : null,
+    },
+  };
+}

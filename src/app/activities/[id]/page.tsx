@@ -4,6 +4,7 @@ import { getTempleEventHome } from "@/lib/templeEvents";
 import { listGenericParticipants, listTempleEventExpenses } from "@/lib/templeEvents";
 import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
 import PocketPriceCard from "@/components/activities/PocketPriceCard";
+import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { prisma } from "@/lib/prisma";
 
@@ -32,10 +33,13 @@ export default async function ActivityHomePage({
    */
   const eventPricing = await prisma.templeEvent.findUnique({
     where: { id },
-    select: { activityType: true, year: true, pocketUnitPrice: true },
+    select: { activityType: true, year: true, pocketUnitPrice: true, sponsorUnitPrice: true },
   });
   const rawPocketPrice = eventPricing?.pocketUnitPrice
     ? Number(eventPricing.pocketUnitPrice)
+    : null;
+  const rawSponsorPrice = eventPricing?.sponsorUnitPrice
+    ? Number(eventPricing.sponsorUnitPrice)
     : null;
 
   return (
@@ -51,12 +55,19 @@ export default async function ActivityHomePage({
 
       <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
         {eventPricing?.activityType === "UNIVERSAL_SALVATION" && (
-          <PocketPriceCard
-            templeEventId={id}
-            year={eventPricing.year}
-            initialPocketUnitPrice={rawPocketPrice}
-            initialEffectivePrice={resolvePocketUnitPrice(rawPocketPrice)}
-          />
+          <>
+            <PocketPriceCard
+              templeEventId={id}
+              year={eventPricing.year}
+              initialPocketUnitPrice={rawPocketPrice}
+              initialEffectivePrice={resolvePocketUnitPrice(rawPocketPrice)}
+            />
+            <SponsorPriceCard
+              templeEventId={id}
+              year={eventPricing.year}
+              initialSponsorUnitPrice={rawSponsorPrice}
+            />
+          </>
         )}
 
         <ActivityHomeScreen

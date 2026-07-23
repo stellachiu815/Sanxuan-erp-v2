@@ -1172,6 +1172,13 @@ model TempleEvent {
   /// 金額型別沿用全專案一致的 Decimal(12,2)，不使用浮點數。
   pocketUnitPrice Decimal? @db.Decimal(12, 2)
 
+  /// V14.1：中元普渡活動層的**贊普單價**（宮方每年設定一次）。
+  /// 建立普渡報名勾選贊普時自動帶入：sponsorAmount = sponsorQuantity × 這個單價。
+  /// nullable 是刻意的：既有活動一律 null；未設定時報名保留數量但擋住確認
+  /// （顯示「尚未設定贊普單價」），程式不給任何預設金額（不寫死）。
+  /// 只有 UNIVERSAL_SALVATION 活動會用到；其他活動類型維持 null、不受影響。
+  sponsorUnitPrice Decimal? @db.Decimal(12, 2)
+
   records                  RitualRecord[]
   bannedNumbers            TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）
   printBatches             TempleEventPrintBatch[]
