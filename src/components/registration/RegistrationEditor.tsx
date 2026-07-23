@@ -208,6 +208,12 @@ function RegistrationEditorInner({ overview }: Props) {
                * 信眾詳情頁的新增報名對話框就做完了。
                */
               existingRitualRecordId={overview.ritualRecordId}
+              /**
+               * V14.2「全戶加入累世冤親債主」預設：從信眾詳情頁進入（有 returnMemberId）
+               * 預設只本人；家戶入口（無 from、由家戶頁導入）預設全戶。
+               */
+              debtCreditorDefaultAll={!overview.returnMemberId}
+              currentMemberId={overview.returnMemberId}
             />
           )}
 

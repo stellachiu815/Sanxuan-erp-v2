@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
+import DebtCreditorMemberPicker from "@/components/ritual/DebtCreditorMemberPicker";
+import { buildDebtCreditorEntries } from "@/lib/debtCreditorBatch";
 import {
   labelClass,
   primaryButtonClass,
@@ -46,15 +48,24 @@ type Selection = {
   customAmount: string;
 };
 
+type HouseholdMember = { id: string; name: string; role: string; isDeceased: boolean };
+
 type Props = { memberId: string; onClose: () => void };
 
 export default function NewActivityRegistrationDialog({ memberId, onClose }: Props) {
   const router = useRouter();
   const [groups, setGroups] = useState<GroupView[] | null>(null);
   const [openYears, setOpenYears] = useState<Record<string, OpenYear[]>>({});
+  const [householdMembers, setHouseholdMembers] = useState<HouseholdMember[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [selectedYear, setSelectedYear] = useState<number | "">("");
   const [selected, setSelected] = useState<Record<string, Selection>>({});
+  /**
+   * V14.2「全戶加入冤親債主」：當勾選冤親（US_YUANQIN）時，可展開全戶成員，
+   * 每位各建一筆 US_YUANQIN（分別列印／取消／收款）。從信眾詳情頁進入預設只勾
+   * 目前信眾（rule 7）；按「全戶加入」把全戶有效成員一次勾上，可再取消少數。
+   */
+  const [yuanqinMemberIds, setYuanqinMemberIds] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -69,6 +80,7 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
       }
       setGroups(data.groups);
       setOpenYears(data.openYearsByActivityType ?? {});
+      setHouseholdMembers(Array.isArray(data.householdMembers) ? data.householdMembers : []);
     } catch {
       setError("網路連線問題，請稍後再試一次。");
     }
@@ -131,6 +143,28 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
         };
       return next;
     });
+    // 勾選冤親債主時，預設只納入「目前信眾」（信眾入口 rule 7）；取消時清空。
+    if (it.key === "US_YUANQIN") {
+      setYuanqinMemberIds((prev) => (Object.keys(prev).length > 0 ? {} : { [memberId]: true }));
+    }
+  }
+
+  /** 有效可帶入的家戶成員（已排除刪除；此清單本身已不含 deletedAt）。 */
+  const eligibleMembers = householdMembers;
+
+  function selectAllYuanqin() {
+    const next: Record<string, boolean> = {};
+    for (const m of eligibleMembers) next[m.id] = true;
+    setYuanqinMemberIds(next);
+  }
+
+  function toggleYuanqinMember(id: string) {
+    setYuanqinMemberIds((prev) => {
+      const next = { ...prev };
+      if (next[id]) delete next[id];
+      else next[id] = true;
+      return next;
+    });
   }
 
   function patch(id: string, p: Partial<Selection>) {
@@ -146,13 +180,12 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     setError(null);
     setMessage(null);
     try {
-      const entries = selectedIds.map((id) => {
+      const entries = selectedIds.flatMap((id) => {
         const it = group.items.find((x) => x.id === id)!;
         const s = selected[id];
         const needsAmount =
           it.feeMode === "CUSTOM" || (it.feeMode === "FIXED_OR_CUSTOM" && s.feeChoice === "CUSTOM");
-        return {
-          memberId,
+        const base = {
           registrationItemTypeId: id,
           year: selectedYear,
           quantity: s.quantity,
@@ -160,6 +193,17 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
           customAmount: needsAmount ? Number(s.customAmount) : undefined,
           feeChoice: it.feeMode === "FIXED_OR_CUSTOM" ? s.feeChoice : undefined,
         };
+        // 冤親債主：每位勾選的成員各建一筆（分別列印／取消／收款）。未勾任何人
+        // 時退回只納入目前信眾。用共用 buildDebtCreditorEntries 組（與家戶入口同一套）。
+        if (it.key === "US_YUANQIN") {
+          const ids = Object.keys(yuanqinMemberIds).filter((k) => yuanqinMemberIds[k]);
+          const targets = ids.length > 0 ? ids : [memberId];
+          return buildDebtCreditorEntries(targets, selectedYear as number, id).map((e) => ({
+            ...base,
+            ...e,
+          }));
+        }
+        return [{ ...base, memberId }];
       });
       const res = await fetchRegistration(`/api/registrations/batch`, {
         method: "POST",
@@ -311,6 +355,19 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
                               />
                             </label>
                           )}
+                        </div>
+                      )}
+                      {/* V14.2：冤親債主「全戶加入」——每位成員各建一筆（分別列印／取消／收款）。
+                          與家戶入口共用同一個 DebtCreditorMemberPicker 與同一支 batch API。 */}
+                      {on && it.key === "US_YUANQIN" && eligibleMembers.length > 0 && (
+                        <div className="mt-2 pl-8">
+                          <DebtCreditorMemberPicker
+                            members={eligibleMembers}
+                            selectedIds={yuanqinMemberIds}
+                            onToggle={toggleYuanqinMember}
+                            onAll={selectAllYuanqin}
+                            onSelf={() => setYuanqinMemberIds({ [memberId]: true })}
+                          />
                         </div>
                       )}
                     </div>

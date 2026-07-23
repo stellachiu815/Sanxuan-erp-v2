@@ -76,6 +76,8 @@ export default async function UniversalSalvationPage({
           householdName={household.name}
           year={year}
           initialRecord={initialRecord}
+          /* 家戶入口：全戶加入累世冤親債主預設全戶（可取消少數成員）。 */
+          debtCreditorDefaultAll
         />
       </main>
     </div>

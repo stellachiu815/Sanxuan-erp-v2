@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { errorTextClass } from "@/components/household/formStyles";
 import UniversalSalvationDetailForm from "./UniversalSalvationDetailForm";
 import EntryCategorySection from "./EntryCategorySection";
+import DebtCreditorMemberPicker, { type PickerMember } from "./DebtCreditorMemberPicker";
 import Toast from "./Toast";
-import { CATEGORY_SECTIONS, type RecordJSON } from "./types";
+import { CATEGORY_SECTIONS, type RecordJSON, type WorshipOptionJSON } from "./types";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
+import { submitDebtCreditorBatch } from "@/lib/debtCreditorBatch";
 type Props = {
   householdId: string;
   householdName: string;
@@ -24,6 +27,14 @@ type Props = {
   existingRitualRecordId?: string;
   /** V13.4：列印連結的返回目標。未提供時沿用家戶路徑（相容既有呼叫端） */
   printBasePath?: string;
+  /**
+   * V14.2「全戶加入累世冤親債主」的預設納入模式：
+   *   家戶入口 → true（預設全戶，可取消少數）
+   *   信眾入口（/registration?from=memberId）→ false（預設只本人，可切全戶）
+   */
+  debtCreditorDefaultAll?: boolean;
+  /** 信眾入口的「本人」；提供時「只本人」預設只勾這位。 */
+  currentMemberId?: string | null;
 };
 
 /**
@@ -46,7 +57,10 @@ export default function UniversalSalvationScreen({
   year,
   initialRecord,
   existingRitualRecordId,
+  debtCreditorDefaultAll = false,
+  currentMemberId = null,
 }: Props) {
+  const router = useRouter();
   const [record, setRecord] = useState<RecordJSON | null>(initialRecord ?? null);
   /**
    * V14.1：陽上人「家戶成員快速加入」與「帶入家戶地址」所需的家戶資料，
@@ -61,8 +75,18 @@ export default function UniversalSalvationScreen({
    *   yangshangCandidates  本戶固定陽上人（字庫＋戶主＋主要聯絡人＋成員，去重）
    * 新增字庫成員後（addToHouseholdYangshang）重新載入，讓下一個牌位馬上帶得到。
    */
-  const [ancestorNames, setAncestorNames] = useState<string[]>([]);
+  const [ancestorOptions, setAncestorOptions] = useState<WorshipOptionJSON[]>([]);
+  const [individualSoulOptions, setIndividualSoulOptions] = useState<WorshipOptionJSON[]>([]);
+  const [debtCreditorNames, setDebtCreditorNames] = useState<string[]>([]);
   const [yangshangCandidates, setYangshangCandidates] = useState<string[]>([]);
+  /** V14.2「全戶加入累世冤親債主」：本戶成員、US_YUANQIN 項目 id、勾選狀態。 */
+  const [members, setMembers] = useState<PickerMember[]>([]);
+  const [yuanqinItemTypeId, setYuanqinItemTypeId] = useState<string | null>(null);
+  const [yuanqinSelected, setYuanqinSelected] = useState<Record<string, boolean>>({});
+  const [yuanqinSeeded, setYuanqinSeeded] = useState(false);
+  const [yuanqinBusy, setYuanqinBusy] = useState(false);
+  const [yuanqinMsg, setYuanqinMsg] = useState<string | null>(null);
+  const [yuanqinError, setYuanqinError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,8 +113,12 @@ export default function UniversalSalvationScreen({
       );
       const data = await res.json();
       if (!res.ok) return;
-      setAncestorNames(Array.isArray(data?.ancestorNames) ? data.ancestorNames : []);
+      setAncestorOptions(Array.isArray(data?.ancestors) ? data.ancestors : []);
+      setIndividualSoulOptions(Array.isArray(data?.individualSouls) ? data.individualSouls : []);
+      setDebtCreditorNames(Array.isArray(data?.debtCreditorNames) ? data.debtCreditorNames : []);
       setYangshangCandidates(Array.isArray(data?.yangshangNames) ? data.yangshangNames : []);
+      setMembers(Array.isArray(data?.members) ? data.members : []);
+      setYuanqinItemTypeId(typeof data?.yuanqinItemTypeId === "string" ? data.yuanqinItemTypeId : null);
     } catch {
       /* 取不到不影響報名；只是少了固定選項的便利 */
     }
@@ -99,6 +127,66 @@ export default function UniversalSalvationScreen({
   useEffect(() => {
     void loadRegistrationOptions();
   }, [loadRegistrationOptions]);
+
+  // 成員載入後，依入口預設種一次勾選：家戶入口＝全戶；信眾入口＝只本人。
+  useEffect(() => {
+    if (yuanqinSeeded || members.length === 0) return;
+    const seed: Record<string, boolean> = {};
+    if (debtCreditorDefaultAll) {
+      for (const m of members) seed[m.id] = true;
+    } else if (currentMemberId) {
+      seed[currentMemberId] = true;
+    }
+    setYuanqinSelected(seed);
+    setYuanqinSeeded(true);
+  }, [members, yuanqinSeeded, debtCreditorDefaultAll, currentMemberId]);
+
+  async function submitWholeHouseholdDebtCreditor() {
+    if (!yuanqinItemTypeId) return;
+    const ids = Object.keys(yuanqinSelected).filter((k) => yuanqinSelected[k]);
+    if (ids.length === 0) {
+      setYuanqinError("請至少勾選一位成員");
+      return;
+    }
+    setYuanqinBusy(true);
+    setYuanqinError(null);
+    setYuanqinMsg(null);
+    try {
+      const result = await submitDebtCreditorBatch(ids, year, yuanqinItemTypeId);
+      if (!result.ok) {
+        setYuanqinError(result.error ?? "加入失敗，請稍後再試一次。");
+        return;
+      }
+      // 尚未有報名編輯頁（家戶新建）→ 導到共用編輯器看已報名項目；已在編輯器 → 重新整理。
+      if (!existingRitualRecordId && result.editorUrl) {
+        router.push(result.editorUrl);
+        return;
+      }
+      const parts = [];
+      if (result.created > 0) parts.push(`新增 ${result.created} 位`);
+      if (result.alreadyExists > 0) parts.push(`${result.alreadyExists} 位先前已加入`);
+      setYuanqinMsg(`累世冤親債主：${parts.join("、") || "已處理"}。`);
+      router.refresh();
+    } catch {
+      setYuanqinError("網路連線問題，請稍後再試一次。");
+    } finally {
+      setYuanqinBusy(false);
+    }
+  }
+
+  function selectAllMembers() {
+    const next: Record<string, boolean> = {};
+    for (const m of members) next[m.id] = true;
+    setYuanqinSelected(next);
+  }
+  function toggleMember(id: string) {
+    setYuanqinSelected((prev) => {
+      const next = { ...prev };
+      if (next[id]) delete next[id];
+      else next[id] = true;
+      return next;
+    });
+  }
 
   async function addToHouseholdYangshang(name: string) {
     try {
@@ -225,13 +313,49 @@ export default function UniversalSalvationScreen({
               entries={detail.entries.filter((e) => e.category === section.category)}
               onRecordUpdated={handleUpdated}
               householdAddress={householdAddress}
-              ancestorNameOptions={ancestorNames}
+              ancestorOptions={ancestorOptions}
+              individualSoulOptions={individualSoulOptions}
+              debtCreditorNames={debtCreditorNames}
               householdYangshangNames={yangshangCandidates}
               onAddToHouseholdYangshang={addToHouseholdYangshang}
             />
           ))}
         </div>
       </section>
+
+      {/* V14.2：全戶加入累世冤親債主——每位成員各建一筆（分別列印／取消／收款）。
+          與信眾入口共用同一個 DebtCreditorMemberPicker 與同一支 batch API。
+          家戶入口預設全戶、信眾入口預設本人（由 debtCreditorDefaultAll 決定種子）。 */}
+      {members.length > 0 && yuanqinItemTypeId && (
+        <section className="rounded-3xl bg-white/70 p-8 shadow-card">
+          <h2 className="text-lg font-medium text-ink">累世冤親債主（全戶）</h2>
+          <p className="mt-1 text-sm text-ink-faint">
+            每位勾選的成員各建立一筆「累世冤親債主」報名，可分別列印、取消與收款。已加入者不會重複建立。
+          </p>
+          <div className="mt-4">
+            <DebtCreditorMemberPicker
+              members={members}
+              selectedIds={yuanqinSelected}
+              onToggle={toggleMember}
+              onAll={selectAllMembers}
+              onSelf={currentMemberId ? () => setYuanqinSelected({ [currentMemberId]: true }) : undefined}
+              disabled={yuanqinBusy}
+            />
+          </div>
+          {yuanqinError && <p className={`mt-2 ${errorTextClass}`}>{yuanqinError}</p>}
+          {yuanqinMsg && <p className="mt-2 text-sm text-sage-300">{yuanqinMsg}</p>}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void submitWholeHouseholdDebtCreditor()}
+              disabled={yuanqinBusy}
+              className="rounded-full bg-sage-200 px-5 py-2 text-sm text-ink transition hover:bg-sage-300 disabled:opacity-50"
+            >
+              {yuanqinBusy ? "處理中…" : "加入累世冤親債主"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <UniversalSalvationDetailForm
         householdId={householdId}
