@@ -128,6 +128,7 @@ export default function EntryCategorySection({
           ancestorOptions={ancestorOptions}
           householdYangshangNames={householdYangshangNames}
           onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+          householdAddress={householdAddress}
         />
       )}
 
@@ -139,6 +140,7 @@ export default function EntryCategorySection({
           individualSoulOptions={individualSoulOptions}
           householdYangshangNames={householdYangshangNames}
           onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+          householdAddress={householdAddress}
         />
       )}
 
@@ -167,6 +169,7 @@ function SurnameAddForm({
   ancestorOptions,
   householdYangshangNames,
   onAddToHouseholdYangshang,
+  householdAddress,
 }: {
   entries: EntryJSON[];
   onAdd: (payload: {
@@ -179,10 +182,13 @@ function SurnameAddForm({
   ancestorOptions: WorshipOptionJSON[];
   householdYangshangNames: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
+  householdAddress?: string | null;
 }) {
   const [surname, setSurname] = useState("");
   const [notes, setNotes] = useState("");
   const [addYangshang, setAddYangshang] = useState<string[]>([]);
+  // V14.2：牌位地址（預設帶入家戶主要地址，可改；存 UniversalSalvationEntry.tabletAddress）。
+  const [tabletAddr, setTabletAddr] = useState(householdAddress ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
@@ -196,16 +202,18 @@ function SurnameAddForm({
     setError(null);
     try {
       const yn = override?.yangshangNames ?? (addYangshang.length > 0 ? addYangshang : undefined);
+      const addr = override?.tabletAddress ?? (tabletAddr.trim() || null);
       const record = await onAdd({
         displayName,
         yangshangNames: yn,
-        tabletAddress: override?.tabletAddress ?? undefined,
+        tabletAddress: addr,
         notes: notes.trim() || null,
       });
       onRecordUpdated(record);
       setSurname("");
       setNotes("");
       setAddYangshang([]);
+      setTabletAddr(householdAddress ?? "");
       surnameInputRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "網路錯誤，請稍後再試一次。");
@@ -310,6 +318,18 @@ function SurnameAddForm({
         />
       </div>
 
+      {/* 牌位地址（預設帶入家戶地址、可改；存 UniversalSalvationEntry.tabletAddress） */}
+      <div>
+        <label className={labelClass}>牌位地址</label>
+        <input
+          className={inputClass}
+          value={tabletAddr}
+          onChange={(e) => setTabletAddr(e.target.value)}
+          placeholder="預設帶入家戶地址，可自由修改"
+          disabled={submitting}
+        />
+      </div>
+
       <div>
         <label className={labelClass}>備註（選填）</label>
         <input
@@ -359,6 +379,7 @@ function NameAddForm({
   individualSoulOptions,
   householdYangshangNames,
   onAddToHouseholdYangshang,
+  householdAddress,
 }: {
   entries: EntryJSON[];
   onAdd: (payload: {
@@ -371,9 +392,12 @@ function NameAddForm({
   individualSoulOptions: WorshipOptionJSON[];
   householdYangshangNames: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
+  householdAddress?: string | null;
 }) {
   const [name, setName] = useState("");
   const [addYangshang, setAddYangshang] = useState<string[]>([]);
+  // V14.2：牌位地址（預設帶入家戶主要地址，可改；存 UniversalSalvationEntry.tabletAddress）。
+  const [tabletAddr, setTabletAddr] = useState(householdAddress ?? "");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -388,15 +412,17 @@ function NameAddForm({
     setError(null);
     try {
       const yn = override?.yangshangNames ?? (addYangshang.length > 0 ? addYangshang : undefined);
+      const addr = override?.tabletAddress ?? (tabletAddr.trim() || null);
       const record = await onAdd({
         displayName,
         yangshangNames: yn,
-        tabletAddress: override?.tabletAddress ?? undefined,
+        tabletAddress: addr,
         notes: notes.trim() || null,
       });
       onRecordUpdated(record);
       setName("");
       setAddYangshang([]);
+      setTabletAddr(householdAddress ?? "");
       setNotes("");
       nameInputRef.current?.focus();
     } catch (err) {
@@ -498,6 +524,16 @@ function NameAddForm({
           householdMemberNames={[]}
           householdYangshangNames={householdYangshangNames}
           onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+        />
+      </div>
+      {/* 牌位地址（預設帶入家戶地址、可改；存 UniversalSalvationEntry.tabletAddress） */}
+      <div>
+        <label className={labelClass}>牌位地址</label>
+        <input
+          className={inputClass}
+          value={tabletAddr}
+          onChange={(e) => setTabletAddr(e.target.value)}
+          placeholder="預設帶入家戶地址，可自由修改"
         />
       </div>
       <div>

@@ -806,8 +806,10 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
     let tabletAddress: string | null = null;
 
     if (key in TABLET_NAME_ITEM_CATEGORY) {
-      // 超拔祖先／乙位正魂／無緣子女：顯示完整牌位名稱（讀連結 entry），不加「類別｜」。
-      subjectName = linked?.displayName ?? r.customName ?? memberName ?? categoryName;
+      // 超拔祖先／乙位正魂／無緣子女：**只認正式關聯牌位名稱**（讀連結 entry），
+      // 不加「類別｜」。⚠️ 絕不用信眾姓名冒充牌位名稱：未連結（舊資料未回填、
+      // 或無法唯一配對）一律顯示「牌位資料待確認」，提醒人工補上正式關聯。
+      subjectName = linked?.displayName ?? "牌位資料待確認";
       displayLabel = subjectName;
       yangshangNames = linkedYangshang;
       tabletAddress = linked?.tabletAddress ?? null;
