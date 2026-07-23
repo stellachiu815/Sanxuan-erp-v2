@@ -701,3 +701,88 @@ export async function updateTempleEventSponsorUnitPrice(
     },
   };
 }
+
+/**
+ * V14.2：中元普渡「四類牌位」年度單價（宮方每年設定一次）。
+ *
+ * 與 sponsorUnitPrice 同一套 per-year 結構（都是 TempleEvent 上的可空 Decimal），
+ * 不是第二套價格表。四個欄位分別對應超拔祖先／乙位正魂／累世冤親債主／無緣子女。
+ * 每個欄位：null=清除（未設定），否則需為 0~999999 的數字。只影響之後新增或
+ * 重新計算的 DRAFT 未收款項目；已確認／已收款是快照，不回頭改。
+ */
+export type TabletUnitPriceInput = {
+  ancestorUnitPrice?: number | null;
+  zhenghunUnitPrice?: number | null;
+  yuanqinUnitPrice?: number | null;
+  wuyuanUnitPrice?: number | null;
+};
+
+const TABLET_PRICE_LABELS: Record<keyof TabletUnitPriceInput, string> = {
+  ancestorUnitPrice: "超拔祖先單價",
+  zhenghunUnitPrice: "乙位正魂單價",
+  yuanqinUnitPrice: "累世冤親債主單價",
+  wuyuanUnitPrice: "無緣子女單價",
+};
+
+export async function updateTempleEventTabletPrices(
+  eventId: string,
+  input: TabletUnitPriceInput,
+  operatorName?: string | null
+): Promise<TempleEventResult<{ id: string } & TabletUnitPriceInput>> {
+  const existing = await prisma.templeEvent.findUnique({ where: { id: eventId } });
+  if (!existing) return { ok: false, status: 404, error: "找不到這個活動" };
+
+  const data: TabletUnitPriceInput = {};
+  for (const key of Object.keys(TABLET_PRICE_LABELS) as (keyof TabletUnitPriceInput)[]) {
+    if (!(key in input)) continue; // 未帶的欄位不動
+    const value = input[key];
+    if (value !== null) {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return { ok: false, status: 400, error: `${TABLET_PRICE_LABELS[key]}必須是數字` };
+      }
+      if (value < 0) return { ok: false, status: 400, error: `${TABLET_PRICE_LABELS[key]}不得小於 0` };
+      if (value > 999999) {
+        return { ok: false, status: 400, error: `${TABLET_PRICE_LABELS[key]}超出合理範圍，請確認是否輸入錯誤` };
+      }
+    }
+    data[key] = value;
+  }
+  if (Object.keys(data).length === 0) {
+    return { ok: false, status: 400, error: "沒有要更新的單價欄位" };
+  }
+
+  const before: TabletUnitPriceInput = {
+    ancestorUnitPrice: existing.ancestorUnitPrice ? Number(existing.ancestorUnitPrice) : null,
+    zhenghunUnitPrice: existing.zhenghunUnitPrice ? Number(existing.zhenghunUnitPrice) : null,
+    yuanqinUnitPrice: existing.yuanqinUnitPrice ? Number(existing.yuanqinUnitPrice) : null,
+    wuyuanUnitPrice: existing.wuyuanUnitPrice ? Number(existing.wuyuanUnitPrice) : null,
+  };
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const after = await tx.templeEvent.update({ where: { id: eventId }, data });
+    await recordVersion(
+      {
+        entityType: "TempleEvent",
+        entityId: eventId,
+        action: "UPDATE",
+        beforeData: before,
+        afterData: data,
+        operatorName,
+        changeNote: "修改中元普渡四類牌位年度單價",
+      },
+      tx
+    );
+    return after;
+  });
+
+  return {
+    ok: true,
+    data: {
+      id: updated.id,
+      ancestorUnitPrice: updated.ancestorUnitPrice ? Number(updated.ancestorUnitPrice) : null,
+      zhenghunUnitPrice: updated.zhenghunUnitPrice ? Number(updated.zhenghunUnitPrice) : null,
+      yuanqinUnitPrice: updated.yuanqinUnitPrice ? Number(updated.yuanqinUnitPrice) : null,
+      wuyuanUnitPrice: updated.wuyuanUnitPrice ? Number(updated.wuyuanUnitPrice) : null,
+    },
+  };
+}

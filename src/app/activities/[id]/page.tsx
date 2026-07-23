@@ -5,6 +5,7 @@ import { listGenericParticipants, listTempleEventExpenses } from "@/lib/templeEv
 import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
 import PocketPriceCard from "@/components/activities/PocketPriceCard";
 import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
+import TabletPriceCard from "@/components/activities/TabletPriceCard";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { prisma } from "@/lib/prisma";
 
@@ -33,7 +34,16 @@ export default async function ActivityHomePage({
    */
   const eventPricing = await prisma.templeEvent.findUnique({
     where: { id },
-    select: { activityType: true, year: true, pocketUnitPrice: true, sponsorUnitPrice: true },
+    select: {
+      activityType: true,
+      year: true,
+      pocketUnitPrice: true,
+      sponsorUnitPrice: true,
+      ancestorUnitPrice: true,
+      zhenghunUnitPrice: true,
+      yuanqinUnitPrice: true,
+      wuyuanUnitPrice: true,
+    },
   });
   const rawPocketPrice = eventPricing?.pocketUnitPrice
     ? Number(eventPricing.pocketUnitPrice)
@@ -41,6 +51,12 @@ export default async function ActivityHomePage({
   const rawSponsorPrice = eventPricing?.sponsorUnitPrice
     ? Number(eventPricing.sponsorUnitPrice)
     : null;
+  const tabletPrices = {
+    ancestorUnitPrice: eventPricing?.ancestorUnitPrice ? Number(eventPricing.ancestorUnitPrice) : null,
+    zhenghunUnitPrice: eventPricing?.zhenghunUnitPrice ? Number(eventPricing.zhenghunUnitPrice) : null,
+    yuanqinUnitPrice: eventPricing?.yuanqinUnitPrice ? Number(eventPricing.yuanqinUnitPrice) : null,
+    wuyuanUnitPrice: eventPricing?.wuyuanUnitPrice ? Number(eventPricing.wuyuanUnitPrice) : null,
+  };
 
   return (
     <div className="min-h-screen">
@@ -66,6 +82,11 @@ export default async function ActivityHomePage({
               templeEventId={id}
               year={eventPricing.year}
               initialSponsorUnitPrice={rawSponsorPrice}
+            />
+            <TabletPriceCard
+              templeEventId={id}
+              year={eventPricing.year}
+              initialPrices={tabletPrices}
             />
           </>
         )}

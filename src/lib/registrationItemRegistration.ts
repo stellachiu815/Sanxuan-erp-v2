@@ -6,6 +6,12 @@ import {
   getRegistrationItemTypeById,
   computeItemAmountDue,
 } from "@/lib/registrationItems";
+import {
+  getUniversalSalvationTabletPrices,
+  isUniversalSalvationTabletKey,
+  tabletUnitPriceFor,
+  type TabletUnitPrices,
+} from "@/lib/universalSalvationTabletPricing";
 
 /**
  * V14：把報名項目回寫到既有明細表，並回填 linkedEntryId／linkedEntryType。
@@ -241,14 +247,29 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
   if (!member) return { ok: false, status: 404, error: "找不到這位信眾" };
 
   const quantity = input.quantity ?? itemType.defaultQuantity;
-  const amount = computeItemAmountDue({
-    feeMode: itemType.feeMode,
-    defaultUnitPrice: itemType.defaultUnitPrice,
-    quantity,
-    customAmount: input.customAmount ?? null,
-    feeChoice: input.feeChoice ?? null,
-  });
-  if (!amount.ok) return { ok: false, status: 400, error: amount.reason };
+  let amountDue: number;
+  if (
+    itemType.activityType === "UNIVERSAL_SALVATION" &&
+    isUniversalSalvationTabletKey(itemType.key)
+  ) {
+    // V14.2：四類牌位應收 = 年度單價 × 數量（未設定 → 0，不寫死金額）。
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return { ok: false, status: 400, error: "數量必須是 1 以上的整數" };
+    }
+    const prices = await getUniversalSalvationTabletPrices(input.year);
+    const unit = tabletUnitPriceFor(itemType.key, prices);
+    amountDue = unit !== null ? Math.round(unit * quantity * 100) / 100 : 0;
+  } else {
+    const amount = computeItemAmountDue({
+      feeMode: itemType.feeMode,
+      defaultUnitPrice: itemType.defaultUnitPrice,
+      quantity,
+      customAmount: input.customAmount ?? null,
+      feeChoice: input.feeChoice ?? null,
+    });
+    if (!amount.ok) return { ok: false, status: 400, error: amount.reason };
+    amountDue = amount.amountDue;
+  }
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -287,9 +308,9 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
           memberId: input.memberId ?? null,
           quantity,
           customName: input.customName ?? null,
-          amountDue: amount.amountDue,
+          amountDue,
           amountPaid: 0,
-          amountUnpaid: amount.amountDue,
+          amountUnpaid: amountDue,
           feeChoice: input.feeChoice ?? null,
           status: "DRAFT",
         },
@@ -313,7 +334,7 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
         feeMode: itemType.feeMode,
         activityType: itemType.activityType,
         ritualRecordId: rec.id,
-        itemAmountDue: amount.amountDue,
+        itemAmountDue: amountDue,
         unitPrice: itemType.defaultUnitPrice,
         quantity,
         participantCount: participantIds.length,
@@ -324,7 +345,7 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
         ok: true as const,
         ritualRecordId: rec.id,
         registrationItemId: created.id,
-        amountDue: amount.amountDue,
+        amountDue,
         createdRecord: rec.created,
       };
     });
@@ -382,6 +403,21 @@ export async function registerItemsBatch(
   const itemTypeMap = new Map(itemTypes.map((t) => [t.id, t]));
   const memberMap = new Map(members.map((m) => [m.id, m]));
 
+  // V14.2：先把中元普渡四類牌位的「年度單價」按年度一次撈齊（非 N+1）。
+  // 這四類 feeMode=NONE、defaultUnitPrice=null，金額改由 TempleEvent 年度單價決定。
+  const tabletPriceByYear = new Map<number, TabletUnitPrices>();
+  for (const entry of entries) {
+    const itemType = itemTypeMap.get(entry.registrationItemTypeId);
+    if (
+      itemType &&
+      itemType.activityType === "UNIVERSAL_SALVATION" &&
+      isUniversalSalvationTabletKey(itemType.key) &&
+      !tabletPriceByYear.has(entry.year)
+    ) {
+      tabletPriceByYear.set(entry.year, await getUniversalSalvationTabletPrices(entry.year));
+    }
+  }
+
   // 先驗證與預算金額（交易外，快速失敗）。
   type Prepared = { entry: BatchItemEntry; itemType: (typeof itemTypes)[number]; householdId: string; quantity: number; amountDue: number };
   const prepared: Prepared[] = [];
@@ -391,15 +427,31 @@ export async function registerItemsBatch(
     const member = memberMap.get(entry.memberId);
     if (!member) return { ok: false, status: 404, error: "找不到報名成員" };
     const quantity = entry.quantity ?? itemType.defaultQuantity;
-    const amount = computeItemAmountDue({
-      feeMode: itemType.feeMode as never,
-      defaultUnitPrice: itemType.defaultUnitPrice === null ? null : Number(itemType.defaultUnitPrice),
-      quantity,
-      customAmount: entry.customAmount ?? null,
-      feeChoice: entry.feeChoice ?? null,
-    });
-    if (!amount.ok) return { ok: false, status: 400, error: `${itemType.name}：${amount.reason}` };
-    prepared.push({ entry, itemType, householdId: member.householdId, quantity, amountDue: amount.amountDue });
+
+    let amountDue: number;
+    if (
+      itemType.activityType === "UNIVERSAL_SALVATION" &&
+      isUniversalSalvationTabletKey(itemType.key)
+    ) {
+      // 四類牌位：應收 = 年度單價 × 數量（未設定單價 → 0，不寫死金額）。
+      const prices = tabletPriceByYear.get(entry.year);
+      const unit = prices ? tabletUnitPriceFor(itemType.key, prices) : null;
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        return { ok: false, status: 400, error: `${itemType.name}：數量必須是 1 以上的整數` };
+      }
+      amountDue = unit !== null ? Math.round(unit * quantity * 100) / 100 : 0;
+    } else {
+      const amount = computeItemAmountDue({
+        feeMode: itemType.feeMode as never,
+        defaultUnitPrice: itemType.defaultUnitPrice === null ? null : Number(itemType.defaultUnitPrice),
+        quantity,
+        customAmount: entry.customAmount ?? null,
+        feeChoice: entry.feeChoice ?? null,
+      });
+      if (!amount.ok) return { ok: false, status: 400, error: `${itemType.name}：${amount.reason}` };
+      amountDue = amount.amountDue;
+    }
+    prepared.push({ entry, itemType, householdId: member.householdId, quantity, amountDue });
   }
 
   try {
@@ -425,29 +477,55 @@ export async function registerItemsBatch(
         }
         recordIds.add(recordId);
 
-        // 不重複建立同一成員同一項目（未取消、未刪除）。
-        if (!p.itemType.allowMultiplePerMember) {
-          const dup = await tx.ritualRegistrationItem.findFirst({
-            where: {
-              ritualRecordId: recordId,
-              registrationItemTypeId: p.itemType.id,
-              memberId: p.entry.memberId,
-              deletedAt: null,
-              status: { not: "CANCELLED" },
-            },
-            select: { id: true },
-          });
-          if (dup) {
-            outcomes.push({
-              memberId: p.entry.memberId,
-              registrationItemTypeId: p.itemType.id,
-              outcome: "ALREADY_EXISTS",
-              registrationItemId: dup.id,
-              ritualRecordId: recordId,
-              amountDue: 0,
+        // V14.2 冪等：同一 (RitualRecord, RegistrationItemType, 成員) 未取消未刪除的
+        // 項目**一律不重複建立**（不再只擋 allowMultiplePerMember=false 的項目）——
+        // 牌位的多筆內容是靠 UniversalSalvationEntry 表達，不是靠多列 RitualRegistrationItem，
+        // 之前重新操作報名就會冒出兩筆「超拔祖先／累世冤親／本人」。
+        //
+        // 找到既有項目時：
+        //   DRAFT 且未收款 → 依「最新年度單價 × 數量」重算（順便修正舊的 0 元草稿），
+        //                    並更新數量；不新增第二筆。
+        //   已確認／已收款  → 金額是建立當下快照，**不自動改價**，只回報已存在。
+        const existing = await tx.ritualRegistrationItem.findFirst({
+          where: {
+            ritualRecordId: recordId,
+            registrationItemTypeId: p.itemType.id,
+            memberId: p.entry.memberId,
+            deletedAt: null,
+            status: { not: "CANCELLED" },
+          },
+          select: { id: true, status: true, amountPaid: true },
+        });
+        if (existing) {
+          const editable = existing.status === "DRAFT" && Number(existing.amountPaid) === 0;
+          if (editable) {
+            await tx.ritualRegistrationItem.update({
+              where: { id: existing.id },
+              data: { quantity: p.quantity, amountDue: p.amountDue, amountUnpaid: p.amountDue },
             });
-            continue;
+            await upsertParticipantsInTransaction(tx, recordId, [p.entry.memberId], operatorName ?? null);
+            await linkItemToExistingDetail(tx, {
+              registrationItemId: existing.id,
+              contentKind: p.itemType.contentKind,
+              feeMode: p.itemType.feeMode,
+              activityType: p.itemType.activityType,
+              ritualRecordId: recordId,
+              itemAmountDue: p.amountDue,
+              unitPrice: p.itemType.defaultUnitPrice === null ? null : Number(p.itemType.defaultUnitPrice),
+              quantity: p.quantity,
+              participantCount: 1,
+              operatorName,
+            });
           }
+          outcomes.push({
+            memberId: p.entry.memberId,
+            registrationItemTypeId: p.itemType.id,
+            outcome: "ALREADY_EXISTS",
+            registrationItemId: existing.id,
+            ritualRecordId: recordId,
+            amountDue: editable ? p.amountDue : 0,
+          });
+          continue;
         }
 
         const created = await tx.ritualRegistrationItem.create({

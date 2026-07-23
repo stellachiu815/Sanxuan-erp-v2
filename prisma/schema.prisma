@@ -1217,6 +1217,25 @@ model TempleEvent {
   /// 只有 UNIVERSAL_SALVATION 活動會用到；其他活動類型維持 null、不受影響。
   sponsorUnitPrice Decimal? @db.Decimal(12, 2)
 
+  /// V14.2：中元普渡「四類牌位」的**年度單價**（宮方每年在活動設定頁設定一次）。
+  ///
+  /// ── 為什麼放這裡、為什麼不是第二套結構 ─────────────────────────
+  /// 這四類（超拔祖先／乙位正魂／累世冤親債主／無緣子女）在種子設定裡
+  /// feeMode=NONE、defaultUnitPrice=null（歷史上只靠贊普收費），所以建立報名時
+  /// 應收一律算成 0。改成「由活動年度設定單價」後，沿用**既有**的 per-year 價格
+  /// 結構——就是上面 pocketUnitPrice／sponsorUnitPrice 同一套（都是 TempleEvent
+  /// 上的可空 Decimal 欄位），只是多四個欄位，不新建任何價格表、不動 item type。
+  ///
+  /// ⚠️ nullable 是刻意的：既有活動一律 null、不被 migration 強制改價；未設定時
+  /// 建立報名該項應收為 0（不寫死金額）。修改只影響「之後新增或重新計算」的
+  /// DRAFT 未收款項目；已確認／已收款項目是建立當下的金額快照，不回頭改。
+  /// 對照：US_ANCESTOR→ancestor、US_ZHENGHUN→zhenghun、US_YUANQIN→yuanqin、
+  ///       US_WUYUAN→wuyuan（見 src/lib/universalSalvationTabletPricing.ts）。
+  ancestorUnitPrice Decimal? @db.Decimal(12, 2)
+  zhenghunUnitPrice Decimal? @db.Decimal(12, 2)
+  yuanqinUnitPrice  Decimal? @db.Decimal(12, 2)
+  wuyuanUnitPrice   Decimal? @db.Decimal(12, 2)
+
   records                  RitualRecord[]
   bannedNumbers            TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）
   printBatches             TempleEventPrintBatch[]
