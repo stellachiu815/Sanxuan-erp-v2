@@ -582,6 +582,16 @@ export type RegisteredItemView = {
   registrationItemTypeId: string;
   itemKey: string;
   itemName: string;
+  /** V14.2：類別（項目型別名稱，例如「累世冤親債主」）。 */
+  categoryName: string;
+  /**
+   * V14.2：牌位／當事人名稱（列印、收款、補印、查詢的共同識別）。
+   * 依序：自訂名稱 → 當事人（memberId 對應成員）姓名 → 類別名稱。
+   * 例：累世冤親債主每位成員各一筆 → 顯示「周財寶」「陳秀珍」而非固定文字。
+   */
+  subjectName: string;
+  /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress，同列印欄位）。 */
+  tabletAddress: string | null;
   activityGroupName: string;
   memberId: string | null;
   quantity: number;
@@ -590,6 +600,14 @@ export type RegisteredItemView = {
   amountPaid: number;
   amountUnpaid: number;
   status: string;
+};
+
+/** V14.2：itemKey → 對應的 UniversalSalvationEntry 類別（供解析牌位地址／名稱）。 */
+const TABLET_ITEM_ENTRY_CATEGORY: Record<string, "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "DEBT_CREDITOR" | "UNBORN_CHILD"> = {
+  US_ANCESTOR: "ANCESTOR_LINE",
+  US_ZHENGHUN: "INDIVIDUAL_SOUL",
+  US_YUANQIN: "DEBT_CREDITOR",
+  US_WUYUAN: "UNBORN_CHILD",
 };
 
 /**
@@ -613,10 +631,10 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
   // 未收款未列印者），讓既有測試重複資料在打開頁面時就收斂成單筆。
   await cleanupDuplicateDraftItems(ritualRecordId, null);
 
-  const [rows, salvationDetail, lantern] = await Promise.all([
+  const [rows, salvationDetail, lantern, salvationEntries] = await Promise.all([
     prisma.ritualRegistrationItem.findMany({
       where: { ritualRecordId, deletedAt: null },
-      include: { registrationItemType: true },
+      include: { registrationItemType: true, member: { select: { name: true } } },
       orderBy: [{ registrationItemType: { sortOrder: "asc" } }, { createdAt: "asc" }],
     }),
     prisma.universalSalvationDetail.findUnique({
@@ -627,7 +645,24 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       where: { ritualRecordId },
       select: { amountDue: true, amountPaid: true, amountUnpaid: true },
     }),
+    // V14.2：本 RitualRecord 的普渡牌位明細（沿用既有 UniversalSalvationEntry），
+    // 供解析牌位地址與名稱——不建第二套資料。
+    prisma.universalSalvationEntry.findMany({
+      where: { deletedAt: null, universalSalvation: { ritualRecordId } },
+      select: { category: true, displayName: true, tabletAddress: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+
+  // 依類別彙整既有牌位明細：以名稱（trim）對地址；並記每類是否僅一筆（可安全帶入）。
+  const addrByCategoryName = new Map<string, string | null>();
+  const countByCategory = new Map<string, number>();
+  const soleByCategory = new Map<string, { displayName: string; tabletAddress: string | null }>();
+  for (const e of salvationEntries) {
+    addrByCategoryName.set(`${e.category}::${e.displayName.trim()}`, e.tabletAddress ?? null);
+    countByCategory.set(e.category, (countByCategory.get(e.category) ?? 0) + 1);
+    soleByCategory.set(e.category, { displayName: e.displayName, tabletAddress: e.tabletAddress ?? null });
+  }
 
   return rows.map((r) => {
     const kind = r.registrationItemType.contentKind;
@@ -644,11 +679,32 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       amountPaid = Number(lantern.amountPaid);
       amountUnpaid = Number(lantern.amountUnpaid);
     }
+
+    const memberName = r.member?.name ?? null;
+    // 名稱（共同識別）：自訂名稱 → 當事人姓名 → 類別名稱。
+    const subjectName = r.customName ?? memberName ?? r.registrationItemType.name;
+
+    // 牌位地址：沿用既有 UniversalSalvationEntry。先以「類別＋名稱」精準對，
+    // 對不到時若該類別在本筆報名只有一筆牌位，帶入那一筆的地址（安全不誤帶）。
+    const entryCategory = TABLET_ITEM_ENTRY_CATEGORY[r.registrationItemType.key];
+    let tabletAddress: string | null = null;
+    if (entryCategory) {
+      const exact = addrByCategoryName.get(`${entryCategory}::${subjectName.trim()}`);
+      if (exact !== undefined) {
+        tabletAddress = exact;
+      } else if ((countByCategory.get(entryCategory) ?? 0) === 1) {
+        tabletAddress = soleByCategory.get(entryCategory)?.tabletAddress ?? null;
+      }
+    }
+
     return {
       id: r.id,
       registrationItemTypeId: r.registrationItemTypeId,
       itemKey: r.registrationItemType.key,
       itemName: r.customName ?? r.registrationItemType.name,
+      categoryName: r.registrationItemType.name,
+      subjectName,
+      tabletAddress,
       activityGroupName: r.registrationItemType.activityGroupName,
       memberId: r.memberId,
       quantity: r.quantity,

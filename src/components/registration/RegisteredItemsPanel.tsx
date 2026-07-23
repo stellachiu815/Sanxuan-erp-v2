@@ -14,6 +14,12 @@ type Item = {
   id: string;
   itemKey: string;
   itemName: string;
+  /** V14.2：類別（型別名，例如「累世冤親債主」）。 */
+  categoryName: string;
+  /** V14.2：名稱（當事人／牌位；每位成員各一筆時為其姓名）。 */
+  subjectName: string;
+  /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress）。 */
+  tabletAddress: string | null;
   activityGroupName: string;
   quantity: number;
   amountDue: number;
@@ -89,7 +95,7 @@ export default function RegisteredItemsPanel({
         <table className="mt-3 w-full text-left text-sm">
           <thead>
             <tr className="text-xs text-ink-faint">
-              <th className="px-2 py-1.5">項目</th>
+              <th className="px-2 py-1.5">類別｜名稱</th>
               <th className="px-2 py-1.5">數量</th>
               <th className="px-2 py-1.5">應收</th>
               <th className="px-2 py-1.5">未收</th>
@@ -100,7 +106,16 @@ export default function RegisteredItemsPanel({
           <tbody>
             {items.map((it) => (
               <tr key={it.id} className="border-t border-cream-200">
-                <td className="px-2 py-1.5 text-ink">{it.itemName}</td>
+                <td className="px-2 py-1.5">
+                  <div className="text-ink">
+                    <span className="text-ink-soft">{it.categoryName}</span>
+                    <span className="text-ink-faint">｜</span>
+                    <span className="text-ink">{it.subjectName}</span>
+                  </div>
+                  {it.tabletAddress && (
+                    <div className="text-xs text-ink-faint">牌位地址：{it.tabletAddress}</div>
+                  )}
+                </td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.quantity}</td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountDue}</td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid}</td>
