@@ -10,7 +10,7 @@ import {
 import EntryRow from "./EntryRow";
 import YangshangEditor from "./YangshangEditor";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
-import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON } from "./types";
+import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON, WorshipOptionJSON } from "./types";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
@@ -29,8 +29,10 @@ type Props = {
   /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」回呼。 */
   householdYangshangNames?: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
-  /** V14.2：本戶歷代祖先牌位名稱（僅歷代祖先新增區塊用，一鍵帶入）。 */
-  ancestorNameOptions?: string[];
+  /** V14.2：本戶既有牌位可選項（帶既有陽上人＋牌位地址），依分類取用。 */
+  ancestorOptions?: WorshipOptionJSON[];
+  individualSoulOptions?: WorshipOptionJSON[];
+  debtCreditorNames?: string[];
 };
 
 /** 超拔祖先／乙位正魂才有多位陽上人與每筆牌位地址（指令二）。 */
@@ -62,13 +64,16 @@ export default function EntryCategorySection({
   householdAddress = null,
   householdYangshangNames = [],
   onAddToHouseholdYangshang,
-  ancestorNameOptions = [],
+  ancestorOptions = [],
+  individualSoulOptions = [],
+  debtCreditorNames = [],
 }: Props) {
   const supportsYangshang = categorySupportsYangshang(category);
   async function postEntry(payload: {
     displayName: string;
     yangshangName?: string | null;
     yangshangNames?: string[];
+    tabletAddress?: string | null;
     notes?: string | null;
   }) {
     const res = await fetchUniversalSalvation(
@@ -120,7 +125,7 @@ export default function EntryCategorySection({
           entries={entries}
           onAdd={postEntry}
           onRecordUpdated={onRecordUpdated}
-          ancestorNameOptions={ancestorNameOptions}
+          ancestorOptions={ancestorOptions}
           householdYangshangNames={householdYangshangNames}
           onAddToHouseholdYangshang={onAddToHouseholdYangshang}
         />
@@ -131,6 +136,7 @@ export default function EntryCategorySection({
           entries={entries}
           onAdd={postEntry}
           onRecordUpdated={onRecordUpdated}
+          individualSoulOptions={individualSoulOptions}
           householdYangshangNames={householdYangshangNames}
           onAddToHouseholdYangshang={onAddToHouseholdYangshang}
         />
@@ -138,9 +144,11 @@ export default function EntryCategorySection({
 
       {addMode === "batch" && (
         <BatchAddForm
+          entries={entries}
           fixedDisplayName={fixedDisplayName ?? title}
           onAdd={postEntry}
           onRecordUpdated={onRecordUpdated}
+          existingNameOptions={category === "DEBT_CREDITOR" ? debtCreditorNames : []}
         />
       )}
     </div>
@@ -156,7 +164,7 @@ function SurnameAddForm({
   entries,
   onAdd,
   onRecordUpdated,
-  ancestorNameOptions,
+  ancestorOptions,
   householdYangshangNames,
   onAddToHouseholdYangshang,
 }: {
@@ -164,10 +172,11 @@ function SurnameAddForm({
   onAdd: (payload: {
     displayName: string;
     yangshangNames?: string[];
+    tabletAddress?: string | null;
     notes?: string | null;
   }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
-  ancestorNameOptions: string[];
+  ancestorOptions: WorshipOptionJSON[];
   householdYangshangNames: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
 }) {
@@ -179,13 +188,18 @@ function SurnameAddForm({
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
   const surnameInputRef = useRef<HTMLInputElement>(null);
 
-  async function submit(displayName: string) {
+  async function submit(
+    displayName: string,
+    override?: { yangshangNames?: string[]; tabletAddress?: string | null }
+  ) {
     setSubmitting(true);
     setError(null);
     try {
+      const yn = override?.yangshangNames ?? (addYangshang.length > 0 ? addYangshang : undefined);
       const record = await onAdd({
         displayName,
-        yangshangNames: addYangshang.length > 0 ? addYangshang : undefined,
+        yangshangNames: yn,
+        tabletAddress: override?.tabletAddress ?? undefined,
         notes: notes.trim() || null,
       });
       onRecordUpdated(record);
@@ -214,11 +228,14 @@ function SurnameAddForm({
     submit(displayName);
   }
 
-  /** 點選本戶歷代祖先 chip：直接帶入該牌位名稱新增（不重複、含目前已選陽上人）。 */
-  function handlePickAncestor(fullName: string) {
+  /** 點選本戶歷代祖先 chip：整筆帶入名稱＋既有陽上人＋既有牌位地址（不重複）。 */
+  function handlePickAncestor(opt: WorshipOptionJSON) {
     if (submitting) return;
-    if (entries.some((e) => e.displayName === fullName)) return; // 不重複新增
-    submit(fullName);
+    if (entries.some((e) => e.displayName === opt.displayName)) return; // 不重複新增
+    submit(opt.displayName, {
+      yangshangNames: opt.yangshangNames.length > 0 ? opt.yangshangNames : undefined,
+      tabletAddress: opt.tabletAddress,
+    });
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -236,18 +253,18 @@ function SurnameAddForm({
 
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white/80 p-4">
-      {/* 本戶歷代祖先（一鍵帶入；已加入的標示 ✓ 不重複） */}
-      {ancestorNameOptions.length > 0 && (
+      {/* 本戶歷代祖先（一鍵帶入名稱＋既有陽上人＋牌位地址；已加入標示 ✓ 不重複） */}
+      {ancestorOptions.length > 0 && (
         <div>
-          <p className="mb-1 text-xs text-ink-faint">本戶歷代祖先（點選直接新增）</p>
+          <p className="mb-1 text-xs text-ink-faint">本戶歷代祖先（點選直接帶入，含既有陽上人／地址）</p>
           <div className="flex flex-wrap gap-1.5">
-            {ancestorNameOptions.map((name) => {
-              const already = entries.some((e) => e.displayName === name);
+            {ancestorOptions.map((opt) => {
+              const already = entries.some((e) => e.displayName === opt.displayName);
               return (
                 <button
-                  key={name}
+                  key={opt.displayName}
                   type="button"
-                  onClick={() => handlePickAncestor(name)}
+                  onClick={() => handlePickAncestor(opt)}
                   disabled={submitting || already}
                   className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
                     already
@@ -256,7 +273,7 @@ function SurnameAddForm({
                   }`}
                 >
                   {already ? "✓ " : "＋ "}
-                  {name}
+                  {opt.displayName}
                 </button>
               );
             })}
@@ -339,6 +356,7 @@ function NameAddForm({
   entries,
   onAdd,
   onRecordUpdated,
+  individualSoulOptions,
   householdYangshangNames,
   onAddToHouseholdYangshang,
 }: {
@@ -346,9 +364,11 @@ function NameAddForm({
   onAdd: (payload: {
     displayName: string;
     yangshangNames?: string[];
+    tabletAddress?: string | null;
     notes?: string | null;
   }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
+  individualSoulOptions: WorshipOptionJSON[];
   householdYangshangNames: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
 }) {
@@ -360,13 +380,18 @@ function NameAddForm({
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  async function submit(displayName: string) {
+  async function submit(
+    displayName: string,
+    override?: { yangshangNames?: string[]; tabletAddress?: string | null }
+  ) {
     setSubmitting(true);
     setError(null);
     try {
+      const yn = override?.yangshangNames ?? (addYangshang.length > 0 ? addYangshang : undefined);
       const record = await onAdd({
         displayName,
-        yangshangNames: addYangshang.length > 0 ? addYangshang : undefined,
+        yangshangNames: yn,
+        tabletAddress: override?.tabletAddress ?? undefined,
         notes: notes.trim() || null,
       });
       onRecordUpdated(record);
@@ -395,6 +420,16 @@ function NameAddForm({
     submit(displayName);
   }
 
+  /** 點選本戶乙位正魂 chip：整筆帶入名稱＋既有陽上人＋既有牌位地址（不重複）。 */
+  function handlePickSoul(opt: WorshipOptionJSON) {
+    if (submitting) return;
+    if (entries.some((e) => e.displayName === opt.displayName)) return;
+    submit(opt.displayName, {
+      yangshangNames: opt.yangshangNames.length > 0 ? opt.yangshangNames : undefined,
+      tabletAddress: opt.tabletAddress,
+    });
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -411,8 +446,36 @@ function NameAddForm({
 
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white/80 p-4">
+      {/* 本戶乙位正魂（點選直接帶入名稱＋既有陽上人／地址；已加入標示 ✓ 不重複） */}
+      {individualSoulOptions.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs text-ink-faint">本戶乙位正魂（點選直接帶入，含既有陽上人／地址）</p>
+          <div className="flex flex-wrap gap-1.5">
+            {individualSoulOptions.map((opt) => {
+              const already = entries.some((e) => e.displayName === opt.displayName);
+              return (
+                <button
+                  key={opt.displayName}
+                  type="button"
+                  onClick={() => handlePickSoul(opt)}
+                  disabled={submitting || already}
+                  className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
+                    already
+                      ? "cursor-default bg-sage-100 text-ink-faint"
+                      : "bg-blossom-100 text-ink-soft hover:bg-blossom-200"
+                  }`}
+                >
+                  {already ? "✓ " : "＋ "}
+                  {opt.displayName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div>
-        <label className={labelClass}>姓名</label>
+        <label className={labelClass}>姓名（自行輸入新的乙位正魂）</label>
         <input
           ref={nameInputRef}
           className={inputClass}
@@ -479,13 +542,18 @@ function NameAddForm({
  * 「名稱（N）」。中途若失敗，已成功新增的部分仍會保留在畫面上。
  */
 function BatchAddForm({
+  entries,
   fixedDisplayName,
   onAdd,
   onRecordUpdated,
+  existingNameOptions = [],
 }: {
+  entries: EntryJSON[];
   fixedDisplayName: string;
   onAdd: (payload: { displayName: string }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
+  /** V14.2：本戶既有冤親債主名稱（去重）；點選一鍵加入本次報名，不重複。 */
+  existingNameOptions?: string[];
 }) {
   const [quantity, setQuantity] = useState("1");
   const [submitting, setSubmitting] = useState(false);
@@ -493,6 +561,22 @@ function BatchAddForm({
   const quantityInputRef = useRef<HTMLInputElement>(null);
 
   const parsedQuantity = Number(quantity);
+
+  /** 點選本戶既有冤親債主 chip：加入一筆（不重複）。 */
+  async function handlePickExisting(displayName: string) {
+    if (submitting) return;
+    if (entries.some((e) => e.displayName === displayName)) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const record = await onAdd({ displayName });
+      onRecordUpdated(record);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "網路錯誤，請稍後再試一次。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleAdd() {
     if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
@@ -537,6 +621,34 @@ function BatchAddForm({
 
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white/80 p-4">
+      {/* 本戶既有冤親債主（點選一鍵加入；已加入標示 ✓ 不重複、跨年份去重成一項） */}
+      {existingNameOptions.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs text-ink-faint">本戶既有冤親債主（點選直接加入）</p>
+          <div className="flex flex-wrap gap-1.5">
+            {existingNameOptions.map((nm) => {
+              const already = entries.some((e) => e.displayName === nm);
+              return (
+                <button
+                  key={nm}
+                  type="button"
+                  onClick={() => handlePickExisting(nm)}
+                  disabled={submitting || already}
+                  className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
+                    already
+                      ? "cursor-default bg-sage-100 text-ink-faint"
+                      : "bg-mist-100 text-ink-soft hover:bg-mist-200"
+                  }`}
+                >
+                  {already ? "✓ " : "＋ "}
+                  {nm}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <label className={labelClass}>數量</label>
       <div className="flex items-center gap-2">
         <input

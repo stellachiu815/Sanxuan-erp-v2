@@ -12,6 +12,13 @@ export type EntryCategory =
   | "DEBT_CREDITOR"
   | "UNBORN_CHILD";
 
+/** V14.2：一筆本戶既有牌位可選項（名稱＋既有陽上人＋既有牌位地址）。 */
+export type WorshipOptionJSON = {
+  displayName: string;
+  yangshangNames: string[];
+  tabletAddress: string | null;
+};
+
 export type EntryJSON = {
   id: string;
   category: EntryCategory;
