@@ -609,6 +609,10 @@ export type RegisteredItemView = {
  * 與 devotee360 相同來源，確保普渡頁與信眾資料頁金額完全一致。
  */
 export async function listRegisteredItems(ritualRecordId: string): Promise<RegisteredItemView[]> {
+  // V14.2：開啟草稿／載入清單時自動整理重複的乾淨草稿項目（冪等、只動 DRAFT
+  // 未收款未列印者），讓既有測試重複資料在打開頁面時就收斂成單筆。
+  await cleanupDuplicateDraftItems(ritualRecordId, null);
+
   const [rows, salvationDetail, lantern] = await Promise.all([
     prisma.ritualRegistrationItem.findMany({
       where: { ritualRecordId, deletedAt: null },
@@ -657,23 +661,117 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
   });
 }
 
-/** 軟刪除一個報名項目（保留歷史）。 */
+/**
+ * 取消一個報名項目（不硬刪，保留歷史）。
+ *
+ * V14.2：
+ *   - 狀態改 CANCELLED、amountUnpaid 歸 0（自待收款／總額排除）；同時設 deletedAt
+ *     讓所有以 deletedAt IS NULL 過濾的既有查詢（報名頁清單、列印名冊）都不再顯示，
+ *     但資料列仍在（非硬刪）。收款 adapter 也已排除 status=CANCELLED / deletedAt。
+ *   - 已收款、已開收據（有收款即有收據）、已列印的項目**不得直接取消**，回明確原因。
+ *   - 連結型（SPONSOR→UniversalSalvationDetail、LANTERN→LanternRegistration）：金額
+ *     記在既有明細、本項一律 0，取消本項不會造成重複應收；明細本身的取消走其既有流程。
+ *   - 冪等：已取消再呼叫直接回成功。
+ */
 export async function removeRegisteredItem(
   registrationItemId: string,
   operatorName?: string | null
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const item = await prisma.ritualRegistrationItem.findUnique({
     where: { id: registrationItemId },
-    select: { id: true, deletedAt: true, amountPaid: true },
+    select: { id: true, deletedAt: true, status: true, amountPaid: true, printCount: true, printedAt: true },
   });
   if (!item) return { ok: false, status: 404, error: "找不到這個報名項目" };
-  if (item.deletedAt) return { ok: true };
+  if (item.deletedAt || item.status === "CANCELLED") return { ok: true }; // 冪等
   if (Number(item.amountPaid) > 0) {
-    return { ok: false, status: 409, error: "此項目已有收款，請先於收款中心處理退款後再移除" };
+    return { ok: false, status: 409, error: "此項目已有收款／收據，請先於收款中心處理退款後再取消" };
+  }
+  if (item.printCount > 0 || item.printedAt) {
+    return { ok: false, status: 409, error: "此項目已列印，不得直接取消；如需作廢請依既有補印／作廢流程處理" };
   }
   await prisma.ritualRegistrationItem.update({
     where: { id: registrationItemId },
-    data: { deletedAt: new Date(), deletedByName: operatorName ?? null },
+    data: {
+      status: "CANCELLED",
+      amountUnpaid: 0,
+      deletedAt: new Date(),
+      deletedByName: operatorName ?? null,
+    },
   });
   return { ok: true };
+}
+
+/**
+ * V14.2：草稿重複項目整理（安全、冪等）。
+ *
+ * 限定同一 RitualRecord 內、同一 (RegistrationItemType, 成員) 的**重複**項目，且每一筆都：
+ *   - status = DRAFT
+ *   - 未收款（amountPaid = 0，等於也沒有收據）
+ *   - 未列印（printCount = 0 且 printedAt = null）
+ * 才納入整理。保留「資料較完整」的一筆（金額高者優先，其次有自訂名稱，其次最早建立），
+ * 其餘改成 CANCELLED（不硬刪），同時 amountUnpaid=0、deletedAt=now（自清單與名冊隱藏）。
+ *
+ * 絕不動到已確認／已收款／已列印的資料。可重複執行（跑第二次不會再有可整理的重複）。
+ * 回傳被取消的筆數。
+ */
+export async function cleanupDuplicateDraftItems(
+  ritualRecordId: string,
+  operatorName?: string | null
+): Promise<{ cancelled: number }> {
+  const rows = await prisma.ritualRegistrationItem.findMany({
+    where: { ritualRecordId, deletedAt: null, status: "DRAFT" },
+    select: {
+      id: true,
+      registrationItemTypeId: true,
+      memberId: true,
+      amountDue: true,
+      amountPaid: true,
+      customName: true,
+      printCount: true,
+      printedAt: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // 只收「乾淨可整理」的列（未收款、未列印）。有收款/列印的一律不碰。
+  const eligible = rows.filter(
+    (r) => Number(r.amountPaid) === 0 && r.printCount === 0 && !r.printedAt
+  );
+
+  // 依 (itemType, member) 分組。
+  const groups = new Map<string, typeof eligible>();
+  for (const r of eligible) {
+    const key = `${r.registrationItemTypeId}::${r.memberId ?? ""}`;
+    const g = groups.get(key);
+    if (g) g.push(r);
+    else groups.set(key, [r]);
+  }
+
+  const toCancel: string[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) continue; // 沒有重複
+    // 保留「較完整」的一筆：金額高 → 有自訂名稱 → 最早建立。
+    const keep = [...g].sort((a, b) => {
+      const amt = Number(b.amountDue) - Number(a.amountDue);
+      if (amt !== 0) return amt;
+      const named = (b.customName ? 1 : 0) - (a.customName ? 1 : 0);
+      if (named !== 0) return named;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    })[0];
+    for (const r of g) if (r.id !== keep.id) toCancel.push(r.id);
+  }
+
+  if (toCancel.length === 0) return { cancelled: 0 };
+
+  await prisma.ritualRegistrationItem.updateMany({
+    where: { id: { in: toCancel } },
+    data: {
+      status: "CANCELLED",
+      amountUnpaid: 0,
+      deletedAt: new Date(),
+      deletedByName: operatorName ?? "系統：草稿重複整理",
+    },
+  });
+  return { cancelled: toCancel.length };
 }
