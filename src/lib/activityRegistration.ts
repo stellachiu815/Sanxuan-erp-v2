@@ -7,6 +7,7 @@ import {
 } from "@/lib/ritualParticipants";
 import {
   resolveRegistrationFormType,
+  suggestRegistrationFormType,
   isLanternActivityType,
   type RegistrationFormType,
 } from "@/lib/registrationFormTypes";
@@ -68,8 +69,10 @@ export async function registerActivity(params: {
   const event = await prisma.templeEvent.findUnique({ where: { id: params.templeEventId } });
   if (!event) return { ok: false, status: 404, error: "找不到這個活動" };
 
-  // ── 報名表型態必須已設定（指令十四：不得自動降級成通用） ──
-  const formResolution = resolveRegistrationFormType(event.registrationFormType);
+  // ── 報名表型態：明確設定優先，否則以活動類型的預設 mapping 回退 ──
+  const formResolution = resolveRegistrationFormType(
+    event.registrationFormType ?? suggestRegistrationFormType(event.activityType)
+  );
   if (!formResolution.supported) {
     return { ok: false, status: 409, error: formResolution.reason };
   }
@@ -239,7 +242,9 @@ export async function validateForConfirm(
 
   const reasons: string[] = [];
 
-  const formResolution = resolveRegistrationFormType(record.templeEvent?.registrationFormType);
+  const formResolution = resolveRegistrationFormType(
+    record.templeEvent?.registrationFormType ?? suggestRegistrationFormType(record.activityType)
+  );
   if (!formResolution.supported) {
     return { ok: false, reasons: [formResolution.reason] };
   }
@@ -468,7 +473,9 @@ export async function listAvailableActivitiesForMember(
     // 未開放報名、且這一戶也沒有既有報名 → 不列出
     if (!acceptable.ok && !existing) continue;
 
-    const formResolution = resolveRegistrationFormType(e.registrationFormType);
+    const formResolution = resolveRegistrationFormType(
+      e.registrationFormType ?? suggestRegistrationFormType(e.activityType)
+    );
 
     out.push({
       templeEventId: e.id,

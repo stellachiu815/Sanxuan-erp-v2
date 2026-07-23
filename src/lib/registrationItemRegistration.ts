@@ -151,26 +151,44 @@ async function ensureRitualRecord(
   if (existing && existing.deletedAt) {
     return { error: `這一戶民國 ${params.year} 年的這個活動報名目前在回收區，請先還原後再新增項目` };
   }
-  if (existing) return { id: existing.id, created: false };
+  let recordId: string;
+  let created: boolean;
+  if (existing) {
+    recordId = existing.id;
+    created = false;
+  } else {
+    // 對應這個活動類型與年度的 TempleEvent（可為 null；沿用既有可空慣例）。
+    const event = await tx.templeEvent.findUnique({
+      where: { activityType_year: { activityType: params.activityType, year: params.year } },
+      select: { id: true },
+    });
+    const rec = await tx.ritualRecord.create({
+      data: {
+        householdId: params.householdId,
+        year: params.year,
+        activityType: params.activityType,
+        templeEventId: event?.id ?? null,
+        status: "DRAFT",
+        registrationSource: "DEVOTEE_PAGE",
+      },
+      select: { id: true },
+    });
+    recordId = rec.id;
+    created = true;
+  }
 
-  // 對應這個活動類型與年度的 TempleEvent（可為 null；沿用既有可空慣例）。
-  const event = await tx.templeEvent.findUnique({
-    where: { activityType_year: { activityType: params.activityType, year: params.year } },
-    select: { id: true },
-  });
+  // V14.1：普渡報名一律 1:1 對應一筆 UniversalSalvationDetail。沒有它，普渡
+  // 編輯器會顯示「尚未建立登記明細」。這裡在建立／沿用報名時就同步確保明細
+  // 存在，不等使用者第一次打開才建。upsert 冪等，既有明細不覆蓋。
+  if (params.activityType === "UNIVERSAL_SALVATION") {
+    await tx.universalSalvationDetail.upsert({
+      where: { ritualRecordId: recordId },
+      create: { ritualRecordId: recordId, isRegistered: true },
+      update: {},
+    });
+  }
 
-  const created = await tx.ritualRecord.create({
-    data: {
-      householdId: params.householdId,
-      year: params.year,
-      activityType: params.activityType,
-      templeEventId: event?.id ?? null,
-      status: "DRAFT",
-      registrationSource: "DEVOTEE_PAGE",
-    },
-    select: { id: true },
-  });
-  return { id: created.id, created: true };
+  return { id: recordId, created };
 }
 
 /**
