@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { errorTextClass } from "@/components/household/formStyles";
 import UniversalSalvationDetailForm from "./UniversalSalvationDetailForm";
@@ -53,14 +53,16 @@ export default function UniversalSalvationScreen({
    * 由本畫面**自行**用既有的 GET /api/households/[id] 取得（成員姓名＋地址），
    * 不再從外層一路傳 props（避免增加傳遞層數）。只讀不寫，不會動到家戶主檔。
    */
-  const [householdMemberNames, setHouseholdMemberNames] = useState<string[]>([]);
   const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
   /**
-   * V14.2：本戶固定陽上人名單。由本畫面用 GET /api/households/[id]/yangshang 取得，
-   * 傳給 YangshangEditor 作「一鍵加入」的來源。新增時透過 addToHouseholdYangshang
-   * 回呼 POST 並就地更新，讓下一個牌位馬上也能一鍵帶入。
+   * V14.2：兩組**不同**的本戶固定選項，由 GET /api/households/[id]/registration-options
+   * 一次取回：
+   *   ancestorNames        本戶歷代祖先牌位名稱（歷代祖先新增區塊一鍵帶入）
+   *   yangshangCandidates  本戶固定陽上人（字庫＋戶主＋主要聯絡人＋成員，去重）
+   * 新增字庫成員後（addToHouseholdYangshang）重新載入，讓下一個牌位馬上帶得到。
    */
-  const [householdYangshangNames, setHouseholdYangshangNames] = useState<string[]>([]);
+  const [ancestorNames, setAncestorNames] = useState<string[]>([]);
+  const [yangshangCandidates, setYangshangCandidates] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,11 +71,10 @@ export default function UniversalSalvationScreen({
         const res = await fetchUniversalSalvation(`/api/households/${householdId}`);
         const data = await res.json();
         if (cancelled || !res.ok || !data?.data) return;
-        const h = data.data as { address?: string | null; members?: { name: string }[] };
-        setHouseholdMemberNames((h.members ?? []).map((m) => m.name).filter(Boolean));
+        const h = data.data as { address?: string | null };
         setHouseholdAddress(h.address ?? null);
       } catch {
-        /* 取不到不影響報名；只是少了「快速加入／帶入地址」的便利 */
+        /* 取不到不影響報名；只是少了「帶入地址」的便利 */
       }
     })();
     return () => {
@@ -81,22 +82,23 @@ export default function UniversalSalvationScreen({
     };
   }, [householdId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetchUniversalSalvation(`/api/households/${householdId}/yangshang`);
-        const data = await res.json();
-        if (cancelled || !res.ok) return;
-        setHouseholdYangshangNames(Array.isArray(data?.names) ? data.names : []);
-      } catch {
-        /* 取不到不影響報名；只是少了「本戶固定陽上人一鍵加入」的便利 */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadRegistrationOptions = useCallback(async () => {
+    try {
+      const res = await fetchUniversalSalvation(
+        `/api/households/${householdId}/registration-options`
+      );
+      const data = await res.json();
+      if (!res.ok) return;
+      setAncestorNames(Array.isArray(data?.ancestorNames) ? data.ancestorNames : []);
+      setYangshangCandidates(Array.isArray(data?.yangshangNames) ? data.yangshangNames : []);
+    } catch {
+      /* 取不到不影響報名；只是少了固定選項的便利 */
+    }
   }, [householdId]);
+
+  useEffect(() => {
+    void loadRegistrationOptions();
+  }, [loadRegistrationOptions]);
 
   async function addToHouseholdYangshang(name: string) {
     try {
@@ -105,10 +107,7 @@ export default function UniversalSalvationScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      const data = await res.json();
-      if (res.ok && Array.isArray(data?.names)) {
-        setHouseholdYangshangNames(data.names);
-      }
+      if (res.ok) await loadRegistrationOptions();
     } catch {
       /* 存不進本戶固定名單不影響本牌位——姓名已加入本牌位 value */
     }
@@ -225,9 +224,9 @@ export default function UniversalSalvationScreen({
               fixedDisplayName={section.fixedDisplayName}
               entries={detail.entries.filter((e) => e.category === section.category)}
               onRecordUpdated={handleUpdated}
-              householdMemberNames={householdMemberNames}
               householdAddress={householdAddress}
-              householdYangshangNames={householdYangshangNames}
+              ancestorNameOptions={ancestorNames}
+              householdYangshangNames={yangshangCandidates}
               onAddToHouseholdYangshang={addToHouseholdYangshang}
             />
           ))}

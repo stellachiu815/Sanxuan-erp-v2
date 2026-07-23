@@ -8,6 +8,7 @@ import {
   errorTextClass,
 } from "@/components/household/formStyles";
 import EntryRow from "./EntryRow";
+import YangshangEditor from "./YangshangEditor";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
 import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON } from "./types";
 
@@ -28,6 +29,8 @@ type Props = {
   /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」回呼。 */
   householdYangshangNames?: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
+  /** V14.2：本戶歷代祖先牌位名稱（僅歷代祖先新增區塊用，一鍵帶入）。 */
+  ancestorNameOptions?: string[];
 };
 
 /** 超拔祖先／乙位正魂才有多位陽上人與每筆牌位地址（指令二）。 */
@@ -59,11 +62,13 @@ export default function EntryCategorySection({
   householdAddress = null,
   householdYangshangNames = [],
   onAddToHouseholdYangshang,
+  ancestorNameOptions = [],
 }: Props) {
   const supportsYangshang = categorySupportsYangshang(category);
   async function postEntry(payload: {
     displayName: string;
     yangshangName?: string | null;
+    yangshangNames?: string[];
     notes?: string | null;
   }) {
     const res = await fetchUniversalSalvation(
@@ -111,11 +116,24 @@ export default function EntryCategorySection({
       </div>
 
       {addMode === "surname" && (
-        <SurnameAddForm entries={entries} onAdd={postEntry} onRecordUpdated={onRecordUpdated} />
+        <SurnameAddForm
+          entries={entries}
+          onAdd={postEntry}
+          onRecordUpdated={onRecordUpdated}
+          ancestorNameOptions={ancestorNameOptions}
+          householdYangshangNames={householdYangshangNames}
+          onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+        />
       )}
 
       {addMode === "name" && (
-        <NameAddForm entries={entries} onAdd={postEntry} onRecordUpdated={onRecordUpdated} />
+        <NameAddForm
+          entries={entries}
+          onAdd={postEntry}
+          onRecordUpdated={onRecordUpdated}
+          householdYangshangNames={householdYangshangNames}
+          onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+        />
       )}
 
       {addMode === "batch" && (
@@ -138,13 +156,24 @@ function SurnameAddForm({
   entries,
   onAdd,
   onRecordUpdated,
+  ancestorNameOptions,
+  householdYangshangNames,
+  onAddToHouseholdYangshang,
 }: {
   entries: EntryJSON[];
-  onAdd: (payload: { displayName: string; notes?: string | null }) => Promise<RecordJSON>;
+  onAdd: (payload: {
+    displayName: string;
+    yangshangNames?: string[];
+    notes?: string | null;
+  }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
+  ancestorNameOptions: string[];
+  householdYangshangNames: string[];
+  onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
 }) {
   const [surname, setSurname] = useState("");
   const [notes, setNotes] = useState("");
+  const [addYangshang, setAddYangshang] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
@@ -154,10 +183,15 @@ function SurnameAddForm({
     setSubmitting(true);
     setError(null);
     try {
-      const record = await onAdd({ displayName, notes: notes.trim() || null });
+      const record = await onAdd({
+        displayName,
+        yangshangNames: addYangshang.length > 0 ? addYangshang : undefined,
+        notes: notes.trim() || null,
+      });
       onRecordUpdated(record);
       setSurname("");
       setNotes("");
+      setAddYangshang([]);
       surnameInputRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "網路錯誤，請稍後再試一次。");
@@ -180,6 +214,13 @@ function SurnameAddForm({
     submit(displayName);
   }
 
+  /** 點選本戶歷代祖先 chip：直接帶入該牌位名稱新增（不重複、含目前已選陽上人）。 */
+  function handlePickAncestor(fullName: string) {
+    if (submitting) return;
+    if (entries.some((e) => e.displayName === fullName)) return; // 不重複新增
+    submit(fullName);
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -195,8 +236,36 @@ function SurnameAddForm({
 
   return (
     <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white/80 p-4">
+      {/* 本戶歷代祖先（一鍵帶入；已加入的標示 ✓ 不重複） */}
+      {ancestorNameOptions.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs text-ink-faint">本戶歷代祖先（點選直接新增）</p>
+          <div className="flex flex-wrap gap-1.5">
+            {ancestorNameOptions.map((name) => {
+              const already = entries.some((e) => e.displayName === name);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => handlePickAncestor(name)}
+                  disabled={submitting || already}
+                  className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
+                    already
+                      ? "cursor-default bg-sage-100 text-ink-faint"
+                      : "bg-mist-100 text-ink-soft hover:bg-mist-200"
+                  }`}
+                >
+                  {already ? "✓ " : "＋ "}
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div>
-        <label className={labelClass}>姓氏</label>
+        <label className={labelClass}>姓氏（自行輸入新的歷代祖先）</label>
         <input
           ref={surnameInputRef}
           className={inputClass}
@@ -211,6 +280,19 @@ function SurnameAddForm({
           <p className="mt-1 text-xs text-ink-faint">→ {surname.trim()}姓歷代祖先</p>
         )}
       </div>
+
+      {/* 陽上人（本戶固定陽上人一鍵加入＋手動新增；套用到即將新增的這筆） */}
+      <div>
+        <label className={labelClass}>陽上人（可多位，套用到新增的這筆）</label>
+        <YangshangEditor
+          value={addYangshang}
+          onChange={setAddYangshang}
+          householdMemberNames={[]}
+          householdYangshangNames={householdYangshangNames}
+          onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+        />
+      </div>
+
       <div>
         <label className={labelClass}>備註（選填）</label>
         <input
@@ -257,17 +339,21 @@ function NameAddForm({
   entries,
   onAdd,
   onRecordUpdated,
+  householdYangshangNames,
+  onAddToHouseholdYangshang,
 }: {
   entries: EntryJSON[];
   onAdd: (payload: {
     displayName: string;
-    yangshangName?: string | null;
+    yangshangNames?: string[];
     notes?: string | null;
   }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
+  householdYangshangNames: string[];
+  onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [yangshangName, setYangshangName] = useState("");
+  const [addYangshang, setAddYangshang] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,12 +366,12 @@ function NameAddForm({
     try {
       const record = await onAdd({
         displayName,
-        yangshangName: yangshangName.trim() || null,
+        yangshangNames: addYangshang.length > 0 ? addYangshang : undefined,
         notes: notes.trim() || null,
       });
       onRecordUpdated(record);
       setName("");
-      setYangshangName("");
+      setAddYangshang([]);
       setNotes("");
       nameInputRef.current?.focus();
     } catch (err) {
@@ -316,7 +402,7 @@ function NameAddForm({
     } else if (e.key === "Escape") {
       e.preventDefault();
       setName("");
-      setYangshangName("");
+      setAddYangshang([]);
       setNotes("");
       setError(null);
       (e.target as HTMLInputElement).blur();
@@ -340,13 +426,15 @@ function NameAddForm({
           <p className="mt-1 text-xs text-ink-faint">→ {name.trim()} 乙位正魂</p>
         )}
       </div>
+      {/* 陽上人（本戶固定陽上人一鍵加入＋手動新增；套用到新增的這筆） */}
       <div>
-        <label className={labelClass}>陽上姓名（選填）</label>
-        <input
-          className={inputClass}
-          value={yangshangName}
-          onChange={(e) => setYangshangName(e.target.value)}
-          onKeyDown={handleKeyDown}
+        <label className={labelClass}>陽上人（可多位）</label>
+        <YangshangEditor
+          value={addYangshang}
+          onChange={setAddYangshang}
+          householdMemberNames={[]}
+          householdYangshangNames={householdYangshangNames}
+          onAddToHouseholdYangshang={onAddToHouseholdYangshang}
         />
       </div>
       <div>
