@@ -91,17 +91,25 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
   const currentRocYear = new Date().getFullYear() - 1911;
 
   /**
-   * V14.1 回歸修正：選了主活動就自動帶入年度，讓報名項目**立即顯示且可勾選**，
-   * 不必先手動點年度（先前若沒有點年度，項目一直是灰的、按鈕永遠不能按）。
-   * 優先帶入「開放報名中的年度」；若這個活動目前沒有開放中的年度，退回本年度
-   * （仍可從信眾詳情頁報名，報名主檔可無對應 TempleEvent，見批次 API）。
-   * 只在切換主活動時重設；使用者手動改年度不受影響。
+   * V14.1 回歸修正：選了主活動就自動帶入年度，讓報名項目**立即顯示且可勾選**。
+   *
+   * ⚠️ 修正先前的 stale closure：舊版 effect 依賴陣列只有 [selectedGroup] 並加了
+   * eslint-disable，會捕捉到「還沒載入完 openYears 時」的舊 groupYears，導致
+   * selectedYear 被設成該活動其實沒有開放的年度 → 所有項目 disabled → 勾不動
+   * → selectedIds 一直是 0 → 按鈕永遠灰。
+   *
+   * 這裡改成：依 group / openYears 的**最新值**即時計算，依賴陣列完整；且只在
+   * 「這個主活動尚未選定年度（selectedYear === ""）」時自動帶入，不覆蓋使用者
+   * 的手動選擇。優先帶開放中的年度，沒有則退回本年度（批次 API 允許無 TempleEvent）。
    */
   useEffect(() => {
-    if (!selectedGroup) return;
-    setSelectedYear(groupYears.length > 0 ? groupYears[0] : currentRocYear);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup]);
+    if (!selectedGroup || !group) return;
+    if (selectedYear !== "") return;
+    const years = new Set<number>();
+    for (const it of group.items) for (const y of openYears[it.activityType] ?? []) years.add(y.year);
+    const sorted = Array.from(years).sort((a, b) => b - a);
+    setSelectedYear(sorted.length > 0 ? sorted[0] : currentRocYear);
+  }, [selectedGroup, group, openYears, selectedYear, currentRocYear]);
 
   function yearOpenForItem(it: ItemView, year: number): boolean {
     // 這個主活動完全沒有開放中的年度時，一律視為可勾選（用本年度建立草稿報名，
