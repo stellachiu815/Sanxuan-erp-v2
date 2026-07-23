@@ -88,7 +88,25 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     return Array.from(set).sort((a, b) => b - a);
   })();
 
+  const currentRocYear = new Date().getFullYear() - 1911;
+
+  /**
+   * V14.1 回歸修正：選了主活動就自動帶入年度，讓報名項目**立即顯示且可勾選**，
+   * 不必先手動點年度（先前若沒有點年度，項目一直是灰的、按鈕永遠不能按）。
+   * 優先帶入「開放報名中的年度」；若這個活動目前沒有開放中的年度，退回本年度
+   * （仍可從信眾詳情頁報名，報名主檔可無對應 TempleEvent，見批次 API）。
+   * 只在切換主活動時重設；使用者手動改年度不受影響。
+   */
+  useEffect(() => {
+    if (!selectedGroup) return;
+    setSelectedYear(groupYears.length > 0 ? groupYears[0] : currentRocYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroup]);
+
   function yearOpenForItem(it: ItemView, year: number): boolean {
+    // 這個主活動完全沒有開放中的年度時，一律視為可勾選（用本年度建立草稿報名，
+    // 不因缺少已開放的 TempleEvent 而讓項目無法勾選）。
+    if (groupYears.length === 0) return true;
     return (openYears[it.activityType] ?? []).some((y) => y.year === year);
   }
 
