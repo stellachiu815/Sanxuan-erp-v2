@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RegistrationEditor from "@/components/registration/RegistrationEditor";
-import { resolveRegistrationFormType } from "@/lib/registrationFormTypes";
+import { resolveRegistrationFormType, suggestRegistrationFormType } from "@/lib/registrationFormTypes";
 
 /**
  * V13.4：**全系統唯一的報名內容編輯器路由**。
@@ -49,7 +49,20 @@ export default async function RegistrationEditorPage({
 
   if (!record || record.deletedAt) notFound();
 
-  const formResolution = resolveRegistrationFormType(record.templeEvent?.registrationFormType);
+  /**
+   * V14.1 回歸修正：報名表型態的判定。
+   *
+   * 若活動主檔（TempleEvent）已明確設定 registrationFormType，尊重它；
+   * 否則以**活動類型的預設 mapping** 回退（suggestRegistrationFormType），
+   * 讓管理員不必每年手動替中元普渡指定一次報名表。
+   *   UNIVERSAL_SALVATION → 普渡編輯器　GUANGMING/TAISUI/FAMILY_LANTERN → 年度燈
+   *   PURIFICATION → 祭改　TEMPLE_CELEBRATION → 通用
+   * 沒有預設 mapping 的活動類型（例如補庫／龍鳳燈）維持原本行為，不受影響。
+   * 已明確設定過的活動也不受影響（?? 只在 null/未設定時才回退）。
+   */
+  const formResolution = resolveRegistrationFormType(
+    record.templeEvent?.registrationFormType ?? suggestRegistrationFormType(record.activityType)
+  );
 
   return (
     <div className="min-h-screen">
