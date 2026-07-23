@@ -5,6 +5,7 @@
 // 互相牽動；共同的設定（字體、A4 分頁版型）集中寫在這裡。
 
 import { printAddress, printYangshangName } from "@/lib/printChinese";
+import { formatYangshangAcclaim, resolveYangshangNames } from "@/lib/yangshang";
 
 /**
  * 牌位列印的**原始**資料（資料庫值，阿拉伯數字、不含「叩薦」）。
@@ -12,6 +13,8 @@ import { printAddress, printYangshangName } from "@/lib/printChinese";
 export type PrintTabletEntry = {
   displayName: string;
   yangshangName: string | null;
+  /** V14.1：多位陽上人（有值優先於 yangshangName）。 */
+  yangshangNames?: string[] | null;
   notes: string | null;
   /**
    * V13.1 指令七：牌位地址。可為 null（待補資料）——為 null 時模板不顯示
@@ -53,9 +56,14 @@ export type PrintableTabletEntry = {
  * 「叩薦」永遠只在這裡出現，資料庫端絕不儲存（指令六）。
  */
 export function toPrintableTablet(entry: PrintTabletEntry): PrintableTabletEntry {
+  // V14.1：多位陽上人優先——以共用 formatYangshangAcclaim 組字「A、B、C叩薦」；
+  // 沒有陣列時退回既有單一姓名的 printYangshangName（維持舊資料行為）。
+  const names = resolveYangshangNames(entry.yangshangNames ?? null, entry.yangshangName);
+  const yangshangText =
+    names.length > 0 ? formatYangshangAcclaim(names) : printYangshangName(entry.yangshangName);
   return {
     displayName: entry.displayName,
-    yangshangText: printYangshangName(entry.yangshangName),
+    yangshangText,
     locationText: printAddress(entry.location ?? null),
     notes: entry.notes,
   };

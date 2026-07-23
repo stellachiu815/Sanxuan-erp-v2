@@ -6,7 +6,7 @@ import type { ActivityType, Prisma } from "@prisma/client";
  *
  * ── 定位 ────────────────────────────────────────────────────
  * 這一支取代舊的「一活動一 registrationFormType」單一分派：改為讀
- * RegistrationItemType（種子資料建立普渡 7／年度燈 4／宮慶 3／補褲／龍鳳燈）。
+ * RegistrationItemType（種子資料建立普渡 7／年度燈 4／宮慶 3／補庫／龍鳳燈）。
  * 一個「主活動（activityGroup）」底下有多個報名項目，各自對應報名內容
  * （contentKind）、收費方式（feeMode）與列印品（printDocumentKeys）。
  *
@@ -25,7 +25,7 @@ export type RegistrationContentKind =
   | "TURTLE" // 福壽龜（OfferingClaim / 既有供品流程）
   | "TABLE" // 宮慶訂桌
   | "STOVE" // 爐主／副爐主（StoveMasterRegistration）
-  | "ROSTER" // 純名單（補褲等）
+  | "ROSTER" // 純名單（補庫等）
   | "GENERIC"; // 一般參加
 
 /** 收費方式。 */
@@ -119,11 +119,17 @@ export const REGISTRATION_ITEM_SEED: readonly RegistrationItemSeed[] = [
   // 中元普渡：七項
   { key: "US_ANCESTOR", name: "超拔祖先", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "TABLET", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_ANCESTOR_TABLET", "US_BASIC_POCKET"], sortOrder: 1 },
   { key: "US_ZHENGHUN", name: "乙位正魂", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "TABLET", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_ZHENGHUN_TABLET"], sortOrder: 2 },
-  { key: "US_YUANQIN", name: "冤親債主", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "TABLET", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_YUANQIN_TABLET", "US_BASIC_POCKET"], sortOrder: 3 },
+  { key: "US_YUANQIN", name: "累世冤親債主", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "TABLET", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_YUANQIN_TABLET", "US_BASIC_POCKET"], sortOrder: 3 },
   { key: "US_WUYUAN", name: "無緣子女", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "TABLET", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_WUYUAN_TABLET", "US_BASIC_POCKET"], sortOrder: 4 },
   { key: "US_POCKET_EXTRA", name: "增加寶袋", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "POCKET", feeMode: "PER_UNIT", defaultUnitPrice: 300, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_EXTRA_POCKET"], sortOrder: 5 },
   { key: "US_RICE", name: "白米登記", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "RICE", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["US_RICE_ROSTER"], sortOrder: 6 },
-  { key: "US_SPONSOR", name: "贊普", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "SPONSOR", feeMode: "FIXED_OR_CUSTOM", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["US_SPONSOR_ROSTER"], sortOrder: 7 },
+  // 贊普（固定單價）：可多份、每份獨立子明細、各自顯示名稱。
+  // ⚠️ 不寫死金額——單價一律讀既有中元普渡活動的贊普價格設定；未設定時
+  // 顯示「尚未設定價格」，由具權限人員設定，程式不給任何預設值（V14.1 指令一）。
+  { key: "US_SPONSOR", name: "贊普", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "SPONSOR", feeMode: "FIXED", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_SPONSOR_ROSTER"], sortOrder: 7 },
+  // 隨喜贊普（自訂金額）：與「贊普」為同一「贊普大類」下的兩個可同時勾選、
+  // 分開保存／顯示／計價／列印的獨立選項（V14.1 指令二）。每份金額 > 0。
+  { key: "US_SPONSOR_DONATION", name: "隨喜贊普", activityType: "UNIVERSAL_SALVATION", activityGroup: "UNIVERSAL_SALVATION", activityGroupName: "中元普渡", contentKind: "SPONSOR", feeMode: "CUSTOM", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["US_SPONSOR_ROSTER"], sortOrder: 8 },
 
   // 年度燈：四項
   { key: "LANTERN_GUANGMING", name: "光明燈", activityType: "GUANGMING_LANTERN", activityGroup: "ANNUAL_LANTERN", activityGroupName: "年度燈", contentKind: "LANTERN", feeMode: "PER_UNIT", defaultUnitPrice: 500, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["GUANGMING_LANTERN_TABLET", "GUANGMING_LANTERN_PETITION"], sortOrder: 1 },
@@ -136,8 +142,8 @@ export const REGISTRATION_ITEM_SEED: readonly RegistrationItemSeed[] = [
   { key: "CELEBRATION_TURTLE", name: "福壽龜", activityType: "TEMPLE_CELEBRATION", activityGroup: "TEMPLE_CELEBRATION", activityGroupName: "宮慶", contentKind: "TURTLE", feeMode: "PER_UNIT", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["CELEBRATION_TURTLE_ROSTER"], metadata: { sizes: [{ key: "BIG", name: "福壽大龜", defaultQuantity: 1 }, { key: "MID", name: "福壽中龜", defaultQuantity: 6 }] }, sortOrder: 2 },
   { key: "CELEBRATION_STOVE", name: "爐主／副爐主名單", activityType: "TEMPLE_CELEBRATION", activityGroup: "TEMPLE_CELEBRATION", activityGroupName: "宮慶", contentKind: "STOVE", feeMode: "NONE", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["CELEBRATION_STOVE_ROSTER"], sortOrder: 3 },
 
-  // 補褲
-  { key: "STORAGE_TROUSERS", name: "補褲報名", activityType: "STORAGE_REPAYMENT", activityGroup: "STORAGE_REPAYMENT", activityGroupName: "補褲", contentKind: "ROSTER", feeMode: "CUSTOM", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["STORAGE_TROUSERS_ROSTER"], sortOrder: 1 },
+  // 補庫（對外文字一律「補庫」；內部 key／enum 沿用 STORAGE_TROUSERS 不動，避免破壞既有資料）
+  { key: "STORAGE_TROUSERS", name: "補庫報名", activityType: "STORAGE_REPAYMENT", activityGroup: "STORAGE_REPAYMENT", activityGroupName: "補庫", contentKind: "ROSTER", feeMode: "CUSTOM", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["STORAGE_TROUSERS_ROSTER"], sortOrder: 1 },
 
   // 龍鳳燈
   { key: "DRAGON_PHOENIX", name: "龍鳳燈報名", activityType: "DRAGON_PHOENIX_LANTERN", activityGroup: "DRAGON_PHOENIX_LANTERN", activityGroupName: "龍鳳燈", contentKind: "LANTERN", feeMode: "PER_UNIT", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["DRAGON_PHOENIX_LANTERN_TABLET", "DRAGON_PHOENIX_LANTERN_ROSTER"], sortOrder: 1 },
@@ -176,7 +182,26 @@ export async function ensureRegistrationItemTypesSeeded(): Promise<{ created: nu
   return { created };
 }
 
-/** 列出所有啟用中的報名項目（依主活動分組、排序）。 */
+/**
+ * V14.1 指令三：年度活動固定排序（全系統統一）。
+ *   1 年度燈 → 2 宮慶 → 3 中元普渡 → 4 補庫（→ 其他）
+ * 活動中心、報名入口、列印中心、查詢排序一律套用這個順序。
+ */
+export const ACTIVITY_GROUP_ORDER: readonly string[] = [
+  "ANNUAL_LANTERN",
+  "TEMPLE_CELEBRATION",
+  "UNIVERSAL_SALVATION",
+  "STORAGE_REPAYMENT",
+  "DRAGON_PHOENIX_LANTERN",
+];
+
+/** 主活動分組的排序索引（未列出者排在最後、維持穩定）。 */
+export function activityGroupOrderIndex(activityGroup: string): number {
+  const i = ACTIVITY_GROUP_ORDER.indexOf(activityGroup);
+  return i === -1 ? ACTIVITY_GROUP_ORDER.length : i;
+}
+
+/** 列出所有啟用中的報名項目（依固定主活動順序、項目排序）。 */
 export async function listActivityGroups(): Promise<ActivityGroupView[]> {
   const rows = await prisma.registrationItemType.findMany({
     where: { isActive: true },
@@ -192,7 +217,10 @@ export async function listActivityGroups(): Promise<ActivityGroupView[]> {
     }
     g.items.push(view);
   }
-  return Array.from(byGroup.values());
+  // 套用固定年度活動順序（指令三）。
+  return Array.from(byGroup.values()).sort(
+    (a, b) => activityGroupOrderIndex(a.activityGroup) - activityGroupOrderIndex(b.activityGroup)
+  );
 }
 
 /** 某個主活動（activityGroup）底下的報名項目。 */

@@ -35,7 +35,7 @@ const TEMPLATE_META: Record<string, { name: string; activityType: ActivityType }
   CELEBRATION_TABLE_ROSTER: { name: "宮慶訂桌名單", activityType: "TEMPLE_CELEBRATION" },
   CELEBRATION_TURTLE_ROSTER: { name: "福壽龜名單", activityType: "TEMPLE_CELEBRATION" },
   CELEBRATION_STOVE_ROSTER: { name: "爐主／副爐主名單", activityType: "TEMPLE_CELEBRATION" },
-  STORAGE_TROUSERS_ROSTER: { name: "補褲報名總名單", activityType: "STORAGE_REPAYMENT" },
+  STORAGE_TROUSERS_ROSTER: { name: "補庫報名總名單", activityType: "STORAGE_REPAYMENT" },
   DRAGON_PHOENIX_LANTERN_TABLET: { name: "龍鳳燈牌", activityType: "DRAGON_PHOENIX_LANTERN" },
   DRAGON_PHOENIX_LANTERN_ROSTER: { name: "龍鳳燈報名總名單", activityType: "DRAGON_PHOENIX_LANTERN" },
 };

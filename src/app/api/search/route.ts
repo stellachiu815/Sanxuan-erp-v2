@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 import { memberSearchOrConditions, householdSearchOrConditions } from "@/lib/devoteeSearchFields";
+// V14.1（十七）：搜尋結果生日一律民國／農曆顯示，不顯示西元。
+import { formatRocDateCompact, formatLunarBirthDate } from "@/lib/minguoDate";
 
 /**
  * 首頁快速搜尋 API（V1.1 建立，V12.2 大幅強化）
@@ -114,9 +116,9 @@ export async function GET(request: NextRequest) {
       phone: m.devoteeProfile?.mobile || m.household.mobile || m.household.phone || null,
       addressSummary: summarizeAddress(m.household.address),
       birthdayDisplay: m.solarBirthDate
-        ? m.solarBirthDate.toISOString().slice(0, 10)
+        ? formatRocDateCompact(m.solarBirthDate)
         : m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay
-          ? `農曆 ${m.lunarBirthYear}/${m.lunarBirthMonth}/${m.lunarBirthDay}`
+          ? formatLunarBirthDate(m.lunarBirthYear, m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)
           : null,
       // 指令「四」：點擊信眾結果優先進入信眾詳情頁。
       href: `/devotee-center/${m.id}`,

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { solarToLunar } from "@/lib/lunar";
+// V14.1（十五～二十二）：生日提醒顯示一律民國／農曆，不顯示西元。
+import { formatRocDate, formatLunarBirthDate } from "@/lib/minguoDate";
 
 /**
  * V12.0「生日提醒」（對應指令「十」）。
@@ -66,11 +68,15 @@ function toEntry(m: Awaited<ReturnType<typeof eligibleMembersBase>>[number]): Bi
     householdId: m.householdId,
     householdName: m.household.name,
     contact: m.devoteeProfile?.mobile || m.household.phone || null,
-    solarBirthDate: m.solarBirthDate ? m.solarBirthDate.toISOString().slice(0, 10) : null,
+    // 國曆＝民國格式（民國49年09月25日），不再輸出西元 ISO。
+    solarBirthDate: m.solarBirthDate ? formatRocDate(m.solarBirthDate) : null,
+    // 農曆＝民國年＋國字月日（有農曆年才帶年；閏月正確）。
     lunarBirthDisplay:
-      m.lunarBirthMonth && m.lunarBirthDay
-        ? `農曆${m.lunarIsLeapMonth ? "閏" : ""}${m.lunarBirthMonth}月${m.lunarBirthDay}日`
-        : null,
+      m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay
+        ? formatLunarBirthDate(m.lunarBirthYear, m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)
+        : m.lunarBirthMonth && m.lunarBirthDay
+          ? `農曆${m.lunarIsLeapMonth ? "閏" : ""}${m.lunarBirthMonth}月${m.lunarBirthDay}日`
+          : null,
   };
 }
 

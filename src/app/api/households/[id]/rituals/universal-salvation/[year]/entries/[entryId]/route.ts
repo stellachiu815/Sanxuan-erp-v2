@@ -8,6 +8,7 @@ import {
 
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
+import { normalizeYangshangNames } from "@/lib/yangshang";
 /**
  * 修改單一筆普渡登記項目（名稱／陽上姓名／備註）。
  *
@@ -55,6 +56,9 @@ export async function PATCH(
     input.displayName = name;
   }
   if ("yangshangName" in body) input.yangshangName = toNullableString(body.yangshangName);
+  // V14.1：整組覆蓋多位陽上人（清理後）；牌位地址可清空。
+  if ("yangshangNames" in body) input.yangshangNames = normalizeYangshangNames(body.yangshangNames);
+  if ("tabletAddress" in body) input.tabletAddress = toNullableString(body.tabletAddress);
   if ("notes" in body) input.notes = toNullableString(body.notes);
 
   const result = await updateUniversalSalvationEntry(

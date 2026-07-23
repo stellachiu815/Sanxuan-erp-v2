@@ -282,6 +282,168 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
   }
 }
 
+/**
+ * V14.1：整批多人多項報名（信眾詳情頁多選、活動中心整戶報名共用）。
+ *
+ * ⚠️ 全部在**單一交易**內完成（指令九）：任一必要資料失敗 → 全部 rollback，
+ * 不會只寫一半。每位成員連到正確的既有 RitualRecord（同戶同年同活動唯一一筆），
+ * 每個項目建立自己的 RitualRegistrationItem，並回寫既有明細與 linkedEntry。
+ * 已存在且未取消的相同項目**不重複建立**（回報 ALREADY 由呼叫端提示可編輯）。
+ */
+export type BatchItemEntry = {
+  memberId: string;
+  registrationItemTypeId: string;
+  year: number;
+  quantity?: number;
+  customName?: string | null;
+  customAmount?: number | null;
+  feeChoice?: "FIXED" | "CUSTOM" | null;
+};
+
+export type BatchItemOutcome = {
+  memberId: string;
+  registrationItemTypeId: string;
+  outcome: "CREATED" | "ALREADY_EXISTS";
+  registrationItemId: string | null;
+  ritualRecordId: string;
+  amountDue: number;
+};
+
+export type BatchResult =
+  | { ok: true; outcomes: BatchItemOutcome[]; ritualRecordIds: string[] }
+  | { ok: false; status: number; error: string };
+
+export async function registerItemsBatch(
+  entries: BatchItemEntry[],
+  operatorName?: string | null
+): Promise<BatchResult> {
+  if (entries.length === 0) return { ok: false, status: 400, error: "沒有要報名的項目" };
+
+  // 先把所有項目設定與成員家戶一次撈齊（避免交易內 N+1）。
+  const itemTypeIds = Array.from(new Set(entries.map((e) => e.registrationItemTypeId)));
+  const memberIds = Array.from(new Set(entries.map((e) => e.memberId)));
+  const [itemTypes, members] = await Promise.all([
+    prisma.registrationItemType.findMany({ where: { id: { in: itemTypeIds } } }),
+    prisma.member.findMany({ where: { id: { in: memberIds }, deletedAt: null }, select: { id: true, householdId: true } }),
+  ]);
+  const itemTypeMap = new Map(itemTypes.map((t) => [t.id, t]));
+  const memberMap = new Map(members.map((m) => [m.id, m]));
+
+  // 先驗證與預算金額（交易外，快速失敗）。
+  type Prepared = { entry: BatchItemEntry; itemType: (typeof itemTypes)[number]; householdId: string; quantity: number; amountDue: number };
+  const prepared: Prepared[] = [];
+  for (const entry of entries) {
+    const itemType = itemTypeMap.get(entry.registrationItemTypeId);
+    if (!itemType) return { ok: false, status: 404, error: "找不到報名項目設定" };
+    const member = memberMap.get(entry.memberId);
+    if (!member) return { ok: false, status: 404, error: "找不到報名成員" };
+    const quantity = entry.quantity ?? itemType.defaultQuantity;
+    const amount = computeItemAmountDue({
+      feeMode: itemType.feeMode as never,
+      defaultUnitPrice: itemType.defaultUnitPrice === null ? null : Number(itemType.defaultUnitPrice),
+      quantity,
+      customAmount: entry.customAmount ?? null,
+      feeChoice: entry.feeChoice ?? null,
+    });
+    if (!amount.ok) return { ok: false, status: 400, error: `${itemType.name}：${amount.reason}` };
+    prepared.push({ entry, itemType, householdId: member.householdId, quantity, amountDue: amount.amountDue });
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const outcomes: BatchItemOutcome[] = [];
+      const recordIds = new Set<string>();
+      // 同一戶同年同活動只解析一次 RitualRecord。
+      const recordCache = new Map<string, string>();
+
+      for (const p of prepared) {
+        const recKey = `${p.householdId}::${p.entry.year}::${p.itemType.activityType}`;
+        let recordId = recordCache.get(recKey);
+        if (!recordId) {
+          const rec = await ensureRitualRecord(tx, {
+            householdId: p.householdId,
+            year: p.entry.year,
+            activityType: p.itemType.activityType,
+            operatorName,
+          });
+          if ("error" in rec) return { ok: false as const, status: 409, error: rec.error };
+          recordId = rec.id;
+          recordCache.set(recKey, recordId);
+        }
+        recordIds.add(recordId);
+
+        // 不重複建立同一成員同一項目（未取消、未刪除）。
+        if (!p.itemType.allowMultiplePerMember) {
+          const dup = await tx.ritualRegistrationItem.findFirst({
+            where: {
+              ritualRecordId: recordId,
+              registrationItemTypeId: p.itemType.id,
+              memberId: p.entry.memberId,
+              deletedAt: null,
+              status: { not: "CANCELLED" },
+            },
+            select: { id: true },
+          });
+          if (dup) {
+            outcomes.push({
+              memberId: p.entry.memberId,
+              registrationItemTypeId: p.itemType.id,
+              outcome: "ALREADY_EXISTS",
+              registrationItemId: dup.id,
+              ritualRecordId: recordId,
+              amountDue: 0,
+            });
+            continue;
+          }
+        }
+
+        const created = await tx.ritualRegistrationItem.create({
+          data: {
+            ritualRecordId: recordId,
+            registrationItemTypeId: p.itemType.id,
+            memberId: p.entry.memberId,
+            quantity: p.quantity,
+            customName: p.entry.customName ?? null,
+            amountDue: p.amountDue,
+            amountPaid: 0,
+            amountUnpaid: p.amountDue,
+            feeChoice: p.entry.feeChoice ?? null,
+            status: "DRAFT",
+          },
+          select: { id: true },
+        });
+
+        await upsertParticipantsInTransaction(tx, recordId, [p.entry.memberId], operatorName ?? null);
+
+        await linkItemToExistingDetail(tx, {
+          registrationItemId: created.id,
+          contentKind: p.itemType.contentKind,
+          activityType: p.itemType.activityType,
+          ritualRecordId: recordId,
+          itemAmountDue: p.amountDue,
+          unitPrice: p.itemType.defaultUnitPrice === null ? null : Number(p.itemType.defaultUnitPrice),
+          participantCount: 1,
+          operatorName,
+        });
+
+        outcomes.push({
+          memberId: p.entry.memberId,
+          registrationItemTypeId: p.itemType.id,
+          outcome: "CREATED",
+          registrationItemId: created.id,
+          ritualRecordId: recordId,
+          amountDue: p.amountDue,
+        });
+      }
+
+      return { ok: true as const, outcomes, ritualRecordIds: Array.from(recordIds) };
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "整批報名時發生未預期錯誤";
+    return { ok: false, status: 500, error: msg };
+  }
+}
+
 export type RegisteredItemView = {
   id: string;
   registrationItemTypeId: string;

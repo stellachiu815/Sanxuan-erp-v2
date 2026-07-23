@@ -5,6 +5,7 @@ import { createUniversalSalvationEntry } from "@/lib/ritual";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
+import { normalizeYangshangNames } from "@/lib/yangshang";
 
 /**
  * 新增一筆普渡登記項目（歷代祖先／個人乙位正魂／冤親債主／無緣子女其中一類）。
@@ -59,6 +60,10 @@ export async function POST(
     return trimmed ? trimmed : null;
   };
 
+  // V14.1：多位陽上人與每筆牌位地址。陣列一律經 normalizeYangshangNames
+  // 清理（去空白/空字串/重複、保留順序）；非陣列或空陣列都不會 500。
+  const yangshangNames = "yangshangNames" in body ? normalizeYangshangNames(body.yangshangNames) : undefined;
+
   const result = await createUniversalSalvationEntry(
     householdId,
     year,
@@ -66,6 +71,8 @@ export async function POST(
       category: category as UniversalSalvationEntryCategory,
       displayName,
       yangshangName: toNullableString(body.yangshangName),
+      yangshangNames,
+      tabletAddress: "tabletAddress" in body ? toNullableString(body.tabletAddress) : undefined,
       notes: toNullableString(body.notes),
     },
     check.operator.name

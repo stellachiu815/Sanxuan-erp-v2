@@ -2,6 +2,7 @@ import { ActivityType, Prisma, RitualRecordStatus, UniversalSalvationEntryCatego
 import { prisma } from "@/lib/prisma";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
+import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -453,6 +454,10 @@ export type CreateUniversalSalvationEntryInput = {
   category: UniversalSalvationEntryCategory;
   displayName: string;
   yangshangName?: string | null;
+  /** V14.1：多位陽上人（只存姓名、保留順序）。呼叫端負責清理。 */
+  yangshangNames?: string[];
+  /** V14.1：此筆牌位自己的地址。 */
+  tabletAddress?: string | null;
   notes?: string | null;
 };
 
@@ -490,7 +495,12 @@ export async function createUniversalSalvationEntry(
         universalSalvationId,
         category: input.category,
         displayName: input.displayName,
-        yangshangName: input.yangshangName ?? null,
+        // 舊欄位保留：以首位陽上人同步 yangshangName，讓未升級的讀取路徑仍看得到名字。
+        yangshangName: input.yangshangNames && input.yangshangNames.length > 0
+          ? input.yangshangNames[0]
+          : input.yangshangName ?? null,
+        yangshangNames: input.yangshangNames ?? [],
+        tabletAddress: input.tabletAddress ?? null,
         notes: input.notes ?? null,
         sortOrder: nextSortOrder,
       },
@@ -515,6 +525,10 @@ export async function createUniversalSalvationEntry(
 export type UpdateUniversalSalvationEntryInput = {
   displayName?: string;
   yangshangName?: string | null;
+  /** V14.1：多位陽上人（呼叫端已清理）。傳入即整組覆蓋。 */
+  yangshangNames?: string[];
+  /** V14.1：此筆牌位地址（null 可清空）。 */
+  tabletAddress?: string | null;
   notes?: string | null;
 };
 
@@ -548,6 +562,12 @@ export async function updateUniversalSalvationEntry(
   const data: Prisma.UniversalSalvationEntryUpdateInput = {};
   if (input.displayName !== undefined) data.displayName = input.displayName;
   if (input.yangshangName !== undefined) data.yangshangName = input.yangshangName;
+  if (input.yangshangNames !== undefined) {
+    data.yangshangNames = input.yangshangNames;
+    // 同步舊欄位為首位，維持未升級讀取路徑相容（首位為空則清為 null）。
+    data.yangshangName = input.yangshangNames.length > 0 ? input.yangshangNames[0] : null;
+  }
+  if (input.tabletAddress !== undefined) data.tabletAddress = input.tabletAddress;
   if (input.notes !== undefined) data.notes = input.notes;
 
   await prisma.$transaction(async (tx) => {
@@ -685,6 +705,10 @@ export async function deleteUniversalSalvationRecord(
 export type UniversalSalvationPrintEntry = {
   displayName: string;
   yangshangName: string | null;
+  /** V14.1：多位陽上人（相容舊 yangshangName）。 */
+  yangshangNames: string[];
+  /** V14.1：列印組字「A、B、C叩薦」；無人時空字串。 */
+  yangshangAcclaim: string;
   notes: string | null;
   /**
    * V13.1 指令七：牌位地址（來自關聯的 WorshipRecord.location）。
@@ -735,11 +759,15 @@ export async function getUniversalSalvationPrintData(
   const entriesByCategory = new Map<UniversalSalvationEntryCategory, UniversalSalvationPrintEntry[]>();
   for (const entry of detail.entries) {
     const list = entriesByCategory.get(entry.category) ?? [];
+    const names = resolveYangshangNames(entry.yangshangNames, entry.yangshangName);
     list.push({
       displayName: entry.displayName,
       yangshangName: entry.yangshangName,
+      yangshangNames: names,
+      yangshangAcclaim: formatYangshangAcclaim(names),
       notes: entry.notes,
-      location: entry.worshipRecord?.location ?? null,
+      // 每筆牌位地址優先用自己的 tabletAddress，空值才回退共用 WorshipRecord 地址。
+      location: entry.tabletAddress ?? entry.worshipRecord?.location ?? null,
     });
     entriesByCategory.set(entry.category, list);
   }

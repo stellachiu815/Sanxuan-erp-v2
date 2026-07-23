@@ -1,6 +1,8 @@
 import type { ActivityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { safeDeriveBirthdayInfo, formatLunarDate, formatSolarDate } from "@/lib/lunar";
+import { safeDeriveBirthdayInfo } from "@/lib/lunar";
+// V14.1（十五～二十）：家戶成員生日一律民國／農曆顯示，不顯示西元。
+import { formatRocDate, formatLunarBirthDate } from "@/lib/minguoDate";
 
 export type MemberRoleValue =
   | "HOUSEHOLD_HEAD"
@@ -131,8 +133,16 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
       isDeceased: m.isDeceased,
       yangshangName: m.yangshangName,
       notes: m.notes,
-      solarBirthDateText: birthday ? formatSolarDate(birthday.solarDate) : null,
-      lunarBirthDateText: birthday ? formatLunarDate(birthday.lunar) : null,
+      // 國曆＝民國格式（民國49年09月25日）；農曆＝民國年＋國字月日（民國49年八月初五）。
+      solarBirthDateText: birthday ? formatRocDate(birthday.solarDate) : null,
+      lunarBirthDateText: birthday
+        ? formatLunarBirthDate(
+            birthday.lunar.year,
+            birthday.lunar.month,
+            birthday.lunar.day,
+            birthday.lunar.isLeapMonth
+          )
+        : null,
       zodiac: birthday?.zodiac ?? null,
       actualAge: birthday?.actualAge ?? null,
       nominalAge: birthday?.nominalAge ?? null,

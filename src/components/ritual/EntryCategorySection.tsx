@@ -22,7 +22,15 @@ type Props = {
   fixedDisplayName?: string;
   entries: EntryJSON[];
   onRecordUpdated: (record: RecordJSON) => void;
+  /** V14.1：家戶成員姓名與地址，供超拔祖先／乙位正魂的陽上人與牌位地址使用。 */
+  householdMemberNames?: string[];
+  householdAddress?: string | null;
 };
+
+/** 超拔祖先／乙位正魂才有多位陽上人與每筆牌位地址（指令二）。 */
+function categorySupportsYangshang(category: EntryCategory): boolean {
+  return category === "ANCESTOR_LINE" || category === "INDIVIDUAL_SOUL";
+}
 
 /**
  * 一個登記分類的區塊（例如「歷代祖先」），列出目前的登記項目、可新增/編輯/刪除。
@@ -44,7 +52,10 @@ export default function EntryCategorySection({
   fixedDisplayName,
   entries,
   onRecordUpdated,
+  householdMemberNames = [],
+  householdAddress = null,
 }: Props) {
+  const supportsYangshang = categorySupportsYangshang(category);
   async function postEntry(payload: {
     displayName: string;
     yangshangName?: string | null;
@@ -85,6 +96,9 @@ export default function EntryCategorySection({
             year={year}
             entry={entry}
             onRecordUpdated={onRecordUpdated}
+            householdMemberNames={householdMemberNames}
+            householdAddress={householdAddress}
+            supportsYangshang={supportsYangshang}
           />
         ))}
       </div>

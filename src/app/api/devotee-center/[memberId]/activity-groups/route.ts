@@ -11,7 +11,7 @@ import { canAcceptRegistration } from "@/lib/activityYear";
  * GET /api/devotee-center/[memberId]/activity-groups?operatorUserId=xxx
  *
  * 回傳：
- *  - groups：所有主活動（普渡／年度燈／宮慶／補褲／龍鳳燈）與其報名項目（動態，不寫死）
+ *  - groups：所有主活動（普渡／年度燈／宮慶／補庫／龍鳳燈）與其報名項目（動態，不寫死）
  *  - openYearsByActivityType：每種 activityType 目前可報名的年度（來自 TempleEvent）
  *  - householdMembers：同家戶成員（供勾選本次納入者）
  *

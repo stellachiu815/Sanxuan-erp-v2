@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
-import { safeDeriveBirthdayInfo, formatLunarDate } from "@/lib/lunar";
+import { safeDeriveBirthdayInfo } from "@/lib/lunar";
+// V14.1（十五～二十二）：農曆顯示一律民國年＋國字月日，不顯示西元。
+import { formatLunarBirthDate } from "@/lib/minguoDate";
 import type { Member, DevoteeProfile } from "@prisma/client";
 
 /**
@@ -121,7 +123,9 @@ export function composeDevoteeSummary(
     role: member.role,
     isPrimaryContact: member.isPrimaryContact,
     solarBirthDate: birthday ? birthday.solarDate.toISOString().slice(0, 10) : null,
-    lunarBirthDisplay: birthday ? formatLunarDate(birthday.lunar) : null,
+    lunarBirthDisplay: birthday
+      ? formatLunarBirthDate(birthday.lunar.year, birthday.lunar.month, birthday.lunar.day, birthday.lunar.isLeapMonth)
+      : null,
     lunarBirthYear: member.lunarBirthYear ?? null,
     lunarBirthMonth: member.lunarBirthMonth ?? (birthday ? birthday.lunar.month : null),
     lunarBirthDay: member.lunarBirthDay ?? (birthday ? birthday.lunar.day : null),

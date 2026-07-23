@@ -17,6 +17,10 @@ export type EntryJSON = {
   category: EntryCategory;
   displayName: string;
   yangshangName: string | null;
+  /** V14.1：多位陽上人（只存姓名、保留順序）。 */
+  yangshangNames: string[];
+  /** V14.1：此筆牌位獨立地址。 */
+  tabletAddress: string | null;
   notes: string | null;
   sortOrder: number;
 };

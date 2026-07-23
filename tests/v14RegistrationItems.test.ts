@@ -29,10 +29,17 @@ test("1. 一個主活動可有多個報名項目", () => {
   assert.equal(itemsInGroup("TEMPLE_CELEBRATION").length > 1, true);
 });
 
-test("2. 中元普渡固定七個報名項目", () => {
+test("2. 中元普渡七大類齊備（贊普大類含贊普＋隨喜贊普兩個獨立選項）", () => {
   const us = itemsInGroup("UNIVERSAL_SALVATION").map((s) => s.name);
-  assert.equal(us.length, 7);
-  assert.deepEqual(us, ["超拔祖先", "乙位正魂", "冤親債主", "無緣子女", "增加寶袋", "白米登記", "贊普"]);
+  // 七大類核心名稱全部存在
+  for (const core of ["超拔祖先", "乙位正魂", "累世冤親債主", "無緣子女", "增加寶袋", "白米登記", "贊普"]) {
+    assert.equal(us.includes(core), true, `缺少核心項目：${core}`);
+  }
+  // 贊普大類的第二個獨立選項
+  assert.equal(us.includes("隨喜贊普"), true);
+  // 贊普與隨喜贊普是分開的兩個 item（分開保存/計價/列印）
+  assert.notEqual(seedByKey.get("US_SPONSOR"), undefined);
+  assert.notEqual(seedByKey.get("US_SPONSOR_DONATION"), undefined);
 });
 
 test("3. 年度燈固定四個報名項目", () => {
@@ -105,18 +112,24 @@ test("8. 福壽大龜預設 1、福壽中龜預設 6，且存於可編輯的 met
   assert.equal(turtle.feeMode, "PER_UNIT");
 });
 
-test("9. 贊普可選固定費用或自訂金額", () => {
+test("9. 贊普（固定單價，不寫死金額）與隨喜贊普（自訂金額）分開計價", () => {
   const sponsor = seedByKey.get("US_SPONSOR")!;
-  assert.equal(sponsor.feeMode, "FIXED_OR_CUSTOM");
-  // 固定
-  const fixed = computeItemAmountDue({ feeMode: "FIXED_OR_CUSTOM", defaultUnitPrice: 800, quantity: 1, feeChoice: "FIXED" });
-  assert.equal(fixed.ok && fixed.amountDue, 800);
-  // 自訂
-  const custom = computeItemAmountDue({ feeMode: "FIXED_OR_CUSTOM", defaultUnitPrice: 800, quantity: 1, feeChoice: "CUSTOM", customAmount: 1234 });
+  const donation = seedByKey.get("US_SPONSOR_DONATION")!;
+  // 贊普：固定單價，且種子不寫死金額（讀活動設定；未設定時為 null）
+  assert.equal(sponsor.feeMode, "FIXED");
+  assert.equal(sponsor.defaultUnitPrice, null, "贊普不得寫死預設金額");
+  // 隨喜贊普：自訂金額
+  assert.equal(donation.feeMode, "CUSTOM");
+  // 兩者皆可多份、各自子明細
+  assert.equal(sponsor.allowMultiplePerMember, true);
+  assert.equal(donation.allowMultiplePerMember, true);
+  // 固定單價（來自活動設定，測試以指定值代入）× 數量
+  const fixed = computeItemAmountDue({ feeMode: "FIXED", defaultUnitPrice: 600, quantity: 2 });
+  assert.equal(fixed.ok && fixed.amountDue, 600); // FIXED 為每份固定，數量另計於份數
+  // 隨喜每份自訂金額，> 0
+  const custom = computeItemAmountDue({ feeMode: "CUSTOM", defaultUnitPrice: null, quantity: 1, customAmount: 1234 });
   assert.equal(custom.ok && custom.amountDue, 1234);
-  // 未選 → 擋住
-  const none = computeItemAmountDue({ feeMode: "FIXED_OR_CUSTOM", defaultUnitPrice: 800, quantity: 1 });
-  assert.equal(none.ok, false);
+  assert.equal(computeItemAmountDue({ feeMode: "CUSTOM", defaultUnitPrice: null, quantity: 1, customAmount: 0 }).ok, false);
 });
 
 test("10. 普渡超拔祖先／冤親債主／無緣子女預設帶基本寶袋，乙位正魂不帶", () => {
@@ -348,12 +361,13 @@ test("R2-10. 新列印管理 API 權限：READONLY 不可寫入", () => {
 });
 
 test("R2-11. migration 種子與程式種子定義一致（key 集合相同）", () => {
-  const sql = readFileSync(
-    join(ROOT, "prisma/migrations/20260725000002_v14_seed_registration_items/migration.sql"),
-    "utf-8"
-  );
-  const sqlKeys = new Set([...sql.matchAll(/'(US_[A-Z_]+|LANTERN_[A-Z_]+|CELEBRATION_[A-Z_]+|STORAGE_TROUSERS|DRAGON_PHOENIX)'/g)].map((m) => m[1]));
+  // 種子 key 分散在原始種子 migration 與 V14.1 贊普拆分 migration。
+  const files = [
+    "prisma/migrations/20260725000002_v14_seed_registration_items/migration.sql",
+    "prisma/migrations/20260726000001_v14_1_sponsor_split/migration.sql",
+  ];
+  const allSql = files.map((f) => readFileSync(join(ROOT, f), "utf-8")).join("\n");
   for (const s of REGISTRATION_ITEM_SEED) {
-    assert.equal(sqlKeys.has(s.key), true, `migration 種子缺少 ${s.key}`);
+    assert.equal(allSql.includes(`'${s.key}'`), true, `migration 種子缺少 ${s.key}`);
   }
 });

@@ -48,6 +48,32 @@ export default function UniversalSalvationScreen({
   existingRitualRecordId,
 }: Props) {
   const [record, setRecord] = useState<RecordJSON | null>(initialRecord ?? null);
+  /**
+   * V14.1：陽上人「家戶成員快速加入」與「帶入家戶地址」所需的家戶資料，
+   * 由本畫面**自行**用既有的 GET /api/households/[id] 取得（成員姓名＋地址），
+   * 不再從外層一路傳 props（避免增加傳遞層數）。只讀不寫，不會動到家戶主檔。
+   */
+  const [householdMemberNames, setHouseholdMemberNames] = useState<string[]>([]);
+  const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchUniversalSalvation(`/api/households/${householdId}`);
+        const data = await res.json();
+        if (cancelled || !res.ok || !data?.data) return;
+        const h = data.data as { address?: string | null; members?: { name: string }[] };
+        setHouseholdMemberNames((h.members ?? []).map((m) => m.name).filter(Boolean));
+        setHouseholdAddress(h.address ?? null);
+      } catch {
+        /* 取不到不影響報名；只是少了「快速加入／帶入地址」的便利 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [householdId]);
   /** V13.4：從共用編輯器進入時自行載入資料（那條路由沒有 SSR 預載） */
   const [loading, setLoading] = useState(
     Boolean(existingRitualRecordId) && !initialRecord
@@ -160,6 +186,8 @@ export default function UniversalSalvationScreen({
               fixedDisplayName={section.fixedDisplayName}
               entries={detail.entries.filter((e) => e.category === section.category)}
               onRecordUpdated={handleUpdated}
+              householdMemberNames={householdMemberNames}
+              householdAddress={householdAddress}
             />
           ))}
         </div>

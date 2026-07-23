@@ -98,10 +98,12 @@ export default async function HouseholdPage({
 
                 {(m.solarBirthDateText || m.lunarBirthDateText) && (
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
+                    {/* 農曆為主、國曆（民國）為輔；全系統不顯示西元年份（V14.1 十六）。 */}
+                    {m.lunarBirthDateText && <span>農曆：{m.lunarBirthDateText}</span>}
                     {m.solarBirthDateText && <span>國曆：{m.solarBirthDateText}</span>}
-                    {m.lunarBirthDateText && <span>{m.lunarBirthDateText}</span>}
                     {m.zodiac && <span>生肖：{m.zodiac}</span>}
                     {m.actualAge !== null && <span>實歲：{m.actualAge}</span>}
+                    {m.nominalAge !== null && <span>虛歲：{m.nominalAge}</span>}
                   </div>
                 )}
 

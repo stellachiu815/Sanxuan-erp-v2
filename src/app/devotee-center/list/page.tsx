@@ -7,6 +7,8 @@ import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
 import { canDevotee } from "@/lib/permissions";
+// V14.1（十七）：名單國曆生日以民國顯示，不顯示西元。
+import { formatIsoDateToRocCompact } from "@/lib/minguoDate";
 import CreateHouseholdModal from "@/components/household/CreateHouseholdModal";
 import CreateDevoteeModal from "@/components/devotee/CreateDevoteeModal";
 import HouseholdActionsMenu from "@/components/household/HouseholdActionsMenu";
@@ -224,7 +226,7 @@ function DevoteeListInner() {
                 </Link>
               </div>
               <p className="mt-1.5 text-xs text-ink-soft">
-                {[r.mobile || r.householdPhone, r.solarBirthDate || r.lunarBirthDisplay]
+                {[r.mobile || r.householdPhone, r.lunarBirthDisplay || formatIsoDateToRocCompact(r.solarBirthDate)]
                   .filter(Boolean)
                   .join("・") || "尚未填寫聯絡資料"}
               </p>
@@ -321,7 +323,7 @@ function DevoteeListInner() {
                       </Link>
                     </td>
                     <td className="px-3 py-2 text-ink-soft">
-                      {r.solarBirthDate || r.lunarBirthDisplay || "—"}
+                      {r.lunarBirthDisplay || formatIsoDateToRocCompact(r.solarBirthDate) || "—"}
                       {r.zodiac && <span className="ml-1 text-xs text-ink-faint">（{r.zodiac}）</span>}
                     </td>
                     <td className="px-3 py-2 text-ink-soft">{r.householdAddress || "—"}</td>

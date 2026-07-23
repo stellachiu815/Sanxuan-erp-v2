@@ -9,6 +9,7 @@ import {
   errorTextClass,
 } from "@/components/household/formStyles";
 import AdditionalPrintItemsPanel from "./AdditionalPrintItemsPanel";
+import YangshangEditor from "./YangshangEditor";
 import type { EntryJSON, RecordJSON } from "./types";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
@@ -17,13 +18,33 @@ type Props = {
   year: number;
   entry: EntryJSON;
   onRecordUpdated: (record: RecordJSON) => void;
+  /** V14.1：家戶成員姓名（供陽上人快速加入）與家戶地址（供帶入牌位地址）。 */
+  householdMemberNames?: string[];
+  householdAddress?: string | null;
+  /** 超拔祖先／乙位正魂才顯示陽上人與地址欄。 */
+  supportsYangshang?: boolean;
 };
 
+/** 已加入陽上人的既有值（相容舊單一 yangshangName）。 */
+function initialNames(entry: EntryJSON): string[] {
+  if (entry.yangshangNames && entry.yangshangNames.length > 0) return entry.yangshangNames;
+  return entry.yangshangName ? [entry.yangshangName] : [];
+}
+
 /** 單一筆登記項目（歷代祖先／個人乙位正魂／冤親債主／無緣子女其中一筆）。 */
-export default function EntryRow({ householdId, year, entry, onRecordUpdated }: Props) {
+export default function EntryRow({
+  householdId,
+  year,
+  entry,
+  onRecordUpdated,
+  householdMemberNames = [],
+  householdAddress = null,
+  supportsYangshang = false,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(entry.displayName);
-  const [yangshangName, setYangshangName] = useState(entry.yangshangName ?? "");
+  const [yangshangNames, setYangshangNames] = useState<string[]>(initialNames(entry));
+  const [tabletAddress, setTabletAddress] = useState(entry.tabletAddress ?? "");
   const [notes, setNotes] = useState(entry.notes ?? "");
   const [submitting, setSubmitting] = useState<"save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +54,8 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
     setEditing(false);
     setError(null);
     setDisplayName(entry.displayName);
-    setYangshangName(entry.yangshangName ?? "");
+    setYangshangNames(initialNames(entry));
+    setTabletAddress(entry.tabletAddress ?? "");
     setNotes(entry.notes ?? "");
   }
 
@@ -52,7 +74,9 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             displayName: displayName.trim(),
-            yangshangName: yangshangName.trim() || null,
+            // 送出多位陽上人與此筆牌位地址；伺服器會清理並同步舊 yangshangName 首位。
+            yangshangNames,
+            tabletAddress: tabletAddress.trim() || null,
             notes: notes.trim() || null,
           }),
         }
@@ -116,15 +140,38 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
             autoFocus
           />
         </div>
-        <div>
-          <label className={labelClass}>陽上姓名</label>
-          <input
-            className={inputClass}
-            value={yangshangName}
-            onChange={(e) => setYangshangName(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-        </div>
+        {supportsYangshang && (
+          <>
+            <div>
+              <label className={labelClass}>陽上人（可多位）</label>
+              <YangshangEditor
+                value={yangshangNames}
+                onChange={setYangshangNames}
+                householdMemberNames={householdMemberNames}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>牌位地址</label>
+              <div className="flex gap-2">
+                <input
+                  className={inputClass}
+                  value={tabletAddress}
+                  onChange={(e) => setTabletAddress(e.target.value)}
+                  placeholder="此牌位的地址"
+                />
+                {householdAddress && (
+                  <button
+                    type="button"
+                    onClick={() => setTabletAddress(householdAddress)}
+                    className="min-h-10 shrink-0 rounded-full bg-cream-100 px-3 text-xs text-ink-soft hover:bg-cream-200"
+                  >
+                    帶入家戶地址
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         <div>
           <label className={labelClass}>備註</label>
           <input
@@ -157,13 +204,20 @@ export default function EntryRow({ householdId, year, entry, onRecordUpdated }: 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-ink">{entry.displayName}</p>
-          {(entry.yangshangName || entry.notes) && (
-            <p className="mt-0.5 text-xs text-ink-faint">
-              {entry.yangshangName && <>陽上姓名：{entry.yangshangName}</>}
-              {entry.yangshangName && entry.notes && "　"}
-              {entry.notes && <>備註：{entry.notes}</>}
-            </p>
-          )}
+          {(() => {
+            const names = initialNames(entry);
+            const hasAny = names.length > 0 || entry.tabletAddress || entry.notes;
+            if (!hasAny) return null;
+            return (
+              <p className="mt-0.5 break-words text-xs text-ink-faint">
+                {names.length > 0 && <>陽上人：{names.join("、")}</>}
+                {names.length > 0 && (entry.tabletAddress || entry.notes) && "　"}
+                {entry.tabletAddress && <>牌位地址：{entry.tabletAddress}</>}
+                {entry.tabletAddress && entry.notes && "　"}
+                {entry.notes && <>備註：{entry.notes}</>}
+              </p>
+            );
+          })()}
           {error && <p className={`mt-1 ${errorTextClass}`}>{error}</p>}
         </div>
         <div className="flex shrink-0 gap-1">

@@ -1099,7 +1099,7 @@ const lanternRegistrationAdapter: ReceivableSourceAdapter = {
 // ============================================================
 // Adapter 7～10：V14 多項目架構的收費項目（RitualRegistrationItem）
 //
-// 白米／訂桌／龍鳳燈／補褲四種收費來源都存在同一張 ritual_registration_items，
+// 白米／訂桌／龍鳳燈／補庫四種收費來源都存在同一張 ritual_registration_items，
 // 用同一個工廠產生 adapter，依報名項目 key 過濾，避免四套重複程式。
 // 全部沿用既有：DRAFT 不進待收款、原子條件式 UPDATE、不吞錯、金額用 Decimal。
 // ============================================================
@@ -1248,7 +1248,7 @@ function makeRegistrationItemAdapter(
 const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION", ["US_RICE"], "白米登記");
 const celebrationTableAdapter = makeRegistrationItemAdapter("CELEBRATION_TABLE", ["CELEBRATION_TABLE"], "宮慶訂桌");
 const dragonPhoenixLanternAdapter = makeRegistrationItemAdapter("DRAGON_PHOENIX_LANTERN", ["DRAGON_PHOENIX"], "龍鳳燈");
-const storageTrousersAdapter = makeRegistrationItemAdapter("STORAGE_TROUSERS", ["STORAGE_TROUSERS"], "補褲");
+const storageTrousersAdapter = makeRegistrationItemAdapter("STORAGE_TROUSERS", ["STORAGE_TROUSERS"], "補庫");
 
 // ============================================================
 // Registry

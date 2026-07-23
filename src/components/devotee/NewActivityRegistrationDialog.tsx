@@ -12,16 +12,15 @@ import {
 } from "@/components/household/formStyles";
 
 /**
- * V14：信眾詳情頁「新增活動報名」——兩段式多項目報名。
+ * V14.1：信眾詳情頁「新增活動報名」——主活動下項目**多選（checkbox）**。
  *
- * 流程（指令八）：
- *   ① 先選主活動（普渡／年度燈／宮慶／補褲／龍鳳燈，動態來自 RegistrationItemType）
- *   ② 顯示該主活動的報名項目 → 選一個具體項目 + 年度 + 成員
- *   ③ 建立報名項目（掛在既有 RitualRecord 之下）→ 進統一報名編輯頁
+ * 修正兩個實際部署問題：
+ *  ① 「建立報名並填寫內容」不能建立：改走整批 API /api/registrations/batch，
+ *     一次交易建立多個 RitualRegistrationItem，成功後直接進報名內容編輯頁。
+ *  ② 同一活動只能選一項：項目改為 checkbox 多選，可一次勾選多項，各自帶
+ *     數量／自訂名稱／贊普收費方式。
  *
- * ⚠️ 不再有舊版那種「未設定報名表就整個不能按」的死路：只要該項目的
- *    活動類型有開放年度即可報名。
- * 同一位信眾可在同一主活動下報名多個不同項目（回編輯頁再加即可）。
+ * 手機：底部按鈕固定、點擊區夠大；不因 modal 高度而按不到。
  */
 
 type ItemView = {
@@ -39,7 +38,13 @@ type ItemView = {
 };
 type GroupView = { activityGroup: string; activityGroupName: string; items: ItemView[] };
 type OpenYear = { year: number; templeEventId: string; name: string };
-type HouseholdMember = { id: string; name: string; role: string; isDeceased: boolean };
+
+type Selection = {
+  quantity: number;
+  customName: string;
+  feeChoice: "FIXED" | "CUSTOM";
+  customAmount: string;
+};
 
 type Props = { memberId: string; onClose: () => void };
 
@@ -47,17 +52,12 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
   const router = useRouter();
   const [groups, setGroups] = useState<GroupView[] | null>(null);
   const [openYears, setOpenYears] = useState<Record<string, OpenYear[]>>({});
-  const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>("");
-  const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [selectedYear, setSelectedYear] = useState<number | "">("");
-  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-  const [quantity, setQuantity] = useState<number>(1);
-  const [feeChoice, setFeeChoice] = useState<"FIXED" | "CUSTOM">("FIXED");
-  const [customAmount, setCustomAmount] = useState<string>("");
-  const [customName, setCustomName] = useState<string>("");
+  const [selected, setSelected] = useState<Record<string, Selection>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -69,8 +69,6 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
       }
       setGroups(data.groups);
       setOpenYears(data.openYearsByActivityType ?? {});
-      setMembers(data.householdMembers ?? []);
-      setSelectedMemberIds([memberId]);
     } catch {
       setError("網路連線問題，請稍後再試一次。");
     }
@@ -81,63 +79,74 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
   }, [load]);
 
   const group = groups?.find((g) => g.activityGroup === selectedGroup) ?? null;
-  const item = group?.items.find((i) => i.id === selectedItemId) ?? null;
-  const yearsForItem = item ? openYears[item.activityType] ?? [] : [];
 
-  useEffect(() => {
-    // 選了項目後自動帶入預設數量與可選年度
-    if (item) {
-      setQuantity(item.defaultQuantity);
-      if (yearsForItem.length > 0) setSelectedYear(yearsForItem[0].year);
-      else setSelectedYear("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedItemId]);
+  // 這個主活動可選的年度（跨其項目 activityType 的開放年度聯集）。
+  const groupYears: number[] = (() => {
+    if (!group) return [];
+    const set = new Set<number>();
+    for (const it of group.items) for (const y of openYears[it.activityType] ?? []) set.add(y.year);
+    return Array.from(set).sort((a, b) => b - a);
+  })();
 
-  function toggleMember(id: string) {
-    setSelectedMemberIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+  function yearOpenForItem(it: ItemView, year: number): boolean {
+    return (openYears[it.activityType] ?? []).some((y) => y.year === year);
   }
 
-  const needsQuantity = item ? ["PER_UNIT"].includes(item.feeMode) || item.contentKind === "TURTLE" : false;
-  const needsFeeChoice = item?.feeMode === "FIXED_OR_CUSTOM";
-  const needsCustomAmount =
-    item?.feeMode === "CUSTOM" || (needsFeeChoice && feeChoice === "CUSTOM");
-  const canCustomName = item ? ["POCKET"].includes(item.contentKind) : false;
+  function toggleItem(it: ItemView) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[it.id]) delete next[it.id];
+      else
+        next[it.id] = {
+          quantity: it.defaultQuantity,
+          customName: "",
+          feeChoice: "FIXED",
+          customAmount: "",
+        };
+      return next;
+    });
+  }
 
-  const canSubmit =
-    item !== null &&
-    selectedYear !== "" &&
-    selectedMemberIds.length > 0 &&
-    (!needsCustomAmount || Number(customAmount) >= 0);
+  function patch(id: string, p: Partial<Selection>) {
+    setSelected((prev) => ({ ...prev, [id]: { ...prev[id], ...p } }));
+  }
+
+  const selectedIds = Object.keys(selected);
+  const canSubmit = selectedYear !== "" && selectedIds.length > 0;
 
   async function submit() {
-    if (!item || selectedYear === "") return;
+    if (!group || selectedYear === "") return;
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
-      const res = await fetchRegistration(
-        `/api/devotee-center/${memberId}/registration-items`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            registrationItemTypeId: item.id,
-            year: selectedYear,
-            participantMemberIds: selectedMemberIds,
-            quantity: needsQuantity ? quantity : undefined,
-            customName: canCustomName && customName.trim() ? customName.trim() : undefined,
-            customAmount: needsCustomAmount ? Number(customAmount) : undefined,
-            feeChoice: needsFeeChoice ? feeChoice : undefined,
-          }),
-        }
-      );
+      const entries = selectedIds.map((id) => {
+        const it = group.items.find((x) => x.id === id)!;
+        const s = selected[id];
+        const needsAmount =
+          it.feeMode === "CUSTOM" || (it.feeMode === "FIXED_OR_CUSTOM" && s.feeChoice === "CUSTOM");
+        return {
+          memberId,
+          registrationItemTypeId: id,
+          year: selectedYear,
+          quantity: s.quantity,
+          customName: s.customName.trim() || undefined,
+          customAmount: needsAmount ? Number(s.customAmount) : undefined,
+          feeChoice: it.feeMode === "FIXED_OR_CUSTOM" ? s.feeChoice : undefined,
+        };
+      });
+      const res = await fetchRegistration(`/api/registrations/batch`, {
+        method: "POST",
+        body: JSON.stringify({ entries }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(toFriendlyError(res.status, data?.error));
         return;
       }
-      router.push(`${data.editorUrl}?from=${memberId}`);
+      const already = (data.outcomes ?? []).filter((o: { outcome: string }) => o.outcome === "ALREADY_EXISTS").length;
+      if (already > 0) setMessage(`有 ${already} 個項目先前已報名，已略過不重複建立。`);
+      if (data.editorUrl) router.push(`${data.editorUrl}?from=${memberId}`);
     } catch {
       setError("網路連線問題，請稍後再試一次。");
     } finally {
@@ -150,10 +159,11 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
       {groups === null ? (
         <p className="py-8 text-center text-sm text-ink-soft">{error ?? "讀取中…"}</p>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pb-2">
           {error && <p className={errorTextClass}>{error}</p>}
+          {message && <p className="rounded-2xl bg-yolk-100 px-4 py-2 text-xs text-ink">{message}</p>}
 
-          {/* ── ① 選主活動 ── */}
+          {/* ① 主活動 */}
           <div>
             <label className={labelClass}>① 選擇主活動</label>
             <div className="flex flex-wrap gap-2">
@@ -163,12 +173,11 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
                   type="button"
                   onClick={() => {
                     setSelectedGroup(g.activityGroup);
-                    setSelectedItemId("");
+                    setSelected({});
+                    setSelectedYear("");
                   }}
                   className={`min-h-11 rounded-full px-4 py-2 text-sm transition ${
-                    selectedGroup === g.activityGroup
-                      ? "bg-sage-200 text-ink"
-                      : "bg-cream-100 text-ink-soft hover:bg-cream-200"
+                    selectedGroup === g.activityGroup ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft hover:bg-cream-200"
                   }`}
                 >
                   {g.activityGroupName}
@@ -177,149 +186,124 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
             </div>
           </div>
 
-          {/* ── ② 選報名項目 ── */}
+          {/* ② 年度 */}
           {group && (
             <div>
-              <label className={labelClass}>② 選擇報名項目（{group.activityGroupName}）</label>
-              <div className="flex flex-col gap-1.5">
-                {group.items.map((i) => {
-                  const hasYear = (openYears[i.activityType] ?? []).length > 0;
-                  return (
-                    <button
-                      key={i.id}
-                      type="button"
-                      disabled={!hasYear}
-                      onClick={() => setSelectedItemId(i.id)}
-                      className={`rounded-xl px-4 py-3 text-left text-sm transition ${
-                        selectedItemId === i.id
-                          ? "bg-sage-100 text-ink"
-                          : hasYear
-                            ? "bg-cream-50 text-ink-soft hover:bg-cream-100"
-                            : "cursor-not-allowed bg-cream-100 text-ink-faint"
-                      }`}
-                    >
-                      <span className="text-ink">{i.name}</span>
-                      {!hasYear && (
-                        <span className="ml-2 text-xs text-ink-faint">（本年度尚未開放此活動）</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── ③ 年度 + 成員 + 收費 ── */}
-          {item && (
-            <>
-              <div>
-                <label className={labelClass}>年度</label>
+              <label className={labelClass}>② 年度</label>
+              {groupYears.length === 0 ? (
+                <p className="rounded-2xl bg-cream-100 px-4 py-2 text-xs text-ink-soft">本活動目前沒有開放報名的年度。</p>
+              ) : (
                 <div className="flex flex-wrap gap-2">
-                  {yearsForItem.map((y) => (
+                  {groupYears.map((y) => (
                     <button
-                      key={y.templeEventId}
+                      key={y}
                       type="button"
-                      onClick={() => setSelectedYear(y.year)}
-                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
-                        selectedYear === y.year ? "bg-mist-200 text-ink" : "bg-cream-100 text-ink-soft"
-                      }`}
+                      onClick={() => setSelectedYear(y)}
+                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs ${selectedYear === y ? "bg-mist-200 text-ink" : "bg-cream-100 text-ink-soft"}`}
                     >
-                      民國 {y.year} 年
+                      民國 {y} 年
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>本次報名成員</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {members.map((m) => {
-                    const on = selectedMemberIds.includes(m.id);
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => toggleMember(m.id)}
-                        className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
-                          on ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft hover:bg-cream-200"
-                        }`}
-                      >
-                        {on ? "✓ " : ""}
-                        {m.name}
-                        {m.id === memberId && <span className="ml-1 text-ink-faint">本人</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {needsQuantity && (
-                <div>
-                  <label className={labelClass}>數量</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={quantity}
-                    onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-                    className="w-24 rounded-xl border border-cream-300 px-3 py-2 text-sm"
-                  />
-                </div>
               )}
-
-              {canCustomName && (
-                <div>
-                  <label className={labelClass}>自訂名稱（額外寶袋，可空）</label>
-                  <input
-                    type="text"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value)}
-                    placeholder="例如：地基主寶袋"
-                    className="w-full rounded-xl border border-cream-300 px-3 py-2 text-sm"
-                  />
-                </div>
-              )}
-
-              {needsFeeChoice && (
-                <div>
-                  <label className={labelClass}>贊普收費方式</label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setFeeChoice("FIXED")}
-                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs ${feeChoice === "FIXED" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}
-                    >
-                      每年固定費用
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFeeChoice("CUSTOM")}
-                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs ${feeChoice === "CUSTOM" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}
-                    >
-                      其他自訂金額
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {needsCustomAmount && (
-                <div>
-                  <label className={labelClass}>自訂金額</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={customAmount}
-                    onChange={(e) => setCustomAmount(e.target.value)}
-                    className="w-32 rounded-xl border border-cream-300 px-3 py-2 text-sm"
-                  />
-                </div>
-              )}
-            </>
+            </div>
           )}
 
-          <div className="flex flex-wrap justify-end gap-2 pt-2">
-            <button type="button" className={secondaryButtonClass} onClick={onClose}>
-              取消
-            </button>
+          {/* ③ 項目多選 */}
+          {group && selectedYear !== "" && (
+            <div>
+              <label className={labelClass}>③ 勾選報名項目（可多選）</label>
+              <div className="flex flex-col gap-2">
+                {group.items.map((it) => {
+                  const open = yearOpenForItem(it, selectedYear as number);
+                  const on = Boolean(selected[it.id]);
+                  const s = selected[it.id];
+                  const needsQty =
+                    it.feeMode === "PER_UNIT" ||
+                    it.contentKind === "TURTLE" ||
+                    it.contentKind === "RICE" ||
+                    it.contentKind === "POCKET" ||
+                    it.contentKind === "SPONSOR"; // 贊普／隨喜贊普 份數
+                  const needsFeeChoice = it.feeMode === "FIXED_OR_CUSTOM";
+                  const needsAmount = it.feeMode === "CUSTOM" || (needsFeeChoice && s?.feeChoice === "CUSTOM");
+                  const canName = it.contentKind === "POCKET" || it.contentKind === "SPONSOR";
+                  return (
+                    <div key={it.id} className={`rounded-2xl px-4 py-3 ${on ? "bg-sage-50" : "bg-cream-50"} ${!open ? "opacity-50" : ""}`}>
+                      <label className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5"
+                          disabled={!open}
+                          checked={on}
+                          onChange={() => toggleItem(it)}
+                        />
+                        <span className="text-sm text-ink">{it.name}</span>
+                        {!open && <span className="text-xs text-ink-faint">（本年度未開放）</span>}
+                      </label>
+                      {on && (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 pl-8">
+                          {needsQty && (
+                            <label className="flex items-center gap-1 text-xs text-ink-soft">
+                              數量
+                              <input
+                                type="number"
+                                min={1}
+                                value={s.quantity}
+                                onChange={(e) => patch(it.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                                className="w-20 rounded-lg border border-cream-300 px-2 py-1 text-sm"
+                              />
+                              {it.contentKind === "RICE" && <span className="text-ink-faint">斤</span>}
+                            </label>
+                          )}
+                          {canName && (
+                            <label className="flex items-center gap-1 text-xs text-ink-soft">
+                              名稱
+                              <input
+                                type="text"
+                                value={s.customName}
+                                placeholder={it.contentKind === "SPONSOR" ? "本人／公司…" : "指定對象"}
+                                onChange={(e) => patch(it.id, { customName: e.target.value })}
+                                className="w-32 rounded-lg border border-cream-300 px-2 py-1 text-sm"
+                              />
+                            </label>
+                          )}
+                          {needsFeeChoice && (
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => patch(it.id, { feeChoice: "FIXED" })} className={`rounded-full px-2 py-1 text-xs ${s.feeChoice === "FIXED" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}>固定費用</button>
+                              <button type="button" onClick={() => patch(it.id, { feeChoice: "CUSTOM" })} className={`rounded-full px-2 py-1 text-xs ${s.feeChoice === "CUSTOM" ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft"}`}>自訂金額</button>
+                            </div>
+                          )}
+                          {needsAmount && (
+                            <label className="flex items-center gap-1 text-xs text-ink-soft">
+                              金額
+                              <input
+                                type="number"
+                                min={0}
+                                value={s.customAmount}
+                                onChange={(e) => patch(it.id, { customAmount: e.target.value })}
+                                className="w-24 rounded-lg border border-cream-300 px-2 py-1 text-sm"
+                              />
+                            </label>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-ink-faint">
+                提示：贊普可多份、寶袋可多個且各自指定名稱，可在下一步「填寫本次報名內容」再逐筆調整。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {groups !== null && (
+        <div className="sticky bottom-0 -mx-6 mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-cream-200 bg-cream-50 px-6 py-3">
+          <span className="text-xs text-ink-faint">已選 {selectedIds.length} 項</span>
+          <div className="flex gap-2">
+            <button type="button" className={secondaryButtonClass} onClick={onClose}>取消</button>
             <button
               type="button"
               className={primaryButtonClass}

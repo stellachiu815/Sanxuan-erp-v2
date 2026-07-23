@@ -2,6 +2,23 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findDuplicateMatches, DUPLICATE_MATCH_REASON_LABEL, type DuplicateCandidate, type DuplicateMatch } from "@/lib/devoteeDuplicateMatcher";
 import { normalizeNationalId } from "@/lib/nationalId";
+// V14.1（十七）：疑似重複清單的生日一律民國／農曆顯示，不顯示西元。
+import { formatRocDateCompact, formatLunarBirthDate } from "@/lib/minguoDate";
+
+/** 疑似重複候選的生日顯示（民國國曆優先，否則農曆民國）。 */
+function dupBirthdayDisplay(m: {
+  solarBirthDate: Date | null;
+  lunarBirthYear: number | null;
+  lunarBirthMonth: number | null;
+  lunarBirthDay: number | null;
+  lunarIsLeapMonth: boolean;
+}): string | null {
+  if (m.solarBirthDate) return formatRocDateCompact(m.solarBirthDate);
+  if (m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay) {
+    return formatLunarBirthDate(m.lunarBirthYear, m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth);
+  }
+  return null;
+}
 
 /**
  * V12.0「疑似重複信眾」（對應指令「十三」）：從既有 Member/Household/
@@ -253,11 +270,7 @@ export async function findPreCreateDuplicates(
       householdName: source.household.name,
       phone: source.devoteeProfile?.mobile || source.household.phone || null,
       address: source.household.address || null,
-      birthdayDisplay: source.solarBirthDate
-        ? toCalendarDateKey(source.solarBirthDate)
-        : source.lunarBirthYear && source.lunarBirthMonth && source.lunarBirthDay
-          ? `農曆 ${source.lunarBirthYear}/${source.lunarBirthMonth}/${source.lunarBirthDay}${source.lunarIsLeapMonth ? "（閏）" : ""}`
-          : null,
+      birthdayDisplay: dupBirthdayDisplay(source),
       reasons: [reasonLabel],
     });
   }
@@ -289,11 +302,7 @@ export async function findPreCreateDuplicates(
         householdName: m.household.name,
         phone: m.devoteeProfile?.mobile || m.household.phone || null,
         address: m.household.address || null,
-        birthdayDisplay: m.solarBirthDate
-          ? toCalendarDateKey(m.solarBirthDate)
-          : m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay
-            ? `農曆 ${m.lunarBirthYear}/${m.lunarBirthMonth}/${m.lunarBirthDay}${m.lunarIsLeapMonth ? "（閏）" : ""}`
-            : null,
+        birthdayDisplay: dupBirthdayDisplay(m),
         reasons: [label],
       });
     }

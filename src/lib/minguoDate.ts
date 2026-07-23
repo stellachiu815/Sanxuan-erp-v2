@@ -257,3 +257,57 @@ export function toIsoDateString(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
 }
+
+// ============================================================
+// V14.1（十八）：全系統統一的民國／農曆日期顯示工具。
+// 所有畫面一律呼叫這裡，不得自行 getFullYear()／toLocaleDateString()／
+// 直接輸出 ISO。日常操作畫面不顯示西元年份（西元只用於儲存與運算）。
+// ============================================================
+
+/** Date → 「民國49年09月25日」（月日補零；日常畫面國曆顯示）。 */
+export function formatRocDate(d: Date | null | undefined): string {
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const minguo = adToMinguo(d.getUTCFullYear());
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `民國${minguo}年${m}月${day}日`;
+}
+
+/** Date → 「民國49/09/25」（窄版）。 */
+export function formatRocDateCompact(d: Date | null | undefined): string {
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const minguo = adToMinguo(d.getUTCFullYear());
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `民國${minguo}/${m}/${day}`;
+}
+
+/** 西元 ISO 字串 → 「民國49/09/25」（窄版；空白/無效回空字串）。 */
+export function formatIsoDateToRocCompact(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(iso).trim());
+  if (!m) return "";
+  const built = buildUtcDate(Number(m[1]), Number(m[2]), Number(m[3]));
+  return formatRocDateCompact(built);
+}
+
+/**
+ * 農曆生日 → 「民國49年閏四月初五」（positional 版，供既有元件直接帶入
+ * 已存的農曆年月日與閏月旗標）。內部沿用 formatLunarDateToMinguoLong，
+ * 閏月正確、空白/無效回空字串、絕不 Invalid Date。
+ *
+ * ⚠️ lunarYear 為資料庫儲存的**農曆西元年**（例如 1960），內部 −1911。
+ */
+export function formatLunarBirthDate(
+  lunarYear: number | null | undefined,
+  lunarMonth: number | null | undefined,
+  lunarDay: number | null | undefined,
+  isLeapMonth?: boolean | null
+): string {
+  return formatLunarDateToMinguoLong({
+    year: lunarYear,
+    month: lunarMonth,
+    day: lunarDay,
+    isLeapMonth: isLeapMonth ?? false,
+  });
+}

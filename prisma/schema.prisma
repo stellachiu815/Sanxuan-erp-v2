@@ -522,9 +522,9 @@ model LanternRegistration {
 /// 以種子資料建立普渡 7 項、年度燈 4 項、宮慶 3 項、補褲、龍鳳燈的預設項目，
 /// 數量／單價存在資料裡（如福壽大龜=1、中龜=6），管理者可改，程式不寫死。
 model RegistrationItemType {
-  id           String       @id @default(cuid())
+  id                String       @id @default(cuid())
   /// 這個項目實際寫入哪一種活動（決定對應的 TempleEvent / RitualRecord）。
-  activityType ActivityType
+  activityType      ActivityType
   /// 主活動分組鍵（信眾詳情頁「先選主活動」用）。多數等於 activityType，
   /// 但「年度燈」這個主活動的四個項目跨 GUANGMING/TAISUI/FAMILY/PURIFICATION
   /// 四種 activityType，用同一個 activityGroup 收攏在一個主活動下顯示。
@@ -534,9 +534,9 @@ model RegistrationItemType {
   /// 主活動顯示名稱，例如「中元普渡」「年度燈」「宮慶」。
   activityGroupName String
   /// 穩定識別碼，例如 US_ANCESTOR / US_SPONSOR / LANTERN_GUANGMING / CELEBRATION_TABLE
-  key          String       @unique
+  key               String       @unique
   /// 顯示名稱，例如「超拔祖先」「贊普」「福壽大龜」
-  name         String
+  name              String
 
   /// 報名內容型態：決定編輯器與指回哪個既有明細。
   /// TABLET / POCKET / SPONSOR / RICE / LANTERN / PURIFICATION / TURTLE / TABLE / STOVE / ROSTER / GENERIC
@@ -592,7 +592,7 @@ model RitualRegistrationItem {
   memberId String?
   member   Member? @relation(fields: [memberId], references: [id], onDelete: Restrict)
 
-  quantity Int @default(1)
+  quantity   Int     @default(1)
   /// 額外寶袋等可自訂名稱（不必等同牌位名稱）。
   customName String?
 
@@ -608,8 +608,8 @@ model RitualRegistrationItem {
   linkedEntryId   String?
   linkedEntryType String?
 
-  status        RitualRecordStatus @default(DRAFT)
-  notes         String?            @db.Text
+  status RitualRecordStatus @default(DRAFT)
+  notes  String?            @db.Text
 
   /// V14 列印管理：第一次列印時間（null = 尚未列印）與列印次數。
   /// 補印只增加 printCount，不改變任何收款金額或狀態（指令七/八）。
@@ -721,7 +721,16 @@ model UniversalSalvationEntry {
 
   category      UniversalSalvationEntryCategory
   displayName   String // 顯示名稱，例如「王姓歷代祖先」「王小明 乙位正魂」
+  /// @deprecated V14.1：改由 yangshangNames 陣列管理多位陽上人。
+  /// 舊欄位保留、不刪除（避免破壞既有正式資料）；讀取時若 yangshangNames 為空
+  /// 會以此欄位補成單一元素陣列（見 src/lib/ritual.ts 與 migration 回填）。
   yangshangName String? // 陽上姓名（此項目專屬，個人乙位正魂通常會填）
+
+  /// V14.1：多位陽上人（只存姓名、保留順序、不分來源）。列印組字「A、B、C叩薦」。
+  yangshangNames String[] @default([])
+  /// V14.1：此筆牌位自己的地址（每筆獨立，不依賴共用 WorshipRecord 地址）。
+  /// 空值時畫面可帶入家戶地址作為預設，但儲存後以本欄為準，不回寫家戶主檔。
+  tabletAddress  String?
 
   worshipRecordId String? // 可選：關聯回既有的 WorshipRecord（歷代祖先/個人往生者牌位登記）
   worshipRecord   WorshipRecord? @relation(fields: [worshipRecordId], references: [id])
