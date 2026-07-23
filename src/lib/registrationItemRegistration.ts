@@ -514,27 +514,69 @@ export type RegisteredItemView = {
   status: string;
 };
 
-/** 列出某筆 RitualRecord 底下的報名項目（未刪除）。 */
+/**
+ * 列出某筆 RitualRecord 底下的報名項目（未刪除）。
+ *
+ * V14.2 金額一致性：每個項目的「應收／已收／未收」一律**依項目型別讀取真正的
+ * 收費來源**，不再直接信任 RitualRegistrationItem.amountDue。原因──連結型項目
+ * （SPONSOR→UniversalSalvationDetail、LANTERN→LanternRegistration）為避免兩筆
+ * 應收，本項金額在報名時被歸零，金額實際記在既有明細表；若直接顯示本項金額，
+ * 普渡頁會顯示 0，而信眾資料頁（devotee360）讀的是明細表的真實金額，兩頁不一致。
+ *
+ * 這裡改成：
+ *   contentKind === "SPONSOR" → 讀 UniversalSalvationDetail（本 RitualRecord 1:1）
+ *   contentKind === "LANTERN" → 讀 LanternRegistration（本 RitualRecord 1:1）
+ *   其餘（RICE/TABLE/ROSTER/POCKET/自訂捐款…自身即收款來源）→ 用本項自身金額
+ * 兩張明細都以 ritualRecordId 唯一鍵一次撈回（各 1 筆，非 N+1），
+ * 與 devotee360 相同來源，確保普渡頁與信眾資料頁金額完全一致。
+ */
 export async function listRegisteredItems(ritualRecordId: string): Promise<RegisteredItemView[]> {
-  const rows = await prisma.ritualRegistrationItem.findMany({
-    where: { ritualRecordId, deletedAt: null },
-    include: { registrationItemType: true },
-    orderBy: [{ registrationItemType: { sortOrder: "asc" } }, { createdAt: "asc" }],
+  const [rows, salvationDetail, lantern] = await Promise.all([
+    prisma.ritualRegistrationItem.findMany({
+      where: { ritualRecordId, deletedAt: null },
+      include: { registrationItemType: true },
+      orderBy: [{ registrationItemType: { sortOrder: "asc" } }, { createdAt: "asc" }],
+    }),
+    prisma.universalSalvationDetail.findUnique({
+      where: { ritualRecordId },
+      select: { amountDue: true, amountPaid: true, amountUnpaid: true },
+    }),
+    prisma.lanternRegistration.findUnique({
+      where: { ritualRecordId },
+      select: { amountDue: true, amountPaid: true, amountUnpaid: true },
+    }),
+  ]);
+
+  return rows.map((r) => {
+    const kind = r.registrationItemType.contentKind;
+    // 預設用本項自身金額（無既有收款來源的型態）。
+    let amountDue = Number(r.amountDue);
+    let amountPaid = Number(r.amountPaid);
+    let amountUnpaid = Number(r.amountUnpaid);
+    if (kind === "SPONSOR" && salvationDetail) {
+      amountDue = Number(salvationDetail.amountDue);
+      amountPaid = Number(salvationDetail.amountPaid);
+      amountUnpaid = Number(salvationDetail.amountUnpaid);
+    } else if (kind === "LANTERN" && lantern) {
+      amountDue = Number(lantern.amountDue);
+      amountPaid = Number(lantern.amountPaid);
+      amountUnpaid = Number(lantern.amountUnpaid);
+    }
+    return {
+      id: r.id,
+      registrationItemTypeId: r.registrationItemTypeId,
+      itemKey: r.registrationItemType.key,
+      itemName: r.customName ?? r.registrationItemType.name,
+      activityGroupName: r.registrationItemType.activityGroupName,
+      memberId: r.memberId,
+      quantity: r.quantity,
+      customName: r.customName,
+      amountDue,
+      amountPaid,
+      amountUnpaid,
+      status: r.status,
+    };
   });
-  return rows.map((r) => ({
-    id: r.id,
-    registrationItemTypeId: r.registrationItemTypeId,
-    itemKey: r.registrationItemType.key,
-    itemName: r.customName ?? r.registrationItemType.name,
-    activityGroupName: r.registrationItemType.activityGroupName,
-    memberId: r.memberId,
-    quantity: r.quantity,
-    customName: r.customName,
-    amountDue: Number(r.amountDue),
-    amountPaid: Number(r.amountPaid),
-    amountUnpaid: Number(r.amountUnpaid),
-    status: r.status,
-  }));
 }
 
 /** 軟刪除一個報名項目（保留歷史）。 */

@@ -55,6 +55,12 @@ export default function UniversalSalvationScreen({
    */
   const [householdMemberNames, setHouseholdMemberNames] = useState<string[]>([]);
   const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
+  /**
+   * V14.2：本戶固定陽上人名單。由本畫面用 GET /api/households/[id]/yangshang 取得，
+   * 傳給 YangshangEditor 作「一鍵加入」的來源。新增時透過 addToHouseholdYangshang
+   * 回呼 POST 並就地更新，讓下一個牌位馬上也能一鍵帶入。
+   */
+  const [householdYangshangNames, setHouseholdYangshangNames] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +80,39 @@ export default function UniversalSalvationScreen({
       cancelled = true;
     };
   }, [householdId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchUniversalSalvation(`/api/households/${householdId}/yangshang`);
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        setHouseholdYangshangNames(Array.isArray(data?.names) ? data.names : []);
+      } catch {
+        /* 取不到不影響報名；只是少了「本戶固定陽上人一鍵加入」的便利 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [householdId]);
+
+  async function addToHouseholdYangshang(name: string) {
+    try {
+      const res = await fetchUniversalSalvation(`/api/households/${householdId}/yangshang`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data?.names)) {
+        setHouseholdYangshangNames(data.names);
+      }
+    } catch {
+      /* 存不進本戶固定名單不影響本牌位——姓名已加入本牌位 value */
+    }
+  }
   /** V13.4：從共用編輯器進入時自行載入資料（那條路由沒有 SSR 預載） */
   const [loading, setLoading] = useState(
     Boolean(existingRitualRecordId) && !initialRecord
@@ -188,6 +227,8 @@ export default function UniversalSalvationScreen({
               onRecordUpdated={handleUpdated}
               householdMemberNames={householdMemberNames}
               householdAddress={householdAddress}
+              householdYangshangNames={householdYangshangNames}
+              onAddToHouseholdYangshang={addToHouseholdYangshang}
             />
           ))}
         </div>

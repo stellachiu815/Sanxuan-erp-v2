@@ -24,6 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { parseImportRow, type ImportRawRow } from "@/lib/importRules";
 import type { MemberRole } from "@prisma/client";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { addHouseholdYangshangBatch } from "@/lib/householdYangshang";
 
 export async function POST(
   request: Request,
@@ -96,6 +97,11 @@ export async function POST(
       });
       householdsCreated++;
 
+      // V14.2：本戶固定陽上人字庫——匯入時把成員與祭祀資料上的「陽上姓名」
+      // 一併收進 household_yangshang（去重、含「、」自動拆多位）。日後建牌位
+      // 時 YangshangEditor 可一鍵帶入，免得每年重打。純附加，不影響既有匯入結果。
+      const importedYangshang: string[] = [];
+
       for (let i = 0; i < parsed.length; i++) {
         const p = parsed[i];
         if (!p.member) continue;
@@ -116,6 +122,7 @@ export async function POST(
           },
         });
         membersCreated++;
+        if (p.member.yangshangName) importedYangshang.push(p.member.yangshangName);
 
         for (const w of p.worshipRecords) {
           await tx.worshipRecord.create({
@@ -129,9 +136,15 @@ export async function POST(
             },
           });
           worshipCreated++;
+          if (w.yangshangName) importedYangshang.push(w.yangshangName);
         }
 
         importedRowIds.push(rows[i].id);
+      }
+
+      // 建立本戶固定陽上人字庫（同一交易內；去重由唯一鍵保證）。
+      if (importedYangshang.length > 0) {
+        await addHouseholdYangshangBatch(householdId, importedYangshang, "IMPORT", tx);
       }
     }
 

@@ -21,6 +21,9 @@ type Props = {
   /** V14.1：家戶成員姓名（供陽上人快速加入）與家戶地址（供帶入牌位地址）。 */
   householdMemberNames?: string[];
   householdAddress?: string | null;
+  /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」的回呼。 */
+  householdYangshangNames?: string[];
+  onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
   /** 超拔祖先／乙位正魂才顯示陽上人與地址欄。 */
   supportsYangshang?: boolean;
 };
@@ -39,6 +42,8 @@ export default function EntryRow({
   onRecordUpdated,
   householdMemberNames = [],
   householdAddress = null,
+  householdYangshangNames = [],
+  onAddToHouseholdYangshang,
   supportsYangshang = false,
 }: Props) {
   const [editing, setEditing] = useState(false);
@@ -148,6 +153,8 @@ export default function EntryRow({
                 value={yangshangNames}
                 onChange={setYangshangNames}
                 householdMemberNames={householdMemberNames}
+                householdYangshangNames={householdYangshangNames}
+                onAddToHouseholdYangshang={onAddToHouseholdYangshang}
               />
             </div>
             <div>

@@ -58,6 +58,12 @@ model Household {
   /// V12.3：本戶歷史上使用過的家戶編號（改編號後保留對照，見 HouseholdCodeAlias）
   codeAliases HouseholdCodeAlias[]
 
+  /// V14.2：本戶固定陽上人名單（見 HouseholdYangshang）。
+  /// 來源＝Excel 匯入的陽上姓名＋後續人工新增；建立祖先／乙位正魂牌位時
+  /// 由 YangshangEditor 一鍵帶入，避免每年重打。沿用既有 Household 一對多，
+  /// 不是第二套資料。
+  fixedYangshang HouseholdYangshang[]
+
   // V8.0「刪除保護」：軟刪除欄位，不會被直接永久刪除，先移到回收區。
   // deletedAt 有值＝目前在回收區；deletedByName 是操作人自行填寫的姓名
   // （系統目前沒有登入/session 機制，暫時無法自動記錄真正的操作者身份，
@@ -106,6 +112,38 @@ model HouseholdCodeAlias {
 
   @@index([householdId])
   @@map("household_code_aliases")
+}
+
+/// V14.2：家戶固定陽上人名單。
+///
+/// 每一戶都有一份**自己**的固定陽上人，來源有二：
+///   1. Excel 匯入「陽上姓名」時一併寫入（見 src/lib/importCommit 相關流程）
+///   2. 建立祖先／乙位正魂牌位時，行政人員在 YangshangEditor 手動新增並勾選
+///      「同時加入本戶固定名單」
+///
+/// 建牌位時 YangshangEditor 預設顯示這份名單、可一鍵加入牌位的 yangshangNames，
+/// 免得每年重打。這是既有 Household 的一對多子表（比照 codeAliases／members），
+/// **不是第二套資料**：牌位自己的陽上人仍存在各明細的 yangshangNames，這裡只是
+/// 「本戶可重複使用的陽上人字庫」。
+///
+/// @@unique([householdId, name])：同一戶同一位陽上人只建立一次（去重）。
+model HouseholdYangshang {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  /// 陽上人姓名（儲存前 trim；配合唯一鍵達成「同一位不重複」）。
+  name String
+
+  /// 來源標記，純供稽核：IMPORT（Excel 匯入）／MANUAL（人工新增）。
+  source String @default("MANUAL")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([householdId, name])
+  @@index([householdId])
+  @@map("household_yangshang")
 }
 
 /// 家戶成員

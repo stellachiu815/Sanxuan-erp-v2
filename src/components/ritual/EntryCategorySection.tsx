@@ -25,6 +25,9 @@ type Props = {
   /** V14.1：家戶成員姓名與地址，供超拔祖先／乙位正魂的陽上人與牌位地址使用。 */
   householdMemberNames?: string[];
   householdAddress?: string | null;
+  /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」回呼。 */
+  householdYangshangNames?: string[];
+  onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
 };
 
 /** 超拔祖先／乙位正魂才有多位陽上人與每筆牌位地址（指令二）。 */
@@ -54,6 +57,8 @@ export default function EntryCategorySection({
   onRecordUpdated,
   householdMemberNames = [],
   householdAddress = null,
+  householdYangshangNames = [],
+  onAddToHouseholdYangshang,
 }: Props) {
   const supportsYangshang = categorySupportsYangshang(category);
   async function postEntry(payload: {
@@ -98,6 +103,8 @@ export default function EntryCategorySection({
             onRecordUpdated={onRecordUpdated}
             householdMemberNames={householdMemberNames}
             householdAddress={householdAddress}
+            householdYangshangNames={householdYangshangNames}
+            onAddToHouseholdYangshang={onAddToHouseholdYangshang}
             supportsYangshang={supportsYangshang}
           />
         ))}
