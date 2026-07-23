@@ -646,6 +646,13 @@ model RitualRegistrationItem {
   linkedEntryId   String?
   linkedEntryType String?
 
+  /// V14.2：普渡四類牌位（超拔祖先／乙位正魂／累世冤親債主／無緣子女）與其
+  /// UniversalSalvationEntry 的**正式 1:1 關聯**（取代先前「同類別依序配對」）。
+  /// 牌位名稱／陽上人／地址／列印／補印／收款／查詢一律讀這一筆 entry，不靠建立順序。
+  /// onDelete SetNull：牌位被刪時本項不連帶消失（保留收款歷史），只解除關聯。
+  universalSalvationEntryId String?                   @unique
+  universalSalvationEntry   UniversalSalvationEntry?  @relation(fields: [universalSalvationEntryId], references: [id], onDelete: SetNull)
+
   status RitualRecordStatus @default(DRAFT)
   notes  String?            @db.Text
 
@@ -772,6 +779,9 @@ model UniversalSalvationEntry {
 
   worshipRecordId String? // 可選：關聯回既有的 WorshipRecord（歷代祖先/個人往生者牌位登記）
   worshipRecord   WorshipRecord? @relation(fields: [worshipRecordId], references: [id])
+
+  /// V14.2：與其計價／收款用 RitualRegistrationItem 的 1:1 反向關聯（見該 model）。
+  registrationItem RitualRegistrationItem?
 
   sortOrder Int     @default(0) // 列印排序用
   notes     String? @db.Text
@@ -2179,6 +2189,10 @@ enum ReceivableSourceType {
   CELEBRATION_TABLE // 宮慶訂桌（信眾／友宮）
   DRAGON_PHOENIX_LANTERN // 龍鳳燈
   STORAGE_TROUSERS // 補褲
+  // V14.2：普渡四類牌位（超拔祖先／乙位正魂／累世冤親債主／無緣子女）年度單價
+  // 收費，來源同為 RitualRegistrationItem.amountDue；先前漏接 adapter → 應收
+  // 不進待收款／收款中心／首頁統計。此值補上串接。
+  UNIVERSAL_SALVATION_TABLET
   // --- 以下為僅預留列舉值，沒有 Adapter、沒有登記/收費資料表，尚未有任何資料／畫面 ---
   PEACE_LANTERN // 平安燈（尚不存在：沒有對應的活動類型與登記資料）
   TAISUI_LANTERN // 太歲燈（尚不存在：沒有收費欄位或登記資料）

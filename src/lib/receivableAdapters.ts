@@ -1136,6 +1136,8 @@ function makeRegistrationItemAdapter(
         include: {
           registrationItemType: true,
           ritualRecord: { include: { household: true, templeEvent: true } },
+          // V14.2：普渡牌位正式關聯——收款中心顯示同一筆 UniversalSalvationEntry 的名稱。
+          universalSalvationEntry: { select: { displayName: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 500,
@@ -1144,7 +1146,10 @@ function makeRegistrationItemAdapter(
       return rows
         .map((r) => {
           const rec = r.ritualRecord;
-          const itemName = r.customName ?? r.registrationItemType.name;
+          // 名稱優先讀正式關聯的牌位（超拔祖先→周姓歷代祖先、乙位正魂→○○○乙位正魂、
+          // 冤親→當事人姓名），退回自訂名稱／項目型別名。
+          const itemName =
+            r.universalSalvationEntry?.displayName ?? r.customName ?? r.registrationItemType.name;
           const amountDue = Number(r.amountDue);
           const amountPaid = Number(r.amountPaid);
           const amountUnpaid = Number(r.amountUnpaid);
@@ -1249,6 +1254,13 @@ const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION",
 const celebrationTableAdapter = makeRegistrationItemAdapter("CELEBRATION_TABLE", ["CELEBRATION_TABLE"], "宮慶訂桌");
 const dragonPhoenixLanternAdapter = makeRegistrationItemAdapter("DRAGON_PHOENIX_LANTERN", ["DRAGON_PHOENIX"], "龍鳳燈");
 const storageTrousersAdapter = makeRegistrationItemAdapter("STORAGE_TROUSERS", ["STORAGE_TROUSERS"], "補庫");
+// V14.2：普渡四類牌位（超拔祖先／乙位正魂／累世冤親債主／無緣子女）年度單價收費，
+// 沿用同一套 RitualRegistrationItem adapter，讓應收進待收款／收款中心／首頁統計。
+const universalSalvationTabletAdapter = makeRegistrationItemAdapter(
+  "UNIVERSAL_SALVATION_TABLET",
+  ["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN"],
+  "普渡牌位"
+);
 
 // ============================================================
 // Registry
@@ -1265,6 +1277,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   celebrationTableAdapter,
   dragonPhoenixLanternAdapter,
   storageTrousersAdapter,
+  universalSalvationTabletAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

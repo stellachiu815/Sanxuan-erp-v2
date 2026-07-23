@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { Prisma, ActivityType } from "@prisma/client";
+import type { Prisma, ActivityType, RitualRecordStatus } from "@prisma/client";
 import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 import { upsertLanternRegistrationInTransaction } from "@/lib/lanternRegistration";
 import {
@@ -12,6 +12,7 @@ import {
   tabletUnitPriceFor,
   type TabletUnitPrices,
 } from "@/lib/universalSalvationTabletPricing";
+import { resolveYangshangNames } from "@/lib/yangshang";
 
 /**
  * V14：把報名項目回寫到既有明細表，並回填 linkedEntryId／linkedEntryType。
@@ -398,7 +399,7 @@ export async function registerItemsBatch(
   const memberIds = Array.from(new Set(entries.map((e) => e.memberId)));
   const [itemTypes, members] = await Promise.all([
     prisma.registrationItemType.findMany({ where: { id: { in: itemTypeIds } } }),
-    prisma.member.findMany({ where: { id: { in: memberIds }, deletedAt: null }, select: { id: true, householdId: true } }),
+    prisma.member.findMany({ where: { id: { in: memberIds }, deletedAt: null }, select: { id: true, householdId: true, name: true } }),
   ]);
   const itemTypeMap = new Map(itemTypes.map((t) => [t.id, t]));
   const memberMap = new Map(members.map((m) => [m.id, m]));
@@ -559,6 +560,32 @@ export async function registerItemsBatch(
           operatorName,
         });
 
+        // V14.2：累世冤親債主（全戶加入）——為每位成員各建一筆 DEBT_CREDITOR 牌位並
+        // **正式連結**（universalSalvationEntryId），displayName = 當事人姓名。之後名稱／
+        // 陽上／地址／列印／補印／收款／查詢一律讀這一筆 entry，不依賴建立順序。
+        if (p.itemType.key === "US_YUANQIN") {
+          const detail = await tx.universalSalvationDetail.upsert({
+            where: { ritualRecordId: recordId },
+            create: { ritualRecordId: recordId, isRegistered: true },
+            update: {},
+            select: { id: true },
+          });
+          const memberName = memberMap.get(p.entry.memberId)?.name ?? null;
+          const entry = await tx.universalSalvationEntry.create({
+            data: {
+              universalSalvationId: detail.id,
+              category: "DEBT_CREDITOR",
+              displayName: (p.entry.customName?.trim() || memberName) ?? p.itemType.name,
+              sortOrder: 0,
+            },
+            select: { id: true },
+          });
+          await tx.ritualRegistrationItem.update({
+            where: { id: created.id },
+            data: { universalSalvationEntryId: entry.id },
+          });
+        }
+
         outcomes.push({
           memberId: p.entry.memberId,
           registrationItemTypeId: p.itemType.id,
@@ -586,10 +613,19 @@ export type RegisteredItemView = {
   categoryName: string;
   /**
    * V14.2：牌位／當事人名稱（列印、收款、補印、查詢的共同識別）。
-   * 依序：自訂名稱 → 當事人（memberId 對應成員）姓名 → 類別名稱。
-   * 例：累世冤親債主每位成員各一筆 → 顯示「周財寶」「陳秀珍」而非固定文字。
+   * 超拔祖先／乙位正魂／無緣子女 → 完整牌位名稱（讀 UniversalSalvationEntry.displayName）；
+   * 累世冤親債主 → 當事人姓名（member）；贊普 → 自訂名稱（本人…）。
    */
   subjectName: string;
+  /**
+   * V14.2：已報名項目最終顯示字串（依宮內辨識規則）：
+   *   超拔祖先／乙位正魂／無緣子女 → 完整牌位名稱（不加「類別｜」）
+   *   累世冤親債主 → 「累世冤親債主｜姓名」
+   *   贊普 → 自訂名稱（本人…）
+   */
+  displayLabel: string;
+  /** V14.2：陽上人（祖先／乙位正魂，讀 UniversalSalvationEntry；其餘為空）。 */
+  yangshangNames: string[];
   /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress，同列印欄位）。 */
   tabletAddress: string | null;
   activityGroupName: string;
@@ -602,13 +638,99 @@ export type RegisteredItemView = {
   status: string;
 };
 
-/** V14.2：itemKey → 對應的 UniversalSalvationEntry 類別（供解析牌位地址／名稱）。 */
-const TABLET_ITEM_ENTRY_CATEGORY: Record<string, "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "DEBT_CREDITOR" | "UNBORN_CHILD"> = {
+/**
+ * V14.2：以完整牌位名稱顯示的四類 itemKey → 對應 UniversalSalvationEntry 類別。
+ * 冤親（US_YUANQIN）刻意不在此：它顯示「累世冤親債主｜當事人姓名」，不取牌位名稱。
+ */
+const TABLET_NAME_ITEM_CATEGORY: Record<string, "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "UNBORN_CHILD"> = {
   US_ANCESTOR: "ANCESTOR_LINE",
   US_ZHENGHUN: "INDIVIDUAL_SOUL",
-  US_YUANQIN: "DEBT_CREDITOR",
   US_WUYUAN: "UNBORN_CHILD",
 };
+
+/** V14.2：UniversalSalvationEntry 類別 → 對應計價 itemKey（正式關聯用）。 */
+export const ENTRY_CATEGORY_TO_ITEM_KEY: Record<string, string> = {
+  ANCESTOR_LINE: "US_ANCESTOR",
+  INDIVIDUAL_SOUL: "US_ZHENGHUN",
+  DEBT_CREDITOR: "US_YUANQIN",
+  UNBORN_CHILD: "US_WUYUAN",
+};
+
+/**
+ * V14.2：為一筆普渡牌位 UniversalSalvationEntry 建立（並正式連結）對應的計價
+ * RitualRegistrationItem。在 createUniversalSalvationEntry 的交易內呼叫。
+ *
+ * 冪等：該 entry 已有連結的項目則不重建。金額 = 該類別年度單價 × 1（未設定 → 0）。
+ * status 沿用主報名（DRAFT）；memberId 由呼叫端決定（編輯區牌位通常 null，
+ * 全戶冤親每位帶入該成員）。牌位名稱／陽上／地址一律留在 entry，不複製到項目。
+ */
+export async function ensureLinkedTabletItem(
+  tx: Prisma.TransactionClient,
+  params: {
+    ritualRecordId: string;
+    entryId: string;
+    category: string;
+    year: number;
+    status: RitualRecordStatus;
+    memberId?: string | null;
+  }
+): Promise<void> {
+  const itemKey = ENTRY_CATEGORY_TO_ITEM_KEY[params.category];
+  if (!itemKey) return;
+
+  const already = await tx.ritualRegistrationItem.findUnique({
+    where: { universalSalvationEntryId: params.entryId },
+    select: { id: true },
+  });
+  if (already) return;
+
+  const itemType = await tx.registrationItemType.findUnique({
+    where: { key: itemKey },
+    select: { id: true },
+  });
+  if (!itemType) return;
+
+  const prices = await getUniversalSalvationTabletPrices(params.year, tx);
+  const unit = tabletUnitPriceFor(itemKey, prices);
+  const amountDue = unit !== null ? Math.round(unit * 100) / 100 : 0;
+
+  await tx.ritualRegistrationItem.create({
+    data: {
+      ritualRecordId: params.ritualRecordId,
+      registrationItemTypeId: itemType.id,
+      memberId: params.memberId ?? null,
+      quantity: 1,
+      amountDue,
+      amountPaid: 0,
+      amountUnpaid: amountDue,
+      status: params.status,
+      universalSalvationEntryId: params.entryId,
+    },
+  });
+}
+
+/** V14.2：牌位 entry 被刪除／取消時，同步取消其連結的計價項目（未收款才取消）。 */
+export async function cancelLinkedTabletItem(
+  tx: Prisma.TransactionClient,
+  entryId: string,
+  operatorName?: string | null
+): Promise<void> {
+  const item = await tx.ritualRegistrationItem.findUnique({
+    where: { universalSalvationEntryId: entryId },
+    select: { id: true, amountPaid: true, status: true, deletedAt: true },
+  });
+  if (!item || item.deletedAt || item.status === "CANCELLED") return;
+  if (Number(item.amountPaid) > 0) return; // 已收款不動，保留歷史
+  await tx.ritualRegistrationItem.update({
+    where: { id: item.id },
+    data: {
+      status: "CANCELLED",
+      amountUnpaid: 0,
+      deletedAt: new Date(),
+      deletedByName: operatorName ?? "系統：牌位刪除連動",
+    },
+  });
+}
 
 /**
  * 列出某筆 RitualRecord 底下的報名項目（未刪除）。
@@ -631,10 +753,17 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
   // 未收款未列印者），讓既有測試重複資料在打開頁面時就收斂成單筆。
   await cleanupDuplicateDraftItems(ritualRecordId, null);
 
-  const [rows, salvationDetail, lantern, salvationEntries] = await Promise.all([
+  const [rows, salvationDetail, lantern] = await Promise.all([
     prisma.ritualRegistrationItem.findMany({
       where: { ritualRecordId, deletedAt: null },
-      include: { registrationItemType: true, member: { select: { name: true } } },
+      include: {
+        registrationItemType: true,
+        member: { select: { name: true } },
+        // V14.2：正式 1:1 關聯——牌位名稱／陽上人／地址一律讀這一筆 entry。
+        universalSalvationEntry: {
+          select: { displayName: true, tabletAddress: true, yangshangName: true, yangshangNames: true },
+        },
+      },
       orderBy: [{ registrationItemType: { sortOrder: "asc" } }, { createdAt: "asc" }],
     }),
     prisma.universalSalvationDetail.findUnique({
@@ -645,24 +774,7 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       where: { ritualRecordId },
       select: { amountDue: true, amountPaid: true, amountUnpaid: true },
     }),
-    // V14.2：本 RitualRecord 的普渡牌位明細（沿用既有 UniversalSalvationEntry），
-    // 供解析牌位地址與名稱——不建第二套資料。
-    prisma.universalSalvationEntry.findMany({
-      where: { deletedAt: null, universalSalvation: { ritualRecordId } },
-      select: { category: true, displayName: true, tabletAddress: true },
-      orderBy: { createdAt: "asc" },
-    }),
   ]);
-
-  // 依類別彙整既有牌位明細：以名稱（trim）對地址；並記每類是否僅一筆（可安全帶入）。
-  const addrByCategoryName = new Map<string, string | null>();
-  const countByCategory = new Map<string, number>();
-  const soleByCategory = new Map<string, { displayName: string; tabletAddress: string | null }>();
-  for (const e of salvationEntries) {
-    addrByCategoryName.set(`${e.category}::${e.displayName.trim()}`, e.tabletAddress ?? null);
-    countByCategory.set(e.category, (countByCategory.get(e.category) ?? 0) + 1);
-    soleByCategory.set(e.category, { displayName: e.displayName, tabletAddress: e.tabletAddress ?? null });
-  }
 
   return rows.map((r) => {
     const kind = r.registrationItemType.contentKind;
@@ -680,21 +792,36 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       amountUnpaid = Number(lantern.amountUnpaid);
     }
 
+    const key = r.registrationItemType.key;
+    const categoryName = r.registrationItemType.name;
     const memberName = r.member?.name ?? null;
-    // 名稱（共同識別）：自訂名稱 → 當事人姓名 → 類別名稱。
-    const subjectName = r.customName ?? memberName ?? r.registrationItemType.name;
+    // 正式關聯的牌位（唯一來源）；舊資料未連結時才退回成員姓名。
+    const linked = r.universalSalvationEntry;
+    const linkedYangshang = linked ? resolveYangshangNames(linked.yangshangNames, linked.yangshangName) : [];
 
-    // 牌位地址：沿用既有 UniversalSalvationEntry。先以「類別＋名稱」精準對，
-    // 對不到時若該類別在本筆報名只有一筆牌位，帶入那一筆的地址（安全不誤帶）。
-    const entryCategory = TABLET_ITEM_ENTRY_CATEGORY[r.registrationItemType.key];
+    // 依宮內辨識規則決定名稱、顯示字串、陽上、地址。
+    let subjectName: string;
+    let displayLabel: string;
+    let yangshangNames: string[] = [];
     let tabletAddress: string | null = null;
-    if (entryCategory) {
-      const exact = addrByCategoryName.get(`${entryCategory}::${subjectName.trim()}`);
-      if (exact !== undefined) {
-        tabletAddress = exact;
-      } else if ((countByCategory.get(entryCategory) ?? 0) === 1) {
-        tabletAddress = soleByCategory.get(entryCategory)?.tabletAddress ?? null;
-      }
+
+    if (key in TABLET_NAME_ITEM_CATEGORY) {
+      // 超拔祖先／乙位正魂／無緣子女：顯示完整牌位名稱（讀連結 entry），不加「類別｜」。
+      subjectName = linked?.displayName ?? r.customName ?? memberName ?? categoryName;
+      displayLabel = subjectName;
+      yangshangNames = linkedYangshang;
+      tabletAddress = linked?.tabletAddress ?? null;
+    } else if (key === "US_YUANQIN") {
+      // 累世冤親債主：顯示「類別｜當事人姓名」（名稱讀連結 entry，退回成員姓名）。
+      subjectName = linked?.displayName ?? r.customName ?? memberName ?? categoryName;
+      displayLabel = `${categoryName}｜${subjectName}`;
+    } else if (kind === "SPONSOR") {
+      // 贊普：顯示自訂名稱（本人…）。
+      subjectName = r.customName ?? categoryName;
+      displayLabel = subjectName;
+    } else {
+      subjectName = r.customName ?? categoryName;
+      displayLabel = subjectName;
     }
 
     return {
@@ -702,8 +829,10 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       registrationItemTypeId: r.registrationItemTypeId,
       itemKey: r.registrationItemType.key,
       itemName: r.customName ?? r.registrationItemType.name,
-      categoryName: r.registrationItemType.name,
+      categoryName,
       subjectName,
+      displayLabel,
+      yangshangNames,
       tabletAddress,
       activityGroupName: r.registrationItemType.activityGroupName,
       memberId: r.memberId,

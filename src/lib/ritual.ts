@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
+import { ensureLinkedTabletItem, cancelLinkedTabletItem } from "@/lib/registrationItemRegistration";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -459,6 +460,8 @@ export type CreateUniversalSalvationEntryInput = {
   /** V14.1：此筆牌位自己的地址。 */
   tabletAddress?: string | null;
   notes?: string | null;
+  /** V14.2：連動建立之計價項目要掛哪位成員（全戶冤親每位帶入該成員；一般牌位為 null）。 */
+  linkedItemMemberId?: string | null;
 };
 
 /** 在指定分類（歷代祖先／個人乙位正魂／冤親債主／無緣子女）新增一筆登記項目。 */
@@ -516,6 +519,17 @@ export async function createUniversalSalvationEntry(
       },
       tx
     );
+
+    // V14.2：牌位與其計價項目正式 1:1 關聯——建立牌位時連動建立已計價的
+    // RitualRegistrationItem 並連結，讓收款／統計／查詢都認得這筆牌位。
+    await ensureLinkedTabletItem(tx, {
+      ritualRecordId: existing.id,
+      entryId: created.id,
+      category: input.category,
+      year,
+      status: existing.status,
+      memberId: input.linkedItemMemberId ?? null,
+    });
   });
 
   const record = await getUniversalSalvationRecord(householdId, year);
@@ -631,6 +645,9 @@ export async function deleteUniversalSalvationEntry(
       where: { id: entryId },
       data: { deletedAt: new Date(), deletedByName: operatorName?.trim() || null },
     });
+
+    // V14.2：牌位刪除時，連動取消其計價項目（未收款才取消，已收款保留歷史）。
+    await cancelLinkedTabletItem(tx, entryId, operatorName);
 
     await recordVersion(
       {

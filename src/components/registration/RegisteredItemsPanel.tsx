@@ -14,10 +14,12 @@ type Item = {
   id: string;
   itemKey: string;
   itemName: string;
-  /** V14.2：類別（型別名，例如「累世冤親債主」）。 */
   categoryName: string;
-  /** V14.2：名稱（當事人／牌位；每位成員各一筆時為其姓名）。 */
   subjectName: string;
+  /** V14.2：最終顯示字串（牌位名稱／類別｜姓名／本人…）。 */
+  displayLabel: string;
+  /** V14.2：陽上人（祖先／乙位正魂）。 */
+  yangshangNames: string[];
   /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress）。 */
   tabletAddress: string | null;
   activityGroupName: string;
@@ -107,11 +109,10 @@ export default function RegisteredItemsPanel({
             {items.map((it) => (
               <tr key={it.id} className="border-t border-cream-200">
                 <td className="px-2 py-1.5">
-                  <div className="text-ink">
-                    <span className="text-ink-soft">{it.categoryName}</span>
-                    <span className="text-ink-faint">｜</span>
-                    <span className="text-ink">{it.subjectName}</span>
-                  </div>
+                  <div className="text-ink">{it.displayLabel}</div>
+                  {it.yangshangNames.length > 0 && (
+                    <div className="text-xs text-ink-faint">陽上：{it.yangshangNames.join("、")}</div>
+                  )}
                   {it.tabletAddress && (
                     <div className="text-xs text-ink-faint">牌位地址：{it.tabletAddress}</div>
                   )}
@@ -141,6 +142,26 @@ export default function RegisteredItemsPanel({
           </tbody>
         </table>
       )}
+
+      {/* V14.2：本次報名總計——直接彙總各項目「同一套收費來源」的金額
+          （listRegisteredItems 已依項目型別讀真正收費來源：贊普→明細、年度燈→明細、
+          牌位→本項），不另建第二套統計，與收款中心一致。 */}
+      {items !== null && items.length > 0 && (() => {
+        const active = items.filter((it) => it.status !== "CANCELLED");
+        const due = active.reduce((s, it) => s + it.amountDue, 0);
+        const paid = active.reduce((s, it) => s + it.amountPaid, 0);
+        const unpaid = active.reduce((s, it) => s + it.amountUnpaid, 0);
+        return (
+          <div className="mt-4 rounded-2xl bg-cream-100 px-4 py-3">
+            <p className="text-xs text-ink-soft">本次報名總計</p>
+            <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <span className="text-ink">應收總額：{due.toLocaleString("zh-Hant")} 元</span>
+              <span className="text-sage-300">已收：{paid.toLocaleString("zh-Hant")} 元</span>
+              <span className="text-blossom-500">未收：{unpaid.toLocaleString("zh-Hant")} 元</span>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
