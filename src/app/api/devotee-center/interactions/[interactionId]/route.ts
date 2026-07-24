@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateDevoteeInteraction, deleteDevoteeInteraction, DEVOTEE_INTERACTION_TYPES } from "@/lib/devoteeInteractions";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * PATCH /api/devotee-center/interactions/xxx
@@ -18,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "互動類型不正確" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "manageInteractions");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageInteractions");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   try {
@@ -52,7 +53,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ error: "刪除互動紀錄必須說明原因" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "manageInteractions");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageInteractions");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   try {

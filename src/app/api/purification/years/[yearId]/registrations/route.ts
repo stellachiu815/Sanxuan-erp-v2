@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { registerPurificationEntrant, type RegisterPurificationEntrantInput } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 祭改報名。
@@ -77,9 +79,10 @@ export async function POST(
     notes: toNullableString(body.notes),
   };
 
-  const operatorName = toNullableString(body.operatorName);
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "create");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await registerPurificationEntrant(yearId, input, operatorName);
+  const result = await registerPurificationEntrant(yearId, input, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

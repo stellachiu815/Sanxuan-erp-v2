@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { listOfferingTypes, createOfferingType } from "@/lib/offeringTypes";
+import { assertOfferingPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * V10.1「供品認捐中心」需求「一、供品種類管理」。
@@ -10,10 +12,9 @@ import { listOfferingTypes, createOfferingType } from "@/lib/offeringTypes";
  *   body: { "name": "平安米", "category": "其他供品", "behaviorKind": "GENERIC",
  *           "unit": "FEN", "defaultQuantity": 1, "defaultPrice": 100, ... }
  *
- * ⚠️ 需求「二十一」：只有 SUPER_ADMIN 能新增/修改供品種類。系統目前沒有
- * 登入/session 機制（見 src/lib/permissions.ts 說明），暫時無法在後端
- * 驗證操作者身份，這裡先開放給所有使用者操作，等登入機制做出來後補上
- * assertOfferingPermission() 檢查。
+ * V14.3：正式登入系統上線後，補上原本待辦的後端權限檢查——新增/修改供品
+ * 種類屬 manageOfferingTypes（僅 SUPER_ADMIN／ADMIN），操作人一律取自登入
+ * session，忽略前端傳入的 operatorName/operatorUserId。
  */
 export async function GET(request: NextRequest) {
   const includeInactive = request.nextUrl.searchParams.get("includeInactive") !== "false";
@@ -27,7 +28,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請提供供品名稱" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertOfferingPermissionForOperator(await readOperatorUserId(request), "manageOfferingTypes");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
   const result = await createOfferingType(
     {
       name: body.name,

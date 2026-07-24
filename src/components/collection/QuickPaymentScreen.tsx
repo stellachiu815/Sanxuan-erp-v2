@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { paymentMethodTypeOptions, receivableSourceTypeLabel } from "@/lib/labels";
 import type { UniversalReceivableViewJSON } from "./types";
 import { useStoredOperatorUserId } from "@/lib/operatorClient";
+import { useCurrentUser } from "@/lib/permissionClient";
+import { canCollection } from "@/lib/permissions";
 
 type MemberSearchResult = { memberId: string; name: string; householdId: string };
 type BasketItem = { sourceType: string; sourceId: string; label: string; amount: number };
@@ -18,6 +20,12 @@ export default function QuickPaymentScreen({ currentYear }: { currentYear: numbe
   // 沿用**同一個**既有身分來源把 operatorUserId 帶上（見
   // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
   const operatorUserId = useStoredOperatorUserId();
+
+  // V14.3：快速收款整支是寫入工具（建立 PaymentTransaction）。收款屬
+  // canCollection recordPayment（SUPER_ADMIN／ADMIN／STAFF）。READONLY 只讀，
+  // 直接顯示唯讀提示，不渲染收款流程。真正把關仍在 API。
+  const { role, loading: roleLoading } = useCurrentUser();
+  const canRecordPayment = role ? canCollection(role, "recordPayment") : false;
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MemberSearchResult[]>([]);
@@ -183,6 +191,15 @@ export default function QuickPaymentScreen({ currentYear }: { currentYear: numbe
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!roleLoading && !canRecordPayment) {
+    return (
+      <div className="rounded-3xl bg-white/70 p-8 text-center shadow-card">
+        <p className="text-sm text-ink-soft">您目前的權限為唯讀，無法執行收款操作。</p>
+        <p className="mt-2 text-xs text-ink-faint">如需收款，請以具備收款權限的帳號登入。</p>
+      </div>
+    );
   }
 
   return (

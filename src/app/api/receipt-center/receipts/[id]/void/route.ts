@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { voidReceipt } from "@/lib/receipt";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/receipt-center/receipts/xxx/void
@@ -19,15 +20,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!body || typeof body.reason !== "string" || !body.reason.trim()) {
     return NextResponse.json({ error: "作廢請填寫原因" }, { status: 400 });
   }
-  if (typeof body.operatorUserId !== "string" || !body.operatorUserId) {
-    return NextResponse.json({ error: "請提供操作人員身分" }, { status: 400 });
+  // V14.3：操作人一律以登入 session 為準（voidReceipt 內部仍會查證角色）。
+  const operatorUserId = await readOperatorUserId(request);
+  if (!operatorUserId) {
+    return NextResponse.json({ error: "尚未登入或帳號已停用，請重新登入" }, { status: 401 });
   }
   if (typeof body.approverUserId !== "string" || !body.approverUserId) {
     return NextResponse.json({ error: "請提供核准人身分" }, { status: 400 });
   }
   const result = await voidReceipt(id, {
     reason: body.reason,
-    operatorUserId: body.operatorUserId,
+    operatorUserId,
     approverUserId: body.approverUserId,
     isEmergencyOverride: body.isEmergencyOverride === true,
     emergencyReason: typeof body.emergencyReason === "string" ? body.emergencyReason : undefined,

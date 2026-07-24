@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { ActivityType } from "@prisma/client";
 import { copyTempleEventFromPrevious } from "@/lib/templeEvents";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 活動精靈 Step3②「複製去年活動」。
@@ -36,7 +38,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請選擇來源活動年度" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "create");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
 
   const result = await copyTempleEventFromPrevious(
     activityType,

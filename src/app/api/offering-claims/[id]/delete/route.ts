@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { moveOfferingClaimToRecycleBin } from "@/lib/offeringClaims";
+import { assertOfferingPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/offering-claims/xxx/delete
@@ -9,10 +11,11 @@ import { moveOfferingClaimToRecycleBin } from "@/lib/offeringClaims";
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const operatorName = typeof body?.operatorName === "string" ? body.operatorName : null;
+  // V14.3：移入回收區屬刪除類，僅 SUPER_ADMIN／ADMIN；操作人以登入 session 為準。
+  const check = await assertOfferingPermissionForOperator(await readOperatorUserId(request), "permanentlyDelete");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  const result = await moveOfferingClaimToRecycleBin(id, operatorName);
+  const result = await moveOfferingClaimToRecycleBin(id, check.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { printReceipt } from "@/lib/receipt";
 import { assertReceiptPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/receipt-center/receipts/xxx/print
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
 
-  const check = await assertReceiptPermissionForOperator(body.operatorUserId, "print");
+  const check = await assertReceiptPermissionForOperator(await readOperatorUserId(request), "print");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await printReceipt(id, {

@@ -13,6 +13,8 @@ import {
   secondaryButtonClass,
 } from "@/components/household/formStyles";
 import type { PurificationYearListItemJson } from "./types";
+import { useCurrentUser } from "@/lib/permissionClient";
+import { canPurification } from "@/lib/permissions";
 
 type DiffItem = {
   kind: "ADDED" | "CANCELLED_LAST_YEAR" | "ADDRESS_CHANGED" | "BIRTHDAY_CHANGED" | "GENDER_NEEDS_CONFIRM";
@@ -34,6 +36,10 @@ type Props = {
 
 export default function YearListScreen({ initialYears }: Props) {
   const router = useRouter();
+  // V14.3：年度建立／沿用去年屬 manageYears（SUPER_ADMIN／ADMIN）。STAFF 可查看
+  // 年度清單與報名，但不顯示年度管理入口；READONLY 只讀。API 為最終防線。
+  const { role } = useCurrentUser();
+  const canManageYears = role ? canPurification(role, "manageYears") : false;
   const [years, setYears] = useState(initialYears);
   const [showCreate, setShowCreate] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
@@ -52,23 +58,29 @@ export default function YearListScreen({ initialYears }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className={primaryButtonClass} onClick={() => setShowCreate(true)}>
-          ＋ 建立新年度（空白開始）
-        </button>
-        <button
-          type="button"
-          className={secondaryButtonClass + " border border-cream-300"}
-          onClick={() => setShowCopy(true)}
-          disabled={years.length === 0}
-        >
-          沿用去年祭改資料
-        </button>
-        <Link
-          href="/purification/settings/banned-numbers"
-          className="ml-auto text-sm text-ink-faint underline-offset-4 hover:underline"
-        >
-          禁用編號設定 →
-        </Link>
+        {canManageYears && (
+          <>
+            <button type="button" className={primaryButtonClass} onClick={() => setShowCreate(true)}>
+              ＋ 建立新年度（空白開始）
+            </button>
+            <button
+              type="button"
+              className={secondaryButtonClass + " border border-cream-300"}
+              onClick={() => setShowCopy(true)}
+              disabled={years.length === 0}
+            >
+              沿用去年祭改資料
+            </button>
+          </>
+        )}
+        {canManageYears && (
+          <Link
+            href="/purification/settings/banned-numbers"
+            className="ml-auto text-sm text-ink-faint underline-offset-4 hover:underline"
+          >
+            禁用編號設定 →
+          </Link>
+        )}
       </div>
 
       {years.length === 0 ? (

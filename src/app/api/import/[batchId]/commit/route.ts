@@ -24,6 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { parseImportRow, type ImportRawRow } from "@/lib/importRules";
 import type { MemberRole } from "@prisma/client";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { addHouseholdYangshangBatch } from "@/lib/householdYangshang";
 
 export async function POST(
@@ -31,7 +32,7 @@ export async function POST(
   { params }: { params: Promise<{ batchId: string }> }
 ) {
   const body = await request.json().catch(() => ({}));
-  const check = await assertSystemPermissionForOperator(body?.operatorUserId, "manageDataImport");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageDataImport");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { batchId } = await params;

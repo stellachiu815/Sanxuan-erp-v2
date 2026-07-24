@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { refundOfferingClaim } from "@/lib/offeringClaims";
+import { assertOfferingPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/offering-claims/xxx/refund
@@ -15,13 +17,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請填寫退款/轉款原因" }, { status: 400 });
   }
 
+  // V14.3：退款／轉款屬高風險，僅 SUPER_ADMIN／ADMIN；操作人以登入 session 為準。
+  const check = await assertOfferingPermissionForOperator(await readOperatorUserId(request), "refundClaim");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const paidOn = typeof body.paidOn === "string" ? new Date(body.paidOn) : new Date();
   const result = await refundOfferingClaim(id, {
     amount: Number(body.amount),
     paidOn,
     kind: body.kind === "TRANSFER_OUT" ? "TRANSFER_OUT" : "REFUND",
     reason: body.reason,
-    operatorName: typeof body.operatorName === "string" ? body.operatorName : null,
+    operatorName: check.operator.name,
     relatedClaimId: typeof body.relatedClaimId === "string" ? body.relatedClaimId : null,
   });
   if (!result.ok) {

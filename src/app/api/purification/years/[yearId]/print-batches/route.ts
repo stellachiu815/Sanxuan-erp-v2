@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { generatePurificationPrintBatch, listPrintBatches, type PrintBatchFilter } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 列印批次：清單／產生新批次。
@@ -88,7 +90,9 @@ export async function POST(
       return NextResponse.json({ error: "篩選條件的 kind 不正確" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "print");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
   const note = typeof body.note === "string" ? body.note : null;
 
   const result = await generatePurificationPrintBatch(yearId, filter, operatorName, note);

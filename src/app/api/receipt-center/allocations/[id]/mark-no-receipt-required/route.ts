@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { markNoReceiptRequired } from "@/lib/receipt";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/receipt-center/allocations/xxx/mark-no-receipt-required
@@ -20,14 +21,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (typeof body.reason !== "string" || !body.reason.trim()) {
     return NextResponse.json({ error: "請填寫標記不需開立的原因" }, { status: 400 });
   }
-  if (typeof body.operatorUserId !== "string" || !body.operatorUserId) {
-    return NextResponse.json({ error: "請提供操作人員身分" }, { status: 400 });
+  const operatorUserId = await readOperatorUserId(request);
+  if (!operatorUserId) {
+    return NextResponse.json({ error: "尚未登入或帳號已停用，請重新登入" }, { status: 401 });
   }
   const result = await markNoReceiptRequired({
     allocationId: id,
     amount: body.amount,
     reason: body.reason,
-    operatorUserId: body.operatorUserId,
+    operatorUserId,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
   revalidatePath("/receipt-center");

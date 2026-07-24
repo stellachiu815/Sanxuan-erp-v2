@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { listActivityGroups } from "@/lib/registrationItems";
 import { canAcceptRegistration } from "@/lib/activityYear";
 
@@ -24,7 +25,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ memberId: string }> }
 ) {
-  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertRitualRegistrationPermissionForOperator(operatorUserId, "view");
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: check.status });

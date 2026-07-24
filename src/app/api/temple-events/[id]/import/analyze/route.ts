@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import {
   analyzeImport,
   parseSpreadsheetBuffer,
@@ -25,6 +27,8 @@ import { prisma } from "@/lib/prisma";
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "import");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const event = await prisma.templeEvent.findUnique({ where: { id } });
   if (!event) {

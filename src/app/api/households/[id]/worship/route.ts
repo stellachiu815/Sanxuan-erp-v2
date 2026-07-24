@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeYangshangName } from "@/lib/printChinese";
 import { worshipTypeLabel } from "@/lib/labels";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 新增祭祀資料 API
@@ -39,7 +40,7 @@ export async function POST(
   // V12.1 一次性修正指令「二之4」：這支 API 原本完全沒有權限檢查（既有
   // 缺口）。沿用既有 assertDevoteePermissionForOperator(..., "updateProfile")，
   // 跟新增家人／修改家戶資料同一個權限動作，不另外建立第二套權限機制。
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
   if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
   const type = typeof body.type === "string" ? body.type : "";

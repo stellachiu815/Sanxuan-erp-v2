@@ -23,6 +23,7 @@
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { parseSpreadsheetBuffer, suggestColumnMapping, saveFieldMapping, getTargetFields } from "@/lib/smartImport";
 import { analyzeDevoteeImport, DEVOTEE_IMPORT_KIND, MAX_UPLOAD_FILE_BYTES, hasAllowedUploadExtension } from "@/lib/devoteeImportBatch";
 
@@ -32,9 +33,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "無法讀取上傳內容，請重新選擇檔案" }, { status: 400 });
   }
 
-  const operatorUserIdRaw = formData.get("operatorUserId");
   const check = await assertSystemPermissionForOperator(
-    typeof operatorUserIdRaw === "string" ? operatorUserIdRaw : null,
+    await readOperatorUserId(request),
     "manageDataImport"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

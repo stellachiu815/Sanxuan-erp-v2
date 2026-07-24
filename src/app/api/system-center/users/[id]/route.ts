@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { recordVersion } from "@/lib/recordVersion";
 
 const VALID_ROLES: Role[] = ["SUPER_ADMIN", "ADMIN", "STAFF", "READONLY", "FINANCE_CLERK"];
@@ -20,7 +21,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "manageUsers");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageUsers");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const existing = await prisma.user.findUnique({ where: { id } });

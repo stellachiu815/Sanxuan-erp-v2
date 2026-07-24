@@ -25,8 +25,7 @@ export async function GET(
   { params }: { params: Promise<{ ritualRecordId: string }> }
 ) {
   const url = new URL(request.url);
-  const check = await assertRitualRegistrationPermissionForOperator(
-    url.searchParams.get("operatorUserId"),
+  const check = await assertRitualRegistrationPermissionForOperator(await readOperatorUserId(request),
     "view"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

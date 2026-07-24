@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { backupStageLabel } from "@/lib/labels";
 
 /**
@@ -20,7 +21,7 @@ import { backupStageLabel } from "@/lib/labels";
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertSystemPermissionForOperator(searchParams.get("operatorUserId"), "viewSystemCenter");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "viewSystemCenter");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   let backupLogId = searchParams.get("backupLogId");

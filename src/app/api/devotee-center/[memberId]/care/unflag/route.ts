@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unflagDevoteeCare } from "@/lib/devoteeCare";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/devotee-center/xxx/care/unflag
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { memberId } = await params;
   const body = await request.json().catch(() => ({}));
 
-  const check = await assertDevoteePermissionForOperator(body?.operatorUserId, "manageCareList");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageCareList");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const profile = await unflagDevoteeCare(memberId, check.operator.name);

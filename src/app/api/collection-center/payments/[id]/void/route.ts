@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { voidPaymentTransaction } from "@/lib/collectionCenter";
+import { assertCollectionPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/collection-center/payments/xxx/void
@@ -14,7 +16,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!body || typeof body.reason !== "string" || typeof body.approvedByName !== "string") {
     return NextResponse.json({ error: "作廢需要填寫原因與核准人" }, { status: 400 });
   }
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  // V14.3：作廢收款屬高風險，僅 SUPER_ADMIN／ADMIN；操作人一律用登入 session。
+  const check = await assertCollectionPermissionForOperator(await readOperatorUserId(request), "voidPayment");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+  const operatorName = check.operator.name;
   const acknowledgeReceiptImpact = body.acknowledgeReceiptImpact === true;
   const result = await voidPaymentTransaction(id, body.reason, operatorName, body.approvedByName, acknowledgeReceiptImpact);
   if (!result.ok) {

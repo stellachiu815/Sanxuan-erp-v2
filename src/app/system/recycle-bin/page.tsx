@@ -1,5 +1,7 @@
 import { listRecycleBin } from "@/lib/recycleBin";
 import RecycleBinScreen from "@/components/system/RecycleBinScreen";
+import { requirePagePermission } from "@/lib/pageGuard";
+import { canSystem } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -28,6 +30,11 @@ export const dynamic = "force-dynamic";
  * /system/recycle-bin
  */
 export default async function RecycleBinPage() {
+  // V14.3：回收區（還原／永久刪除）僅 SUPER_ADMIN／ADMIN（manageRecycleBin）。
+  // 永久刪除（purgeRecycleBin）僅 SUPER_ADMIN，於畫面內按鈕層再細分。
+  const guard = await requirePagePermission((r) => canSystem(r, "manageRecycleBin"), "/system/recycle-bin");
+  if (guard.denied) return guard.deniedView;
+
   const items = await listRecycleBin();
 
   const serialized = items.map((item) => ({

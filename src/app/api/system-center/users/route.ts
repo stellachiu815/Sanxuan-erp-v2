@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { recordVersion } from "@/lib/recordVersion";
+import { hashPassword } from "@/lib/auth";
 
 /**
  * V12「信眾資料中心正式建置」指令「九、其他使用者帳號」。
@@ -26,7 +28,7 @@ const VALID_ROLES: Role[] = ["SUPER_ADMIN", "ADMIN", "STAFF", "READONLY", "FINAN
 /** GET /api/system-center/users?operatorUserId=xxx — 列出全部使用者（含已停用）。 */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertSystemPermissionForOperator(searchParams.get("operatorUserId"), "manageUsers");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageUsers");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const users = await prisma.user.findMany({
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "manageUsers");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageUsers");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -67,18 +69,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "這個角色不開放從此畫面建立" }, { status: 400 });
   }
 
+  // V14.3 正式登入：可一併設定登入帳號（loginId）與初始密碼。未提供則帳號建立
+  // 後仍需另行「重設密碼」才能登入（passwordHash 為 null 一律無法登入）。
+  const loginId = typeof body.loginId === "string" && body.loginId.trim() ? body.loginId.trim() : null;
+  const password = typeof body.password === "string" ? body.password : "";
+  if (password && password.length < 6) {
+    return NextResponse.json({ error: "密碼至少 6 碼" }, { status: 400 });
+  }
+  if (loginId) {
+    const dup = await prisma.user.findUnique({ where: { loginId } });
+    if (dup) return NextResponse.json({ error: "這個登入帳號已被使用" }, { status: 409 });
+  }
+
   const user = await prisma.user.create({
-    data: { name, role: role as Role, isActive: true },
+    data: {
+      name,
+      role: role as Role,
+      isActive: true,
+      loginId,
+      passwordHash: password ? await hashPassword(password) : null,
+    },
   });
 
   await recordVersion({
     entityType: "User",
     entityId: user.id,
     action: "CREATE",
-    afterData: user,
+    afterData: { id: user.id, name: user.name, role: user.role, loginId: user.loginId, isActive: user.isActive },
     operatorName: check.operator.name,
     changeNote: "使用者帳號管理：建立操作人員",
   });
 
-  return NextResponse.json({ user }, { status: 201 });
+  return NextResponse.json(
+    { user: { id: user.id, name: user.name, role: user.role, loginId: user.loginId, isActive: user.isActive } },
+    { status: 201 }
+  );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import {
   createMemberForHousehold,
   normalizeCreateMemberInput,
@@ -56,7 +57,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     // ---- 建立前疑似重複比對（V12.2 最後一個缺口）----

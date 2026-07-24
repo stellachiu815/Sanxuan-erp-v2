@@ -38,6 +38,7 @@ const OperatorContext = createContext<OperatorContextValue | null>(null);
 
 export function OperatorProvider({ children }: { children: React.ReactNode }) {
   const [operatorUserId, setOperatorUserIdState] = useState<string | null>(null);
+  const [me, setMe] = useState<OperatorUser | null>(null);
   const [users, setUsers] = useState<OperatorUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +49,39 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored) setOperatorUserIdState(stored);
     } catch {
-      // localStorage 在部分瀏覽器隱私模式可能不可用，忽略即可，操作人員仍可
-      // 在畫面上重新選一次。
+      // localStorage 在部分瀏覽器隱私模式可能不可用，忽略即可。
     }
   }, []);
+
+  /**
+   * V14.3 正式登入：操作人一律是「目前登入的使用者」（讀 /api/auth/me 的 session），
+   * 不再由畫面自行挑選。仍把 id 寫進 localStorage，讓既有 fetch 包裝（會帶
+   * operatorUserId）相容；伺服器端一律以 session 為準，前端送的只是相容用途。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : { user: null }))
+      .then((data) => {
+        if (cancelled) return;
+        const u = data?.user ?? null;
+        setMe(u);
+        if (u?.id) {
+          setOperatorUserIdState(u.id);
+          try {
+            window.localStorage.setItem(STORAGE_KEY, u.id);
+          } catch {
+            /* 忽略 */
+          }
+        }
+      })
+      .catch(() => {
+        /* 未登入或取不到；middleware 會導向 /login */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +119,8 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
 
   const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
-  const operatorUser = users.find((u) => u.id === operatorUserId) ?? null;
+  // V14.3：目前操作人優先用登入的 session 使用者（me）；退回名單比對（相容）。
+  const operatorUser = me ?? users.find((u) => u.id === operatorUserId) ?? null;
 
   return (
     <OperatorContext.Provider

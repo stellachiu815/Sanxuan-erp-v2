@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { buildLanternPrintBatch, buildPetitionData, LANTERN_ACTIVITY_TYPES } from "@/lib/lanternPrint";
 import type { ActivityType } from "@prisma/client";
 
@@ -19,7 +20,7 @@ export async function GET(
   { params }: { params: Promise<{ activityType: string; year: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const operatorUserId = searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
 
   const check = await assertDevoteePermissionForOperator(operatorUserId, "view");
   if (!check.ok) {

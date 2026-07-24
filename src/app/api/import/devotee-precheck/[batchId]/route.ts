@@ -10,11 +10,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { getDevoteeImportBatch } from "@/lib/devoteeImportBatch";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ batchId: string }> }) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "manageDataImport"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

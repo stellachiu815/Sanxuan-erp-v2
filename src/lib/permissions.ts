@@ -103,16 +103,25 @@ export function assertFinancePermission(
  *    等登入機制做出來，只要在 API route 呼叫 getCurrentUser() 拿到真正的
  *    角色，就可以直接接上這裡的檢查，不用重寫規則本身。
  */
-export type PurificationAction = "manageBannedNumbers";
+// V14.3：祭改（purification）權限由單一 manageBannedNumbers 擴充為完整動作集，
+// 涵蓋年度設定、報名 CRUD、禁用號碼、列印/補印。沿用既有 per-module 慣例。
+export type PurificationAction =
+  | "view"
+  | "create"
+  | "update"
+  | "delete"
+  | "manageYears"
+  | "manageBannedNumbers"
+  | "print"
+  | "reprint";
 
 const PURIFICATION_PERMISSIONS: Record<Role, PurificationAction[]> = {
-  SUPER_ADMIN: ["manageBannedNumbers"],
-  // V11.1.1 新增角色：需求「六」原文只講「一般工作人員不可修改」，沒有
-  // 限制只有 SUPER_ADMIN，所以 ADMIN 也給這個權限；READONLY 不給（唯讀
-  // 人員本來就不能執行任何修改類操作）。
-  ADMIN: ["manageBannedNumbers"],
-  STAFF: [],
-  READONLY: [],
+  SUPER_ADMIN: ["view", "create", "update", "delete", "manageYears", "manageBannedNumbers", "print", "reprint"],
+  // ADMIN：一般管理、年度設定、禁用號碼、列印；軟性刪除/取消沿用既有規則（可）。
+  ADMIN: ["view", "create", "update", "delete", "manageYears", "manageBannedNumbers", "print", "reprint"],
+  // STAFF：一般報名建立/修改、列印/補印；禁止年度核心設定、禁用號碼、刪除。
+  STAFF: ["view", "create", "update", "print", "reprint"],
+  READONLY: ["view"],
   FINANCE_CLERK: [],
 };
 
@@ -410,6 +419,7 @@ export type SystemAction =
   | "manageBackupSchedule" // 修改備份排程與保留政策
   | "manageDataImport" // V11.3「信眾資料匯入預檢中心」新增：上傳/欄位對照/預覽/
   // 疑似重複人工確認/測試匯入。
+  | "manageRecycleBin" // V14.3：回收區還原、版本還原（ADMIN+SUPER_ADMIN；STAFF/READONLY 不得使用回收桶）
   | "purgeRecycleBin" // V12.1 一次性修正指令「二之4」新增：從回收區永久刪除
   // 一筆資料（POST /api/recycle-bin/purge）。這支 API 原本完全沒有權限檢查，
   // 但 src/app/api/recycle-bin/purge/route.ts 既有註解本來就寫明「需求
@@ -431,6 +441,7 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
     "manageBackupSchedule",
     "manageDataImport",
     "manageUsers",
+    "manageRecycleBin",
     "purgeRecycleBin",
   ],
   // V12「信眾資料中心正式建置」指令「九」逐字定義：「ADMIN＝全部功能／可進
@@ -452,7 +463,10 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   // 這兩個獨立入口（見 src/app/system-center/page.tsx 的
   // AdminToolsSection，放在 SystemCenterGate 之外，各自用這裡對應的
   // action 個別檢查）。
-  ADMIN: ["manageDataImport", "manageUsers"],
+  // V14.3 角色規則修正：ADMIN **不可**管理使用者／修改角色／系統設定／備份設定
+  // （移除既有 V12 誤給的 manageUsers——使用者本輪明確要求 ADMIN 不得管理帳號）。
+  // ADMIN 可用回收桶還原（manageRecycleBin）與資料匯入（manageDataImport，屬日常作業）。
+  ADMIN: ["manageDataImport", "manageRecycleBin"],
   STAFF: [],
   READONLY: [],
   FINANCE_CLERK: [],
@@ -731,6 +745,84 @@ const RITUAL_REGISTRATION_PERMISSIONS: Record<Role, RitualRegistrationAction[]> 
 
 export function canRitualRegistration(role: Role, action: RitualRegistrationAction): boolean {
   return RITUAL_REGISTRATION_PERMISSIONS[role]?.includes(action) ?? false;
+}
+
+// ============================================================
+// V14.3「收款中心」權限（先前完全沒有權限檢查——真實金流卻任何人可呼叫，
+// 是本輪要優先關閉的安全缺口）。沿用既有「一模組一組 Record<Role, Action[]>」
+// 慣例，不是第二套權限系統。
+//
+// 依 V14.3 角色規則：
+//   - 收款（recordPayment）：STAFF 可收款；READONLY 不可。
+//   - 作廢／退款／轉款／調整（voidPayment／refund）：高風險，僅 SUPER_ADMIN／ADMIN。
+//   - 代收對帳／繳回（reconcile）：屬管理作業，僅 SUPER_ADMIN／ADMIN。
+//   - 臨時應收（manageManualReceivable）：日常收款前置，STAFF 可。
+// ============================================================
+export type CollectionAction =
+  | "view"
+  | "recordPayment"
+  | "voidPayment"
+  | "refund"
+  | "reconcile"
+  | "manageManualReceivable";
+
+const COLLECTION_PERMISSIONS: Record<Role, CollectionAction[]> = {
+  SUPER_ADMIN: ["view", "recordPayment", "voidPayment", "refund", "reconcile", "manageManualReceivable"],
+  ADMIN: ["view", "recordPayment", "voidPayment", "refund", "reconcile", "manageManualReceivable"],
+  STAFF: ["view", "recordPayment", "manageManualReceivable"],
+  READONLY: ["view"],
+  FINANCE_CLERK: [],
+};
+
+export function canCollection(role: Role, action: CollectionAction): boolean {
+  return COLLECTION_PERMISSIONS[role]?.includes(action) ?? false;
+}
+
+// ============================================================
+// V14.3「宮務活動（temple-events）」權限。沿用既有 per-module 慣例。
+// delete 屬不可逆（活動含連動子資料），僅 SUPER_ADMIN。
+// ============================================================
+export type ActivityAction =
+  | "view"
+  | "create"
+  | "update"
+  | "delete"
+  | "manageSettings"
+  | "manageParticipants"
+  | "manageExpenses"
+  | "import"
+  | "print";
+
+const ACTIVITY_PERMISSIONS: Record<Role, ActivityAction[]> = {
+  SUPER_ADMIN: ["view", "create", "update", "delete", "manageSettings", "manageParticipants", "manageExpenses", "import", "print"],
+  // ADMIN：建立/修改/設定/參與人/支出/匯入/列印；不可逆永久刪除留給 SUPER_ADMIN。
+  ADMIN: ["view", "create", "update", "manageSettings", "manageParticipants", "manageExpenses", "import", "print"],
+  // STAFF：一般活動更新、參與人新增修改、列印；禁止核心設定/匯入/刪除/支出。
+  STAFF: ["view", "update", "manageParticipants", "print"],
+  READONLY: ["view"],
+  FINANCE_CLERK: [],
+};
+
+export function canActivity(role: Role, action: ActivityAction): boolean {
+  return ACTIVITY_PERMISSIONS[role]?.includes(action) ?? false;
+}
+
+// ============================================================
+// V14.3「模板中心（templates）」權限。seed／永久刪除／覆蓋正式模板僅 SUPER_ADMIN。
+// ============================================================
+export type TemplateAction = "view" | "create" | "update" | "activate" | "seed" | "delete";
+
+const TEMPLATE_PERMISSIONS: Record<Role, TemplateAction[]> = {
+  SUPER_ADMIN: ["view", "create", "update", "activate", "seed", "delete"],
+  // ADMIN：建立/修改/啟用；seed 與永久刪除留給 SUPER_ADMIN。
+  ADMIN: ["view", "create", "update", "activate"],
+  STAFF: ["view"],
+  READONLY: ["view"],
+  FINANCE_CLERK: [],
+};
+
+export function canTemplate(role: Role, action: TemplateAction): boolean {
+  return TEMPLATE_PERMISSIONS[role]?.includes(action) ?? false;
 }
 
 /** 供測試與稽核使用的完整矩陣快照（唯讀）。 */

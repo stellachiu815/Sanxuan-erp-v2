@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDevoteeTagsForMember, applyDevoteeTag } from "@/lib/devoteeTags";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/devotee-center/xxx/tags?operatorUserId=xxx — 這位信眾目前的標籤清單。
@@ -8,7 +9,7 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ memberId: string }> }) {
   const { memberId } = await params;
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const tags = await getDevoteeTagsForMember(memberId);
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請提供 tagId" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "applyTag");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "applyTag");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   try {

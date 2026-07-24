@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createMergedPaymentTransaction, listPaymentTransactions } from "@/lib/collectionCenter";
+import { assertCollectionPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/collection-center/payments — 收款紀錄查詢
@@ -46,7 +48,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請選擇收款方式" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  // V14.3：真實金流——一律以登入 session 為操作人，忽略前端送的 operatorName。
+  const check = await assertCollectionPermissionForOperator(
+    await readOperatorUserId(request),
+    "recordPayment"
+  );
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+  const operatorName = check.operator.name;
   const paidOn = typeof body.paidOn === "string" ? new Date(body.paidOn) : new Date();
 
   const result = await createMergedPaymentTransaction(

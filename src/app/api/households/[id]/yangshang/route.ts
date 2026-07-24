@@ -19,7 +19,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /** 下一次 02:00 每日自動備份的時間（需求「十一」首頁顯示用）。 */
 function nextDailyRunAt(now: Date): Date {
@@ -16,8 +17,7 @@ function nextDailyRunAt(now: Date): Date {
  * 帳號、下一次排程時間、狀態燈號（24小時內🟢／24~48小時🟡／超過48小時🔴）。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

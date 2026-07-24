@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkGoogleDriveHealth } from "@/lib/googleDrive";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { redactSensitive } from "@/lib/backupErrorClassifier";
 
 const execFileAsync = promisify(execFile);
@@ -92,8 +93,7 @@ function getRequiredEnvVarStatus(): Record<string, boolean> {
  * 已設定/未設定，不顯示內容）。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

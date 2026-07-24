@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createManualReceivable } from "@/lib/collectionCenter";
+import { assertCollectionPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/collection-center/manual-receivables
@@ -19,6 +21,9 @@ export async function POST(request: NextRequest) {
   if (typeof body.year !== "number") {
     return NextResponse.json({ error: "請提供年度" }, { status: 400 });
   }
+  // V14.3：建立臨時應收（收款前置），STAFF 以上可；操作人用登入 session。
+  const check = await assertCollectionPermissionForOperator(await readOperatorUserId(request), "manageManualReceivable");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await createManualReceivable({
     title: body.title,
@@ -29,7 +34,7 @@ export async function POST(request: NextRequest) {
     payerPhoneSnapshot: typeof body.payerPhoneSnapshot === "string" ? body.payerPhoneSnapshot : null,
     amountDue: body.amountDue,
     note: typeof body.note === "string" ? body.note : null,
-    createdByName: typeof body.createdByName === "string" ? body.createdByName : null,
+    createdByName: check.operator.name,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   revalidatePath("/collection-center");

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { browseBackupFolder, type BrowseFolder } from "@/lib/backup";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 const VALID_FOLDERS: BrowseFolder[] = ["Daily", "Weekly", "Monthly", "Before_Update"];
 
@@ -11,7 +12,7 @@ const VALID_FOLDERS: BrowseFolder[] = ["Daily", "Weekly", "Monthly", "Before_Upd
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertSystemPermissionForOperator(searchParams.get("operatorUserId"), "viewSystemCenter");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "viewSystemCenter");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const folder = searchParams.get("folder") as BrowseFolder | null;

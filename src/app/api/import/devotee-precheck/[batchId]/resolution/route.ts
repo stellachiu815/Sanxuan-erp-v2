@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { saveMemberResolution, countPendingResolutions } from "@/lib/devoteeImportBatch";
 
 /**
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "manageDataImport");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageDataImport");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const rowId = typeof body.rowId === "string" ? body.rowId : "";

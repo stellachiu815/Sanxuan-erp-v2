@@ -8,6 +8,8 @@ import {
   agentRemittanceStatusLabel,
   paymentAdjustmentTypeLabel,
 } from "@/lib/labels";
+import { useCurrentUser } from "@/lib/permissionClient";
+import { canCollection } from "@/lib/permissions";
 
 type Allocation = {
   id: string;
@@ -44,6 +46,11 @@ type TransactionView = {
  */
 export default function PaymentTransactionDetailScreen({ transaction }: { transaction: TransactionView }) {
   const router = useRouter();
+  // V14.3：退款／轉款屬 refund、作廢屬 voidPayment（皆 SUPER_ADMIN／ADMIN）。
+  // STAFF 可查看收款明細但不顯示退款／作廢入口；READONLY 亦然。API 為最終防線。
+  const { role } = useCurrentUser();
+  const canRefund = role ? canCollection(role, "refund") : false;
+  const canVoid = role ? canCollection(role, "voidPayment") : false;
   const [activeAllocationId, setActiveAllocationId] = useState<string | null>(null);
   const [adjustmentType, setAdjustmentType] = useState<"REFUND" | "TRANSFER_TO_OTHER" | "RETAIN_AS_OVERPAYMENT">("REFUND");
   const [amount, setAmount] = useState("");
@@ -144,7 +151,7 @@ export default function PaymentTransactionDetailScreen({ transaction }: { transa
                 <p className="text-sm text-ink">{a.sourceLabel}</p>
                 <p className="text-sm text-ink">{a.amount.toLocaleString("zh-Hant")} 元</p>
               </div>
-              {transaction.status === "COMPLETED" && (
+              {transaction.status === "COMPLETED" && canRefund && (
                 <button
                   onClick={() => {
                     setActiveAllocationId(a.id);
@@ -199,7 +206,7 @@ export default function PaymentTransactionDetailScreen({ transaction }: { transa
         </section>
       )}
 
-      {transaction.status === "COMPLETED" && (
+      {transaction.status === "COMPLETED" && canVoid && (
         <section className="rounded-3xl bg-white/70 p-6 shadow-card">
           {!showVoid ? (
             <button onClick={() => setShowVoid(true)} className="text-xs text-ink-faint underline-offset-4 hover:underline">

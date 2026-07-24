@@ -6,6 +6,8 @@ import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
 import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
 import SystemCenterHomeCard from "@/components/system-center/SystemCenterHomeCard";
 import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
+import { getSessionUser } from "@/lib/auth";
+import { canSystem } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -29,6 +31,19 @@ import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
+  // V14.3：首頁受限入口依登入者角色顯示。一般模組（信眾／收款／活動／普渡／
+  // 供品／模板／收據）維持所有已登入者可見（view 級）；「匯入」「系統管理」
+  // 「回收區」屬管理層級，用共用 canSystem 判斷，不散落 role 字面值。
+  const me = await getSessionUser();
+  const role = me?.role ?? null;
+  const showImport = role ? canSystem(role, "manageDataImport") : false;
+  const showRecycleBin = role ? canSystem(role, "manageRecycleBin") : false;
+  const showSystemCenter = role
+    ? canSystem(role, "viewSystemCenter") ||
+      canSystem(role, "manageUsers") ||
+      canSystem(role, "manageDataImport") ||
+      canSystem(role, "manageRecycleBin")
+    : false;
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 px-6 py-16">
       <div className="text-center">
@@ -65,9 +80,11 @@ export default async function HomePage() {
       <OfferingHomeCard />
       <SystemCenterHomeCard />
       <div className="flex flex-wrap items-center justify-center gap-4">
-        <Link href="/import" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          家戶資料 Excel 批次匯入 →
-        </Link>
+        {showImport && (
+          <Link href="/import" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+            家戶資料 Excel 批次匯入 →
+          </Link>
+        )}
         <Link href="/tools/birthday" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           🎂 生日與農曆中心 →
         </Link>
@@ -92,15 +109,19 @@ export default async function HomePage() {
         <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           🧾 全宮共用收據中心 →
         </Link>
-        <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🛠️ 系統管理 →
-        </Link>
-        <Link
-          href="/system/recycle-bin"
-          className="text-sm text-ink-faint underline-offset-4 hover:underline"
-        >
-          🗑 回收區 →
-        </Link>
+        {showSystemCenter && (
+          <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+            🛠️ 系統管理 →
+          </Link>
+        )}
+        {showRecycleBin && (
+          <Link
+            href="/system/recycle-bin"
+            className="text-sm text-ink-faint underline-offset-4 hover:underline"
+          >
+            🗑 回收區 →
+          </Link>
+        )}
         {/* V12.1「家戶管理中心」驗收修正輪：家戶管理（新增家戶／指定戶長／
             合併／拆分／轉移／封存）這次直接整合進「信眾名單」頁面，不是
             另一個獨立入口，所以這裡改成直接指向信眾名單，不調整上面既有

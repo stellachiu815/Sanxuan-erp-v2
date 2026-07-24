@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActiveAccessToken, downloadFile } from "@/lib/googleDrive";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/system-center/backup/download?operatorUserId=xxx&fileId=xxx&fileName=xxx
@@ -14,7 +15,7 @@ import { assertSystemPermissionForOperator } from "@/lib/operator";
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertSystemPermissionForOperator(searchParams.get("operatorUserId"), "downloadBackup");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "downloadBackup");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const fileId = searchParams.get("fileId");

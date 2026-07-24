@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { registerItem } from "@/lib/registrationItemRegistration";
 
 /**
@@ -18,7 +19,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ memberId: string }> }
 ) {
-  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertRitualRegistrationPermissionForOperator(operatorUserId, "register");
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: check.status });

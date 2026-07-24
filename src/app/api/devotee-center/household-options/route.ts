@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { householdSearchOrConditions } from "@/lib/devoteeSearchFields";
 
 /**
@@ -20,7 +21,7 @@ import { householdSearchOrConditions } from "@/lib/devoteeSearchFields";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) {
     return NextResponse.json({ success: false, error: check.error }, { status: check.status });
   }

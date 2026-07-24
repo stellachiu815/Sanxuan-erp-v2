@@ -275,7 +275,8 @@ export function computeItemAmountDue(input: {
       return { ok: true, amountDue: round2(unit * quantity) };
     case "CUSTOM": {
       const amt = customAmount ?? null;
-      if (amt === null || !Number.isFinite(amt) || amt < 0) {
+      // 隨喜／自訂金額必須大於 0（0 元的自訂捐項無意義，等同未填），拒絕 <= 0。
+      if (amt === null || !Number.isFinite(amt) || amt <= 0) {
         return { ok: false, reason: "請輸入有效的自訂金額" };
       }
       return { ok: true, amountDue: round2(amt) };

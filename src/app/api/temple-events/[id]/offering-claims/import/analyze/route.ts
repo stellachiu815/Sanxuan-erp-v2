@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { parseSpreadsheetBuffer, suggestColumnMapping, getTargetFields } from "@/lib/smartImport";
 import { analyzeOfferingClaimImport } from "@/lib/offeringImport";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * V10.1「供品認捐中心」需求「八」Excel/CSV 匯入——第一步：上傳檔案，分析
@@ -14,6 +16,8 @@ import { analyzeOfferingClaimImport } from "@/lib/offeringImport";
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "import");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addTemplateVersion } from "@/lib/templates";
+import { assertTemplatePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 新增模板版本（實際上傳 Word/Excel/PDF 原始檔後呼叫）。
@@ -17,6 +19,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!body || typeof body.versionLabel !== "string" || !body.versionLabel.trim()) {
     return NextResponse.json({ error: "請提供版本標籤" }, { status: 400 });
   }
+  const __op = await assertTemplatePermissionForOperator(await readOperatorUserId(request), "create");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const result = await addTemplateVersion(id, {
     versionLabel: body.versionLabel.trim(),

@@ -21,6 +21,7 @@
  */
 import { NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { commitDevoteeImport, DEFAULT_COMMIT_CHUNK_SIZE } from "@/lib/devoteeImportBatch";
 
 /**
@@ -33,7 +34,7 @@ export const maxDuration = 300;
 export async function POST(request: Request, { params }: { params: Promise<{ batchId: string }> }) {
   const body = await request.json().catch(() => ({}));
 
-  const check = await assertSystemPermissionForOperator(body?.operatorUserId, "manageDataImport");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageDataImport");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   // 批次大小可由呼叫端調整（預設 50 戶）。設上限避免有人傳超大數字，

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { addBannedNumber, listBannedNumbers } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 禁用編號清單：查詢／新增。
@@ -41,8 +43,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請提供正確的禁用號碼（number）" }, { status: 400 });
   }
 
+  // V14.3：登入系統上線後補上原本待辦的後端檢查。管理禁用編號屬
+  // manageBannedNumbers（僅 SUPER_ADMIN／ADMIN），操作人取自登入 session。
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "manageBannedNumbers");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+
   const reason = typeof body.reason === "string" ? body.reason : null;
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const operatorName = __op.operator.name;
 
   const result = await addBannedNumber(number, reason, operatorName);
   if (!result.ok) {

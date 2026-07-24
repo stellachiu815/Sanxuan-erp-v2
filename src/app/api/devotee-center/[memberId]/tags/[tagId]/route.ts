@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { removeDevoteeTag } from "@/lib/devoteeTags";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * DELETE /api/devotee-center/xxx/tags/yyy?operatorUserId=xxx
@@ -11,7 +12,7 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ memberId: string; tagId: string }> }) {
   const { memberId, tagId } = await params;
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "applyTag");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "applyTag");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   await removeDevoteeTag(memberId, tagId, check.operator.name);

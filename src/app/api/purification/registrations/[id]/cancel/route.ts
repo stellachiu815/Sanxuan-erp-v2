@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { cancelPurificationRegistration } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 取消一筆祭改報名（需求「七」：保留原編號、狀態改為取消，不會把編號
@@ -15,11 +17,11 @@ export async function POST(
 ) {
   const { id } = await params;
 
-  const body = await request.json().catch(() => ({}));
-  const operatorName =
-    body && typeof body === "object" && typeof body.operatorName === "string" ? body.operatorName : null;
+  await request.json().catch(() => ({}));
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "update");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await cancelPurificationRegistration(id, operatorName);
+  const result = await cancelPurificationRegistration(id, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

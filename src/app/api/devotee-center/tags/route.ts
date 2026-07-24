@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listDevoteeTags, createDevoteeTag } from "@/lib/devoteeTags";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/devotee-center/tags?operatorUserId=xxx&includeInactive=1
@@ -8,7 +9,7 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const includeInactive = searchParams.get("includeInactive") !== "0";
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請提供標籤名稱" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "manageTags");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageTags");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   try {

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { parseSpreadsheetBuffer, suggestColumnMapping, saveFieldMapping } from "@/lib/smartImport";
 import { analyzeOfferingClaimImport, commitOfferingClaimImport } from "@/lib/offeringImport";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * V10.1「供品認捐中心」需求「八」——第二步：確認匯入，真正寫入資料。
@@ -15,6 +17,8 @@ import { analyzeOfferingClaimImport, commitOfferingClaimImport } from "@/lib/off
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "import");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");
@@ -32,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  const operatorName = typeof formData?.get("operatorName") === "string" ? String(formData.get("operatorName")) : null;
+  const operatorName = __op.operator.name;
 
   let columns: string[];
   let rows: Record<string, unknown>[];

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdjacentDevoteeIds, type DevoteeListFilter } from "@/lib/devoteeList";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 const VALID_FILTERS: DevoteeListFilter[] = [
   "ACTIVE",
@@ -31,7 +32,7 @@ const VALID_FILTERS: DevoteeListFilter[] = [
 export async function GET(request: NextRequest, { params }: { params: Promise<{ memberId: string }> }) {
   const { memberId } = await params;
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const filtersRaw = searchParams.get("filters");

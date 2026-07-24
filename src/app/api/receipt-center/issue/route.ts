@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { issueReceipt } from "@/lib/receipt";
 import { assertReceiptPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/receipt-center/issue
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const check = await assertReceiptPermissionForOperator(body.operatorUserId, "issue");
+  const check = await assertReceiptPermissionForOperator(await readOperatorUserId(request), "issue");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await issueReceipt(

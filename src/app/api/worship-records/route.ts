@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { createAncestorLine } from "@/lib/soulTabletFlow";
 import { findWorshipDuplicates, getYangshangSuggestions } from "@/lib/worshipRecordCreate";
 import { prisma } from "@/lib/prisma";
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const householdId = searchParams.get("householdId");
-  const operatorUserId = searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
 
   const check = await assertDevoteePermissionForOperator(operatorUserId, "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "資料格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const householdId = typeof body.householdId === "string" ? body.householdId : "";

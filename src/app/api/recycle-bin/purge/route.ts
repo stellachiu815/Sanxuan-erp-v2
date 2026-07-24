@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { isRecycleBinEntityType, purgeRecycleBinItem } from "@/lib/recycleBin";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 從回收區永久刪除一筆資料（V8.0「刪除保護」）。只有超過保留期限
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "purgeRecycleBin");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const entityType = body.entityType;

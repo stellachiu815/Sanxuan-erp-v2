@@ -27,13 +27,13 @@ import {
   type ParsedRow,
 } from "@/lib/importRules";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
 
-  const operatorUserIdRaw = formData.get("operatorUserId");
   const check = await assertSystemPermissionForOperator(
-    typeof operatorUserIdRaw === "string" ? operatorUserIdRaw : null,
+    await readOperatorUserId(request),
     "manageDataImport"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

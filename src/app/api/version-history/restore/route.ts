@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { restoreToVersion } from "@/lib/versionRestore";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 回復到指定的歷史版本（V8.0「資料版本紀錄」）。
@@ -25,7 +27,6 @@ export async function POST(request: NextRequest) {
   const entityType = typeof body.entityType === "string" ? body.entityType : "";
   const entityId = typeof body.entityId === "string" ? body.entityId : "";
   const versionId = typeof body.versionId === "string" ? body.versionId : "";
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
 
   if (!entityType || !entityId || !versionId) {
     return NextResponse.json(
@@ -33,6 +34,11 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  // V14.3：版本還原僅 SUPER_ADMIN／ADMIN；操作人以登入 session 為準。
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageRecycleBin");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+  const operatorName = check.operator.name;
 
   const result = await restoreToVersion(entityType, entityId, versionId, operatorName);
   if (!result.ok) {

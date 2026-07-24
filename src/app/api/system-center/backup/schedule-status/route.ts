@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getScheduleStatus } from "@/lib/backup";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/system-center/backup/schedule-status?operatorUserId=xxx
@@ -12,8 +13,7 @@ import { assertSystemPermissionForOperator } from "@/lib/operator";
  * 的說明，這是唯一站得住腳的判斷依據（真的收到過至少一次自動觸發）。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

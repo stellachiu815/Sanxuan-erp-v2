@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { createBackup } from "@/lib/backup";
 import { prisma } from "@/lib/prisma";
+
+/** V14.3：timing-safe 密鑰比對，避免以字串長度/內容差異被時間側通道推測。 */
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 /**
  * POST /api/system-center/backup/scheduled-trigger?type=daily|weekly|monthly
@@ -32,13 +42,18 @@ function taipeiDateKey(date: Date): string {
 }
 
 export async function POST(request: NextRequest) {
-  const expectedSecret = process.env.BACKUP_CRON_SECRET;
+  // V14.3：排程觸發是「機器呼叫」，不使用一般使用者 session；改以專用密鑰驗證
+  // （BACKUP_SCHEDULE_SECRET 優先，相容既有 BACKUP_CRON_SECRET），timing-safe 比對。
+  // 未設定密鑰 → 503（功能未啟用）；未提供或錯誤密鑰 → 401；一律不接受 operatorUserId。
+  const expectedSecret = process.env.BACKUP_SCHEDULE_SECRET || process.env.BACKUP_CRON_SECRET;
   if (!expectedSecret) {
-    return NextResponse.json({ error: "系統尚未設定 BACKUP_CRON_SECRET，排程觸發功能未啟用" }, { status: 503 });
+    return NextResponse.json({ error: "系統尚未設定排程備份密鑰，排程觸發功能未啟用" }, { status: 503 });
   }
-  const providedSecret = request.headers.get("x-backup-cron-secret");
-  if (!providedSecret || providedSecret !== expectedSecret) {
-    return NextResponse.json({ error: "密鑰不正確" }, { status: 403 });
+  const providedSecret =
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    request.headers.get("x-backup-cron-secret");
+  if (!secretMatches(providedSecret, expectedSecret)) {
+    return NextResponse.json({ error: "密鑰不正確或未提供" }, { status: 401 });
   }
 
   const type = request.nextUrl.searchParams.get("type");

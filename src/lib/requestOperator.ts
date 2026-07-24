@@ -18,6 +18,8 @@
  * 前端即使繼續在 body 裡送 operatorName，伺服器也完全忽略。
  */
 
+import { getSessionUserByToken, SESSION_COOKIE } from "@/lib/auth";
+
 type CachedBody = Record<string, unknown> | null;
 
 /**
@@ -52,10 +54,24 @@ export async function readJsonBody(request: Request): Promise<CachedBody> {
  * 並用**資料庫查到的角色**做權限判斷。
  */
 export async function readOperatorUserId(request: Request): Promise<string | null> {
-  const body = await readJsonBody(request);
-  const fromBody = body && typeof body.operatorUserId === "string" ? body.operatorUserId : null;
-  if (fromBody) return fromBody;
+  // V14.3 正式登入：操作人一律以「登入的 session」為準（唯一來源）。
+  //
+  // ⚠️ 重要安全決策：middleware 對 /api/* 一律放行（見 middleware.ts，API 不能被
+  // 導向 /login 的 HTML），所以 API 的身分驗證「完全」倚賴這裡。若這裡在沒有
+  // session 時退回讀 body/query 的 operatorUserId，未登入者只要送
+  // `?operatorUserId=<某人的id>` 就能冒充該使用者——因此 V14.3 起**移除所有退回**，
+  // 沒有有效 session 一律回傳 null（呼叫端的 assertXForOperator 會回 401）。
+  const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
+  const sessionUser = await getSessionUserByToken(token);
+  return sessionUser ? sessionUser.id : null;
+}
 
-  const fromQuery = new URL(request.url).searchParams.get("operatorUserId");
-  return fromQuery || null;
+/** 從 Cookie 標頭取單一 cookie 值（middleware 之外的 route 用；不依賴 next/headers）。 */
+function readCookie(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(v.join("="));
+  }
+  return null;
 }

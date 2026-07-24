@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { recordOfferingPayment } from "@/lib/offeringClaims";
+import { assertOfferingPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/offering-claims/xxx/payments
@@ -15,7 +17,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請提供正確的收款金額" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  // V14.3：供品收款——STAFF 以上可；操作人一律以登入 session 為準。
+  const check = await assertOfferingPermissionForOperator(await readOperatorUserId(request), "recordPayment");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+  const operatorName = check.operator.name;
   const paidOn = typeof body.paidOn === "string" ? new Date(body.paidOn) : new Date();
   const result = await recordOfferingPayment(
     id,

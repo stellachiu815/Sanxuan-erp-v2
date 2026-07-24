@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { renumberPurificationYear } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 重新編號整批重排（需求「七」：只有尚未正式列印、管理者明確二次確認
@@ -28,9 +30,10 @@ export async function POST(
   }
 
   const confirm = body.confirm === true;
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "manageYears");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await renumberPurificationYear(yearId, confirm, operatorName);
+  const result = await renumberPurificationYear(yearId, confirm, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

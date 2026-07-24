@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReceiptDetail } from "@/lib/receipt";
 import { assertReceiptPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/receipt-center/receipts/xxx?operatorUserId=xxx
@@ -9,8 +10,7 @@ import { assertReceiptPermissionForOperator } from "@/lib/operator";
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const check = await assertReceiptPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertReceiptPermissionForOperator(await readOperatorUserId(request),
     "view"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

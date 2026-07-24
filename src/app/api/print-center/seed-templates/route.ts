@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { ensurePrintTemplatesSeeded } from "@/lib/printTemplates";
 import { ensureRegistrationItemTypesSeeded } from "@/lib/registrationItems";
 
@@ -13,8 +14,7 @@ import { ensureRegistrationItemTypesSeeded } from "@/lib/registrationItems";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const check = await assertRitualRegistrationPermissionForOperator(
-    new URL(request.url).searchParams.get("operatorUserId"),
+  const check = await assertRitualRegistrationPermissionForOperator(await readOperatorUserId(request),
     "register"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

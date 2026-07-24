@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { buildCleanupPreview } from "@/lib/testDataCleanupPreview";
 
 /**
@@ -20,8 +21,7 @@ export async function GET(request: Request) {
 
   // 清理預覽會列出全宮的家戶概況，屬於系統管理層級資料，
   // 沿用既有的系統管理權限，不另建一套。
-  const check = await assertSystemPermissionForOperator(
-    searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "manageDataImport"
   );
   if (!check.ok) {

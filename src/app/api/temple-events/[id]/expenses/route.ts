@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { addTempleEventExpense, listTempleEventExpenses } from "@/lib/templeEvents";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 活動支出（需求「四」✓建立支出——這是活動中心內建的簡易支出容器，跟
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!occurredOn || Number.isNaN(occurredOn.getTime())) {
     return NextResponse.json({ error: "請提供正確的支出日期" }, { status: 400 });
   }
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageExpenses");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const result = await addTempleEventExpense(id, {
     category: typeof body.category === "string" ? body.category : null,

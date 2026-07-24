@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import {
   buildSoulTabletPreview,
   createSoulTablet,
@@ -29,8 +30,7 @@ export async function GET(
   { params }: { params: Promise<{ memberId: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(
-    searchParams.get("operatorUserId"),
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request),
     "view"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -52,7 +52,7 @@ export async function POST(
     return NextResponse.json({ error: "資料格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { memberId } = await params;

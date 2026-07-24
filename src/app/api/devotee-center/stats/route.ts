@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDevoteeHomeStats, getDevoteeRecentLists } from "@/lib/devoteeStats";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/devotee-center/stats?operatorUserId=xxx
@@ -9,7 +10,7 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const now = new Date();

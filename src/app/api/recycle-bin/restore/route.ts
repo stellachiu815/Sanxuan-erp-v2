@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { isRecycleBinEntityType, restoreRecycleBinItem } from "@/lib/recycleBin";
+import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 從回收區還原一筆資料（V8.0「刪除保護」）。
@@ -23,11 +25,16 @@ export async function POST(request: NextRequest) {
 
   const entityType = body.entityType;
   const entityId = typeof body.entityId === "string" ? body.entityId : "";
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
 
   if (!isRecycleBinEntityType(entityType) || !entityId) {
     return NextResponse.json({ error: "請提供正確的 entityType 與 entityId" }, { status: 400 });
   }
+
+  // V14.3：回收桶還原僅 SUPER_ADMIN／ADMIN（STAFF／READONLY 不得使用回收桶）；
+  // 操作人一律以登入 session 為準，不信任前端 operatorName。
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageRecycleBin");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
+  const operatorName = check.operator.name;
 
   // 先查一次相關的家戶 id，還原成功後才知道要 revalidate 哪個頁面。
   let householdIdToRevalidate: string | null = null;

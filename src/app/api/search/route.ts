@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { memberSearchOrConditions, householdSearchOrConditions } from "@/lib/devoteeSearchFields";
 // V14.1（十七）：搜尋結果生日一律民國／農曆顯示，不顯示西元。
 import { formatRocDateCompact, formatLunarBirthDate } from "@/lib/minguoDate";
@@ -56,7 +57,7 @@ export type QuickSearchResult = {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: check.status });
   }

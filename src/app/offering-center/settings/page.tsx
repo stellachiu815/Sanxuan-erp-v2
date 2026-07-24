@@ -2,6 +2,8 @@ import Link from "next/link";
 import { listOfferingTypes, seedDefaultOfferingTypes } from "@/lib/offeringTypes";
 import OfferingTypeSettingsScreen from "@/components/offering/OfferingTypeSettingsScreen";
 import type { OfferingTypeJSON } from "@/components/offering/types";
+import { requirePagePermission } from "@/lib/pageGuard";
+import { canOffering } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -25,6 +27,14 @@ import type { OfferingTypeJSON } from "@/components/offering/types";
 export const dynamic = "force-dynamic";
 
 export default async function OfferingTypeSettingsPage() {
+  // V14.3：供品種類管理僅 SUPER_ADMIN／ADMIN（manageOfferingTypes）。先擋權限
+  // 再 seed／查資料，避免無權限者也觸發 seed 或看到設定畫面。
+  const guard = await requirePagePermission(
+    (r) => canOffering(r, "manageOfferingTypes"),
+    "/offering-center/settings"
+  );
+  if (guard.denied) return guard.deniedView;
+
   // 需求「一」：系統首次啟用時建立預設 5 種供品，已存在同名資料就跳過
   // （見 seedDefaultOfferingTypes 說明），之後管理者可以自由修改/停用。
   await seedDefaultOfferingTypes();

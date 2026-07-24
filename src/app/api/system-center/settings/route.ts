@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/system-center/settings?operatorUserId=xxx
  * 需求「系統設定」子頁面：目前的備份保留政策。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
@@ -37,7 +37,7 @@ export async function PUT(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "請提供設定資料" }, { status: 400 });
 
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "manageBackupSchedule");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageBackupSchedule");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const dailyRetentionDays = Number(body.dailyRetentionDays);

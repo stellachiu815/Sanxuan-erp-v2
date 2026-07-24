@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testGoogleDriveConnection } from "@/lib/googleDrive";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/system-center/google-drive/test-connection
@@ -12,7 +13,7 @@ import { assertSystemPermissionForOperator } from "@/lib/operator";
  */
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "manageGoogleDriveConnection");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "manageGoogleDriveConnection");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await testGoogleDriveConnection();

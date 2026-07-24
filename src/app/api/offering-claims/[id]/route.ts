@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getOfferingClaim, updateOfferingClaim } from "@/lib/offeringClaims";
+import { assertOfferingPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,7 +23,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  // V14.3：免收（isWaived）屬管理權限（waiveClaim，僅 SUPER_ADMIN／ADMIN）；
+  // 其餘收款前一般修改為 modifyClaimBeforePayment（STAFF 以上）。操作人用登入 session。
+  const __op = await assertOfferingPermissionForOperator(
+    await readOperatorUserId(request),
+    body.isWaived !== undefined ? "waiveClaim" : "modifyClaimBeforePayment"
+  );
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
   const changeReason = typeof body.changeReason === "string" ? body.changeReason : null;
   const result = await updateOfferingClaim(
     id,

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { copyPurificationYearFromPrevious } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 「沿用去年祭改資料」API（需求「十四」）。
@@ -36,9 +38,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請提供來源年度（sourceYearId）" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "manageYears");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await copyPurificationYearFromPrevious(newYear, sourceYearId, operatorName);
+  const result = await copyPurificationYearFromPrevious(newYear, sourceYearId, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

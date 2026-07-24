@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUniversalSalvationPrintData } from "@/lib/ritual";
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 普渡列印資料格式 API（本次只完成資料格式，不產生 PDF）。
@@ -18,7 +19,7 @@ export async function GET(
    * V13.3A：伺服器端權限檢查。在**任何**資料讀寫之前執行。
    * 未通過一律直接回傳，不會產生半套寫入、不洩漏任何資料內容。
    */
-  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "view");
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: check.status });

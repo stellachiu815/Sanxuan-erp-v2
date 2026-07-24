@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { MemberRole } from "@prisma/client";
 import { updateDevoteeBase, type BirthdayEditInput } from "@/lib/devoteeBaseEdit";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { validateLunarBirthdayInput, parseSolarDateString } from "@/lib/lunar";
 import { memberRoleLabel, birthHourLabel } from "@/lib/labels";
 
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const toNullableString = (v: unknown): string | null => {

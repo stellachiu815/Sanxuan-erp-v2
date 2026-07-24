@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { flagDevoteeForCare } from "@/lib/devoteeCare";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/devotee-center/xxx/care/flag
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請說明需要關懷的原因" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "manageCareList");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageCareList");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const profile = await flagDevoteeForCare(

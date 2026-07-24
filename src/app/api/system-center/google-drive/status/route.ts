@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { folderWebViewLink } from "@/lib/googleDrive";
 
 /**
@@ -12,8 +13,7 @@ import { folderWebViewLink } from "@/lib/googleDrive";
  * 避免兩個資料來源不同步）、備份根資料夾名稱與連結、Token 狀態。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

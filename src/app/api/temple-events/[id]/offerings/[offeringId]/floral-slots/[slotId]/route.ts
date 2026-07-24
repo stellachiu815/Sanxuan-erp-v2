@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { setFloralSlotActive, setFloralSlotPriceOverride } from "@/lib/activityOfferings";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * PATCH /api/temple-events/xxx/offerings/xxx/floral-slots/xxx
@@ -16,6 +18,8 @@ export async function PATCH(
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   if (typeof body.isActive === "boolean") {
     const result = await setFloralSlotActive(slotId, body.isActive);

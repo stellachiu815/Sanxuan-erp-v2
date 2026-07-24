@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { listBannedNumbers } from "@/lib/purification";
 import BannedNumbersScreen from "@/components/purification/BannedNumbersScreen";
+import { requirePagePermission } from "@/lib/pageGuard";
+import { canPurification } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -24,6 +26,14 @@ import BannedNumbersScreen from "@/components/purification/BannedNumbersScreen";
 export const dynamic = "force-dynamic";
 
 export default async function BannedNumbersPage() {
+  // V14.3：禁用編號管理僅 SUPER_ADMIN／ADMIN（manageBannedNumbers）。直接
+  // 輸入網址進入的未登入者→導回登入；已登入但無權限→403，先擋再說。
+  const guard = await requirePagePermission(
+    (r) => canPurification(r, "manageBannedNumbers"),
+    "/purification/settings/banned-numbers"
+  );
+  if (guard.denied) return guard.deniedView;
+
   const bannedNumbers = await listBannedNumbers();
 
   return (

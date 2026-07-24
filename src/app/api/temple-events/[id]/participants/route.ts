@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { addGenericParticipant, listGenericParticipants } from "@/lib/templeEvents";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 通用參加名單（光明燈/太歲燈/全家燈/補庫/宮慶/其他——目前還沒有專屬明細
@@ -22,12 +24,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!body || typeof body.householdId !== "string" || !body.householdId.trim()) {
     return NextResponse.json({ error: "請選擇家戶" }, { status: 400 });
   }
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageParticipants");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const result = await addGenericParticipant(
     id,
     body.householdId.trim(),
     typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
-    typeof body.operatorName === "string" ? body.operatorName : null
+    __op.operator.name
   );
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { listFloralOfferingSlots, addFloralOfferingSlot } from "@/lib/activityOfferings";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 需求「十」：花果供品年度排程。GET 回傳這個活動供品設定底下的全部名額
@@ -21,6 +23,8 @@ export async function POST(
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
   const result = await addFloralOfferingSlot(
     offeringId,
     Number(body.lunarMonth),

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { updateActivityOffering, removeActivityOffering } from "@/lib/activityOfferings";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 export async function PATCH(
   request: NextRequest,
@@ -12,7 +14,9 @@ export async function PATCH(
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
   const result = await updateActivityOffering(
     offeringId,
     {
@@ -44,8 +48,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; offeringId: string }> }
 ) {
   const { id, offeringId } = await params;
-  const operatorName = request.nextUrl.searchParams.get("operatorName");
-  const result = await removeActivityOffering(offeringId, operatorName);
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const result = await removeActivityOffering(offeringId, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

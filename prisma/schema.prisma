@@ -650,8 +650,8 @@ model RitualRegistrationItem {
   /// UniversalSalvationEntry 的**正式 1:1 關聯**（取代先前「同類別依序配對」）。
   /// 牌位名稱／陽上人／地址／列印／補印／收款／查詢一律讀這一筆 entry，不靠建立順序。
   /// onDelete SetNull：牌位被刪時本項不連帶消失（保留收款歷史），只解除關聯。
-  universalSalvationEntryId String?                   @unique
-  universalSalvationEntry   UniversalSalvationEntry?  @relation(fields: [universalSalvationEntryId], references: [id], onDelete: SetNull)
+  universalSalvationEntryId String?                  @unique
+  universalSalvationEntry   UniversalSalvationEntry? @relation(fields: [universalSalvationEntryId], references: [id], onDelete: SetNull)
 
   status RitualRecordStatus @default(DRAFT)
   notes  String?            @db.Text
@@ -835,14 +835,38 @@ model User {
   role     Role    @default(STAFF)
   isActive Boolean @default(true)
 
+  /// V14.3 正式登入：帳號登入密碼（scrypt 雜湊，格式 "salt:hash"）。
+  /// 可空＝尚未設定密碼（既有帳號一律 null，需由管理員設定後才能登入）。
+  passwordHash String?
+  /// V14.3：登入帳號（登入用；可用 email 或此欄位）。唯一、可空（相容既有）。
+  loginId      String? @unique
+
   createdFinanceRecords FinanceRecord[] @relation("FinanceRecordCreatedBy")
   voidedFinanceRecords  FinanceRecord[] @relation("FinanceRecordVoidedBy")
   auditLogs             AuditLog[]
+  sessions              Session[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("users")
+}
+
+/// V14.3 正式登入：伺服器端 session（httpOnly cookie 帶 token 對應這裡）。
+model Session {
+  id        String   @id @default(cuid())
+  /// 隨機 token（存 cookie；查詢用，唯一）。
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?  @db.Text
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 enum FinanceRecordType {
@@ -886,6 +910,13 @@ enum AuditAction {
   CREATE
   UPDATE
   VOID
+  // V14.3 正式登入：帳號與登入相關稽核動作。
+  LOGIN
+  LOGOUT
+  DISABLE
+  ENABLE
+  RESET_PASSWORD
+  CHANGE_ROLE
 }
 
 /// 稽核紀錄：財務資料的新增/修改/作廢都必須留下這筆紀錄

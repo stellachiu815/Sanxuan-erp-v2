@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createPurificationYear, listPurificationYears } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 祭改年度清單／建立新年度。
@@ -29,9 +31,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "請提供正確的民國年度（year）" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "manageYears");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await createPurificationYear(year, operatorName);
+  const result = await createPurificationYear(year, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

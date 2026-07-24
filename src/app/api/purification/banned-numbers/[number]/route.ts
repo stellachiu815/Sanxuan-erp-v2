@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { removeBannedNumber } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 移除一個「額外」禁用的號碼（不影響寫死在程式邏輯裡的「連續 44」規則，
@@ -23,11 +25,11 @@ export async function DELETE(
     return NextResponse.json({ error: "號碼格式錯誤" }, { status: 400 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const operatorName =
-    body && typeof body === "object" && typeof body.operatorName === "string" ? body.operatorName : null;
+  await request.json().catch(() => ({}));
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "manageBannedNumbers");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
-  const result = await removeBannedNumber(number, operatorName);
+  const result = await removeBannedNumber(number, __op.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

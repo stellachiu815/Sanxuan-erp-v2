@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { getReceiptNumberingConfig, updateReceiptNumberingConfig, previewNextReceiptNumber } from "@/lib/receipt";
 import { previewReceiptNumberFormat } from "@/lib/receiptRules";
 import { assertReceiptPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/receipt-center/numbering-config?operatorUserId=xxx
@@ -12,8 +13,7 @@ import { assertReceiptPermissionForOperator } from "@/lib/operator";
  * 但只有 SUPER_ADMIN 能實際送出下方 PUT 修改）。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertReceiptPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertReceiptPermissionForOperator(await readOperatorUserId(request),
     "view"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

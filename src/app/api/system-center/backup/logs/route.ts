@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listBackupLogs } from "@/lib/backup";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { fileWebViewLink } from "@/lib/googleDrive";
 
 /**
@@ -14,8 +15,7 @@ import { fileWebViewLink } from "@/lib/googleDrive";
  * googleDriveFileId` 判斷（見 BackupLogScreen.tsx）。
  */
 export async function GET(request: NextRequest) {
-  const check = await assertSystemPermissionForOperator(
-    request.nextUrl.searchParams.get("operatorUserId"),
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request),
     "viewSystemCenter"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

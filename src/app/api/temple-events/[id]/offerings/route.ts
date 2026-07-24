@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { listActivityOfferings, addActivityOffering } from "@/lib/activityOfferings";
+import { assertActivityPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * V10.1「供品認捐中心」需求「二、活動供品設定」。
@@ -22,7 +24,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請提供 offeringTypeId" }, { status: 400 });
   }
 
-  const operatorName = typeof body.operatorName === "string" ? body.operatorName : null;
+  const __op = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
+  const operatorName = __op.operator.name;
   const result = await addActivityOffering(
     id,
     {

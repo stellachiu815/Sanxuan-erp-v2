@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBackup } from "@/lib/backup";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/system-center/backup/run
@@ -21,7 +22,7 @@ import { assertSystemPermissionForOperator } from "@/lib/operator";
  */
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
-  const check = await assertSystemPermissionForOperator(body.operatorUserId, "runBackup");
+  const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "runBackup");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await createBackup({

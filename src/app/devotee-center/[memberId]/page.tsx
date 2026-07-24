@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useState, use as usePromise } from "react";
 import { useSearchParams } from "next/navigation";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
-import { canDevotee } from "@/lib/permissions";
+import { canDevotee, type Role } from "@/lib/permissions";
 import OperatorBar from "@/components/system/OperatorBar";
 import DevoteeCenterGate from "@/components/devotee/DevoteeCenterGate";
 import DevoteeCompletenessCard from "@/components/devotee/DevoteeCompletenessCard";
@@ -300,11 +300,7 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
             rituals={overview.rituals}
             stats={overview.activityStats}
             memberId={memberId}
-            canEdit={
-              operatorUser?.role === "SUPER_ADMIN" ||
-              operatorUser?.role === "ADMIN" ||
-              operatorUser?.role === "STAFF"
-            }
+            canEdit={operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false}
             onChanged={() => setReloadTick((t) => t + 1)}
           />
         )}
@@ -317,7 +313,7 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
             memberId={memberId}
             household={overview.household}
             operatorUserId={operatorUserId}
-            canEdit={operatorUser?.role === "SUPER_ADMIN" || operatorUser?.role === "ADMIN"}
+            canEdit={operatorUser?.role ? canDevotee(operatorUser.role, "transferMember") : false}
             onChanged={() => setReloadTick((t) => t + 1)}
           />
         )}
@@ -448,17 +444,18 @@ function OverviewTab({
   onChanged,
 }: {
   overview: Overview;
-  operatorRole?: string;
+  operatorRole?: Role;
   memberId: string;
   operatorUserId: string | null;
   onChanged: () => void;
 }) {
-  const canSeeFullStats = operatorRole === "SUPER_ADMIN";
-  const canEdit = operatorRole === "SUPER_ADMIN" || operatorRole === "ADMIN";
-  // V13.4 驗收修正：活動報名入口原本只在「活動」分頁，落地的「總覽」分頁看不到。
-  // 報名權限沿用 ActivitiesTab 同一組角色（含 STAFF），不另立第二套判斷。
-  const canRegister =
-    operatorRole === "SUPER_ADMIN" || operatorRole === "ADMIN" || operatorRole === "STAFF";
+  // V14.3：改用共用 permissions.ts 的 canDevotee，不再散落 role === 硬編碼。
+  // 完整財務統計沿用 viewFullFinancialStats（SUPER_ADMIN／ADMIN），與後端
+  // API 實際授權一致；家戶結構編輯沿用 transferMember（SUPER_ADMIN／ADMIN）；
+  // 報名沿用 updateProfile（含 STAFF），與 ActivitiesTab 同一組判斷。
+  const canSeeFullStats = operatorRole ? canDevotee(operatorRole, "viewFullFinancialStats") : false;
+  const canEdit = operatorRole ? canDevotee(operatorRole, "transferMember") : false;
+  const canRegister = operatorRole ? canDevotee(operatorRole, "updateProfile") : false;
   const [showNewRegistration, setShowNewRegistration] = useState(false);
   const ds = overview.donationStats;
   return (

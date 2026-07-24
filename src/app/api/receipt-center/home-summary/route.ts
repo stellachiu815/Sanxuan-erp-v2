@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReceiptHomeSummary } from "@/lib/receipt";
 import { assertReceiptPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/receipt-center/home-summary — 首頁「收據提醒卡」用的彙總數字（需求「二」）。
@@ -10,7 +11,7 @@ import { assertReceiptPermissionForOperator } from "@/lib/operator";
  * 收據相關 API 必須在伺服器端實際檢查權限，不能只在畫面隱藏按鈕）。
  */
 export async function GET(request: NextRequest) {
-  const operatorUserId = request.nextUrl.searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertReceiptPermissionForOperator(operatorUserId, "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 

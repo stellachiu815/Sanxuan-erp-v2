@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listDevoteeInteractions, createDevoteeInteraction, DEVOTEE_INTERACTION_TYPES } from "@/lib/devoteeInteractions";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * GET /api/devotee-center/xxx/interactions?operatorUserId=xxx&includeDeleted=1
@@ -9,7 +10,7 @@ import { assertDevoteePermissionForOperator } from "@/lib/operator";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ memberId: string }> }) {
   const { memberId } = await params;
   const { searchParams } = new URL(request.url);
-  const check = await assertDevoteePermissionForOperator(searchParams.get("operatorUserId"), "view");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const interactions = await listDevoteeInteractions(memberId, searchParams.get("includeDeleted") === "1");
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "請填寫互動內容" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "createInteraction");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "createInteraction");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const interaction = await createDevoteeInteraction(

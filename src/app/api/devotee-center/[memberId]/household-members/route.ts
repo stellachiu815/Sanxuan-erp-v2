@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { createMemberForHousehold } from "@/lib/memberCreate";
 import { toHouseholdApiError } from "@/lib/householdManagement";
 
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+    const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
     // 以這位信眾為錨點，找出要新增成員的目標家戶。

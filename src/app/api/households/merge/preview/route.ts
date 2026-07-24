@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { previewHouseholdMerge, toHouseholdApiError } from "@/lib/householdManagement";
 
 /**
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "請求格式錯誤" }, { status: 400 });
     }
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "mergeHousehold");
+    const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "mergeHousehold");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     if (typeof body.targetId !== "string" || typeof body.sourceId !== "string") {

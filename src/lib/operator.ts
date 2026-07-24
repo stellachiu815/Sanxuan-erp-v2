@@ -31,12 +31,22 @@ import {
   canDevotee,
   canUniversalSalvation,
   canRitualRegistration,
+  canCollection,
+  canOffering,
+  canPurification,
+  canActivity,
+  canTemplate,
   type Role,
   type ReceiptAction,
   type SystemAction,
   type DevoteeAction,
   type UniversalSalvationAction,
   type RitualRegistrationAction,
+  type CollectionAction,
+  type OfferingAction,
+  type PurificationAction,
+  type ActivityAction,
+  type TemplateAction,
 } from "@/lib/permissions";
 
 export type ResolvedOperator = {
@@ -187,6 +197,84 @@ export async function assertDevoteePermissionForOperator(
   }
   if (!canDevotee(operator.role, action)) {
     return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個操作` };
+  }
+  return { ok: true, operator };
+}
+
+/**
+ * V14.3：收款中心 API 的權限檢查入口（先前完全缺漏，真實金流卻無檢查）。
+ * 沿用同一套 resolveOperator() / 401·403 語意，不是第二套權限系統。
+ */
+export async function assertCollectionPermissionForOperator(
+  userId: string | null | undefined,
+  action: CollectionAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canCollection(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個收款操作` };
+  }
+  return { ok: true, operator };
+}
+
+/** V14.3：供品認捐中心 API 的權限檢查入口（沿用既有 canOffering 矩陣）。 */
+export async function assertOfferingPermissionForOperator(
+  userId: string | null | undefined,
+  action: OfferingAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canOffering(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個操作` };
+  }
+  return { ok: true, operator };
+}
+
+/** V14.3：祭改 API 的權限檢查入口（沿用既有 canPurification，V14.3 已擴充動作集）。 */
+export async function assertPurificationPermissionForOperator(
+  userId: string | null | undefined,
+  action: PurificationAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canPurification(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個操作` };
+  }
+  return { ok: true, operator };
+}
+
+/** V14.3：宮務活動（temple-events）API 的權限檢查入口。 */
+export async function assertActivityPermissionForOperator(
+  userId: string | null | undefined,
+  action: ActivityAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canActivity(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個活動操作` };
+  }
+  return { ok: true, operator };
+}
+
+/** V14.3：模板中心 API 的權限檢查入口。 */
+export async function assertTemplatePermissionForOperator(
+  userId: string | null | undefined,
+  action: TemplateAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canTemplate(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個模板操作` };
   }
   return { ok: true, operator };
 }

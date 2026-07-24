@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { archiveHousehold, toHouseholdApiError } from "@/lib/householdManagement";
 
 /**
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
 
-    const check = await assertDevoteePermissionForOperator(body.operatorUserId, "archiveHousehold");
+    const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "archiveHousehold");
     if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
     const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : null;

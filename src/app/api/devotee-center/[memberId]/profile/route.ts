@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateDevoteeProfile } from "@/lib/devoteeProfile";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * PATCH /api/devotee-center/xxx/profile
@@ -17,7 +18,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "updateProfile");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const profile = await updateDevoteeProfile(

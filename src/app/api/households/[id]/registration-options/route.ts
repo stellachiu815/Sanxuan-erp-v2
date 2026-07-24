@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { getHouseholdRegistrationOptions } from "@/lib/householdRegistrationOptions";
 
 /**
@@ -19,7 +20,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const operatorUserId = new URL(request.url).searchParams.get("operatorUserId");
+  const operatorUserId = await readOperatorUserId(request);
   const check = await assertUniversalSalvationPermissionForOperator(operatorUserId, "view");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 

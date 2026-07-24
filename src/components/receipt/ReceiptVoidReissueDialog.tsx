@@ -10,6 +10,7 @@ import {
   errorTextClass,
 } from "@/components/household/formStyles";
 import { useOperator, roleLabel } from "@/lib/operatorClient";
+import { canApproveReceiptVoidOrReissue } from "@/lib/permissions";
 
 export type VoidReissueSubmitInput = {
   reason: string;
@@ -48,8 +49,12 @@ export default function ReceiptVoidReissueDialog({ title, actionLabel, showPayer
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // 緊急覆核（操作人＝核准人）依規格僅 SUPER_ADMIN 可用，且後端
+  // receipt.ts 也以 role === "SUPER_ADMIN" 強制把關。permissions.ts 目前沒有
+  // 對應的獨立 action，這是刻意保留的單一角色顯示判斷（Category B）。
   const isSuperAdmin = operatorUser?.role === "SUPER_ADMIN";
-  const approverCandidates = users.filter((u) => u.role === "SUPER_ADMIN" || u.role === "ADMIN");
+  // 核准人候選：改用共用 canApproveReceiptVoidOrReissue，不再散落 role 字面值。
+  const approverCandidates = users.filter((u) => canApproveReceiptVoidOrReissue(u.role));
 
   async function handleSubmit() {
     setError(null);

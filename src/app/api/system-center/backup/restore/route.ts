@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { restoreFromBackup } from "@/lib/restore";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/system-center/backup/restore
@@ -19,15 +20,18 @@ export async function POST(request: NextRequest) {
   if (typeof body.confirmFileName !== "string" || !body.confirmFileName) {
     return NextResponse.json({ error: "請輸入完整檔名以確認還原" }, { status: 400 });
   }
-  if (typeof body.operatorUserId !== "string" || !body.operatorUserId) {
-    return NextResponse.json({ error: "請提供操作人員身分" }, { status: 400 });
+  // V14.3：備份還原僅最高管理員（restoreFromBackup 內部查證 restoreBackup 權限）；
+  // 操作人一律以登入 session 為準，不信任前端。
+  const operatorUserId = await readOperatorUserId(request);
+  if (!operatorUserId) {
+    return NextResponse.json({ error: "尚未登入或帳號已停用，請重新登入" }, { status: 401 });
   }
 
   const result = await restoreFromBackup({
     googleDriveFileId: body.googleDriveFileId,
     fileName: body.fileName,
     confirmFileName: body.confirmFileName,
-    operatorUserId: body.operatorUserId,
+    operatorUserId,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

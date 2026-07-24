@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 import { listActivityItemPrintSummary } from "@/lib/printDocuments";
 import { getCurrentRitualYear } from "@/lib/ritual";
 
@@ -12,8 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
-  const check = await assertRitualRegistrationPermissionForOperator(
-    url.searchParams.get("operatorUserId"),
+  const check = await assertRitualRegistrationPermissionForOperator(await readOperatorUserId(request),
     "view"
   );
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });

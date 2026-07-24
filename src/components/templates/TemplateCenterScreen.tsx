@@ -5,6 +5,8 @@ import Modal from "@/components/Modal";
 import Toast from "@/components/ritual/Toast";
 import { errorTextClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass, checkboxRowClass } from "@/components/household/formStyles";
 import { activityTypeLabel } from "@/lib/labels";
+import { useCurrentUser } from "@/lib/permissionClient";
+import { canTemplate } from "@/lib/permissions";
 
 type Version = {
   id: string;
@@ -35,6 +37,12 @@ const CATEGORY_LABEL: Record<string, string> = {
 const CATEGORY_ORDER = ["PRINT", "EXCEL", "CSV", "WORD", "PDF"];
 
 export default function TemplateCenterScreen({ initialTemplates }: { initialTemplates: TemplateItem[] }) {
+  // V14.3：模板頁本身開放檢視（view 級，全角色），但「新增版本」「設為使用中」
+  // 屬 create／activate（SUPER_ADMIN／ADMIN），STAFF／READONLY 不顯示這些寫入
+  // 按鈕。沿用共用 canTemplate，真正把關仍在 API。
+  const { role } = useCurrentUser();
+  const canCreateVersion = role ? canTemplate(role, "create") : false;
+  const canActivateVersion = role ? canTemplate(role, "activate") : false;
   const [templates, setTemplates] = useState(initialTemplates);
   const [category, setCategory] = useState("PRINT");
   const [versionModalFor, setVersionModalFor] = useState<TemplateItem | null>(null);
@@ -113,13 +121,15 @@ export default function TemplateCenterScreen({ initialTemplates }: { initialTemp
                 {activeVersion ? `使用中版本：${activeVersion.versionLabel}` : "尚未上傳正式版本（先建立分類，之後上傳即可套用）"}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="text-xs text-ink-soft underline-offset-4 hover:underline"
-                  onClick={() => setVersionModalFor(t)}
-                >
-                  新增版本
-                </button>
+                {canCreateVersion && (
+                  <button
+                    type="button"
+                    className="text-xs text-ink-soft underline-offset-4 hover:underline"
+                    onClick={() => setVersionModalFor(t)}
+                  >
+                    新增版本
+                  </button>
+                )}
                 {category === "EXCEL" && (
                   <button
                     type="button"
@@ -140,11 +150,11 @@ export default function TemplateCenterScreen({ initialTemplates }: { initialTemp
                       </span>
                       {v.isActive ? (
                         <span className="text-sage-300">使用中</span>
-                      ) : (
+                      ) : canActivateVersion ? (
                         <button type="button" className="underline-offset-4 hover:underline" onClick={() => handleActivate(t.id, v.id)}>
                           設為使用中
                         </button>
-                      )}
+                      ) : null}
                     </li>
                   ))}
                 </ul>

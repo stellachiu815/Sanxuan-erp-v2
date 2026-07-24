@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renameDevoteeTag, setDevoteeTagActive } from "@/lib/devoteeTags";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * PATCH /api/devotee-center/tags/xxx
@@ -15,7 +16,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
 
-  const check = await assertDevoteePermissionForOperator(body.operatorUserId, "manageTags");
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "manageTags");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   try {

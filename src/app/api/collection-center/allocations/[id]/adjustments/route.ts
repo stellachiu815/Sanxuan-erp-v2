@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createAllocationAdjustment } from "@/lib/collectionCenter";
+import { assertCollectionPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * POST /api/collection-center/allocations/xxx/adjustments
@@ -23,13 +25,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (typeof body.amount !== "number" || typeof body.reason !== "string") {
     return NextResponse.json({ error: "請提供金額與原因" }, { status: 400 });
   }
+  // V14.3：退款／轉款／溢收調整屬高風險，僅 SUPER_ADMIN／ADMIN；操作人用登入 session。
+  const check = await assertCollectionPermissionForOperator(await readOperatorUserId(request), "refund");
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const result = await createAllocationAdjustment({
     allocationId: id,
     adjustmentType: body.adjustmentType,
     amount: body.amount,
     reason: body.reason,
-    operatorName: typeof body.operatorName === "string" ? body.operatorName : null,
+    operatorName: check.operator.name,
     approvedByName: typeof body.approvedByName === "string" ? body.approvedByName : null,
     targetSourceType: typeof body.targetSourceType === "string" ? body.targetSourceType : undefined,
     targetSourceId: typeof body.targetSourceId === "string" ? body.targetSourceId : undefined,

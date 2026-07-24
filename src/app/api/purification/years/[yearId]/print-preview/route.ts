@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { previewPurificationPrintBatch, type PrintBatchFilter } from "@/lib/purification";
+import { assertPurificationPermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
 
 /**
  * 列印前完整 A4 預覽（需求「十三」）——純查詢，不會標記已列印、不會建立
@@ -20,6 +22,9 @@ export async function POST(
   { params }: { params: Promise<{ yearId: string }> }
 ) {
   const { yearId } = await params;
+  // 純預覽（讀取），仍需登入且具 view 權限（避免未授權讀取名冊）。
+  const __op = await assertPurificationPermissionForOperator(await readOperatorUserId(request), "view");
+  if (!__op.ok) return NextResponse.json({ error: __op.error }, { status: __op.status });
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || !body.filter || typeof body.filter !== "object") {
