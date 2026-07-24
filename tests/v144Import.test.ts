@@ -20,10 +20,12 @@ test("6. 多位陽上人：逗號／中文逗號／頓號／換行 → 陣列（
   assert.deepEqual(parseYangshangNames(null), []);
 });
 
-test("欄位別名：analyze 回報實際對應欄名", () => {
-  const map = resolveColumnMapping(["家戶編號", "姓名", "陽上人", "白米", "備註"]);
+test("欄位別名：analyze 回報實際對應欄名（正式格式：「姓名」＝牌位姓名，非信眾）", () => {
+  const map = resolveColumnMapping(["家戶編號", "姓名", "陽上人", "白米", "備註", "信眾姓名"]);
   assert.equal(map.householdCode, "家戶編號");
-  assert.equal(map.devoteeName, "姓名");
+  // 正式普渡 Excel 的「姓名」是牌位姓名（祭祀對象），不是信眾姓名。
+  assert.equal(map.tabletName, "姓名");
+  assert.equal(map.devoteeName, "信眾姓名");
   assert.equal(map.yangshang, "陽上人");
   assert.equal(map.riceKg, "白米");
 });
@@ -79,15 +81,20 @@ test("4. 電話與所有同名候選皆不符 → CONFLICT", () => {
   assert.equal(r.status, "CONFLICT");
 });
 
-test("5. 同批次重複列 → DUPLICATE", () => {
-  const seen = new Set<string>(["F001|王小明|0911"]);
+test("5. 同批次重複列 → DUPLICATE（key＝家戶編號｜信眾｜牌位姓名｜電話）", () => {
+  // base.tabletName＝"王姓歷代祖先"，新 dupKey 格式含牌位姓名。
+  const seen = new Set<string>(["F001|王小明|王姓歷代祖先|0911"]);
   const r = classifyMatch({ ...base, devoteeName: "王小明", householdCode: "F001", phone: "0911" }, [], seen);
   assert.equal(r.status, "DUPLICATE");
 });
 
-test("INVALID：缺姓名或牌位類型不合法", () => {
-  assert.equal(classifyMatch({ ...base, devoteeName: "" }, []).status, "INVALID");
+test("INVALID：缺牌位姓名或牌位類型不合法（正式格式不再要求信眾姓名）", () => {
+  // 缺牌位姓名 → INVALID（牌位姓名才是必要內容，非信眾姓名）。
+  assert.equal(classifyMatch({ tabletCategory: "ANCESTOR_LINE", tabletName: "" }, []).status, "INVALID");
+  // 牌位類型不是四類之一 → INVALID。
   assert.equal(classifyMatch({ tabletCategory: "XXX", tabletName: "王", devoteeName: "王小明" }, []).status, "INVALID");
+  // 只有牌位姓名、無信眾姓名 → 不再是 INVALID（正式普渡 Excel 常無信眾欄）。
+  assert.notEqual(classifyMatch({ ...base }, []).status, "INVALID");
 });
 
 test("NEW：查無候選（需明確確認才建新信眾）", () => {

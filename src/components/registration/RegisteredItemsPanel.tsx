@@ -18,6 +18,9 @@ type Item = {
   subjectName: string;
   /** V14.2：最終顯示字串（牌位名稱／類別｜姓名／本人…）。 */
   displayLabel: string;
+  /** V14.4：內容型態＋鎖定單價（白米＝每斤金額）。 */
+  contentKind: string;
+  unitPrice: number | null;
   /** V14.2：陽上人（祖先／乙位正魂）。 */
   yangshangNames: string[];
   /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress）。 */
@@ -110,6 +113,9 @@ export default function RegisteredItemsPanel({
               <tr key={it.id} className="border-t border-cream-200">
                 <td className="px-2 py-1.5">
                   <div className="text-ink">{it.displayLabel}</div>
+                  {it.contentKind === "RICE" && it.unitPrice !== null && (
+                    <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／斤</div>
+                  )}
                   {it.yangshangNames.length > 0 && (
                     <div className="text-xs text-ink-faint">陽上：{it.yangshangNames.join("、")}</div>
                   )}
@@ -117,7 +123,10 @@ export default function RegisteredItemsPanel({
                     <div className="text-xs text-ink-faint">牌位地址：{it.tabletAddress}</div>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-ink-soft">{it.quantity}</td>
+                <td className="px-2 py-1.5 text-ink-soft">
+                  {it.quantity}
+                  {it.contentKind === "RICE" && " 斤"}
+                </td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountDue}</td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid}</td>
                 <td className="px-2 py-1.5 text-ink-faint">

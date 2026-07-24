@@ -19,23 +19,23 @@ export type PurificationImportField =
 
 /** 各欄位可接受的中文別名（可擴充；analyze 會回報實際命中的原始欄名）。 */
 export const FIELD_ALIASES: Record<PurificationImportField, string[]> = {
-  householdCode: ["家戶編號", "戶號", "家戶代號"],
-  householdName: ["戶名", "家戶名稱"],
-  primaryContact: ["主要聯絡人", "聯絡人", "戶長"],
-  devoteeName: ["信眾姓名", "姓名", "報名人"],
-  phone: ["電話", "手機", "聯絡電話"],
-  address: ["地址", "聯絡地址", "戶籍地址"],
-  tabletCategory: ["牌位類型", "牌位分類", "類別"],
-  tabletName: ["牌位姓名", "牌位名稱", "祭祀名稱"],
-  yangshang: ["陽上", "陽上人", "陽上人姓名"],
-  tabletAddress: ["牌位地址", "疏文地址"],
-  riceKg: ["白米斤數", "白米", "斤數"],
-  extraPocketQty: ["額外寶袋", "額外寶袋數量", "加寶袋"],
-  sponsor: ["贊普", "贊普數量"],
-  sponsorDonation: ["隨喜贊普", "隨喜"],
-  sponsorCustomName: ["贊普姓名", "贊普名稱"],
-  companyName: ["公司名稱", "公司", "商號"],
-  note: ["備註", "說明"],
+  householdCode: ["家戶編號", "戶號", "家戶代號", "編號", "家戶", "戶別編號"],
+  householdName: ["戶名", "家戶名稱", "家戶名"],
+  primaryContact: ["主要聯絡人", "聯絡人", "戶長", "報名人"],
+  devoteeName: ["信眾姓名", "報名信眾", "報名人姓名"],
+  phone: ["電話", "手機", "聯絡電話", "行動電話"],
+  address: ["地址", "聯絡地址", "戶籍地址", "通訊地址"],
+  tabletCategory: ["牌位類型", "牌位分類", "類別", "祭祀類別", "類型"],
+  tabletName: ["牌位姓名", "牌位名稱", "祭祀名稱", "祭祀姓名", "往生者", "亡者姓名", "姓名", "被超薦人", "陽下"],
+  yangshang: ["陽上", "陽上人", "陽上人姓名", "在世子孫", "陽世子孫"],
+  tabletAddress: ["牌位地址", "疏文地址", "祭祀地址"],
+  riceKg: ["白米斤數", "白米", "斤數", "白米(斤)", "白米重量"],
+  extraPocketQty: ["額外寶袋", "額外寶袋數量", "加寶袋", "寶袋數量", "寶袋"],
+  sponsor: ["贊普", "贊普數量", "贊普份數"],
+  sponsorDonation: ["隨喜贊普", "隨喜", "隨喜金額"],
+  sponsorCustomName: ["贊普姓名", "贊普名稱", "贊普人"],
+  companyName: ["公司名稱", "公司", "商號", "行號"],
+  note: ["備註", "說明", "註記"],
 };
 
 /** 依表頭原始欄名解析出「欄位 → 實際命中的原始欄名」對應（供 analyze 顯示）。 */
@@ -97,9 +97,18 @@ export type DevoteeCandidate = {
   address?: string | null;
 };
 
+/** DB 查出的候選家戶（呼叫端提供）：正式普渡 Excel 常以家戶編號辨識，未必有信眾姓名欄。 */
+export type HouseholdCandidate = {
+  id: string; // 家戶編號（Household.id，例如 F00009）
+  name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+};
+
 export type MatchResult = {
   status: MatchStatus;
   matchedDevoteeId: string | null;
+  matchedHouseholdId: string | null;
   candidateIds: string[];
   basis: string[];
   issues: string[];
@@ -109,82 +118,84 @@ const VALID_CATEGORIES = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CRED
 
 /**
  * 保守多欄位匹配分類（指令二）。核心原則：
- * - 家戶編號精確一致 或 姓名＋電話一致 → 強依據可 MATCHED。
- * - 只有姓名一致：單一候選也**不得自動 MATCHED**（→ AMBIGUOUS 待人工指定）。
- * - 同名多人 → AMBIGUOUS。電話/地址/家戶互相衝突 → CONFLICT。
- * - 缺姓名或牌位類型不合法 → INVALID。無任何候選 → NEW（需明確確認才建立新信眾）。
- * seenKey：呼叫端提供「同批次已出現的正規化 key」集合，用來標 DUPLICATE。
+ * - 正式普渡 Excel 以「家戶」為主辨識（未必有信眾姓名欄）；因此**不強制要求信眾姓名**，
+ *   一列只要有可登記的牌位內容（牌位姓名）即為有效。
+ * - 家戶編號精確一致 → 強依據（MATCHED 到該家戶）；姓名＋電話一致 → 強依據（MATCHED 到信眾）。
+ * - 只有姓名一致：不得自動 MATCHED（→ AMBIGUOUS 待人工指定）。同名多人 → AMBIGUOUS；電話全衝突 → CONFLICT。
+ * - 完全查無可用辨識（無家戶編號相符、無信眾候選）→ NEW（需明確確認才建家戶/信眾）。
+ * - 缺牌位姓名或牌位類型不合法 → INVALID。
+ * seenKey：同批次已出現的正規化 key，用來標 DUPLICATE。
  */
 export function classifyMatch(
   row: ImportRowInput,
   candidates: DevoteeCandidate[],
-  seenKeys?: Set<string>
+  seenKeys?: Set<string>,
+  householdCandidates: HouseholdCandidate[] = []
 ): MatchResult {
   const issues: string[] = [];
   const basis: string[] = [];
   const name = (row.devoteeName ?? "").trim();
   const phone = (row.phone ?? "").trim();
   const code = (row.householdCode ?? "").trim();
+  const tabletName = (row.tabletName ?? "").toString().trim();
 
-  // 基本驗證：
-  if (!name) issues.push("缺少信眾姓名");
-  if (!(row.tabletName ?? "").toString().trim()) issues.push("缺少牌位姓名");
+  // 基本驗證：以「牌位姓名」為必要內容（正式格式未必有信眾姓名欄，故不再要求信眾姓名）。
+  if (!tabletName) issues.push("缺少牌位姓名");
   const cat = (row.tabletCategory ?? "").toString().trim();
   if (cat && !VALID_CATEGORIES.has(cat)) issues.push("牌位類型不是四類之一");
   if (issues.length > 0) {
-    return { status: "INVALID", matchedDevoteeId: null, candidateIds: [], basis, issues };
+    return { status: "INVALID", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis, issues };
   }
 
   // 同批次重複列：
-  const dupKey = `${code}|${name}|${phone}`;
+  const dupKey = `${code}|${name}|${tabletName}|${phone}`;
   if (seenKeys?.has(dupKey)) {
-    return { status: "DUPLICATE", matchedDevoteeId: null, candidateIds: [], basis, issues: ["同批次重複列"] };
+    return { status: "DUPLICATE", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis, issues: ["同批次重複列"] };
   }
 
-  if (candidates.length === 0) {
-    return { status: "NEW", matchedDevoteeId: null, candidateIds: [], basis: ["查無相符信眾"], issues };
+  // 強依據 1：家戶編號精確一致（以家戶辨識，正式 Excel 主要方式）。
+  const hh = code ? householdCandidates.find((h) => h.id === code) : undefined;
+  if (hh) {
+    basis.push("家戶編號一致");
+    // 若同時有姓名且該家戶內有同名信眾，一併帶出 matchedDevoteeId。
+    const memberInHh = name ? candidates.find((c) => c.householdId === hh.id && c.name === name) : undefined;
+    return { status: "MATCHED", matchedDevoteeId: memberInHh?.id ?? null, matchedHouseholdId: hh.id, candidateIds: memberInHh ? [memberInHh.id] : [], basis, issues };
   }
 
-  // 強依據：家戶編號精確一致（且姓名相符）。
-  const byCode = code ? candidates.filter((c) => (c.householdCode ?? "") === code && c.name === name) : [];
+  // 強依據 2：家戶編號＋姓名一致（信眾層）。
+  const byCode = code && name ? candidates.filter((c) => (c.householdCode ?? "") === code && c.name === name) : [];
   if (byCode.length === 1) {
     basis.push("家戶編號＋姓名一致");
-    return { status: "MATCHED", matchedDevoteeId: byCode[0].id, candidateIds: byCode.map((c) => c.id), basis, issues };
+    return { status: "MATCHED", matchedDevoteeId: byCode[0].id, matchedHouseholdId: byCode[0].householdId, candidateIds: byCode.map((c) => c.id), basis, issues };
   }
 
-  // 強依據：姓名＋電話一致。
-  const byPhone = phone ? candidates.filter((c) => c.name === name && (c.phone ?? "") === phone) : [];
+  // 強依據 3：姓名＋電話一致。
+  const byPhone = name && phone ? candidates.filter((c) => c.name === name && (c.phone ?? "") === phone) : [];
   if (byPhone.length === 1) {
     basis.push("姓名＋電話一致");
-    return { status: "MATCHED", matchedDevoteeId: byPhone[0].id, candidateIds: byPhone.map((c) => c.id), basis, issues };
+    return { status: "MATCHED", matchedDevoteeId: byPhone[0].id, matchedHouseholdId: byPhone[0].householdId, candidateIds: byPhone.map((c) => c.id), basis, issues };
   }
 
-  // 同名候選：
-  const byName = candidates.filter((c) => c.name === name);
+  // 同名候選（僅在有姓名時）：
+  const byName = name ? candidates.filter((c) => c.name === name) : [];
   if (byName.length > 1) {
-    // 電話/地址互相衝突 → CONFLICT；否則同名多人 → AMBIGUOUS。
-    const conflicting =
-      phone && byName.every((c) => (c.phone ?? "") !== phone) && byName.some((c) => c.phone);
+    const conflicting = phone && byName.every((c) => (c.phone ?? "") !== phone) && byName.some((c) => c.phone);
     return {
       status: conflicting ? "CONFLICT" : "AMBIGUOUS",
-      matchedDevoteeId: null,
-      candidateIds: byName.map((c) => c.id),
+      matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: byName.map((c) => c.id),
       basis: ["同名多筆"],
       issues: conflicting ? ["電話與所有同名候選皆不符，資料衝突"] : ["同名多人，需人工指定正確信眾"],
     };
   }
   if (byName.length === 1) {
-    // 只有姓名一致：不得自動 MATCHED（指令二）。
     return {
-      status: "AMBIGUOUS",
-      matchedDevoteeId: null,
-      candidateIds: [byName[0].id],
-      basis: ["僅姓名一致（不足以自動比對）"],
-      issues: ["僅姓名相同，需人工確認是否為同一人"],
+      status: "AMBIGUOUS", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [byName[0].id],
+      basis: ["僅姓名一致（不足以自動比對）"], issues: ["僅姓名相同，需人工確認是否為同一人"],
     };
   }
 
-  return { status: "NEW", matchedDevoteeId: null, candidateIds: [], basis: ["查無相符信眾"], issues };
+  // 查無可用辨識：需明確確認才建立新家戶/信眾。
+  return { status: "NEW", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis: ["查無相符家戶/信眾"], issues };
 }
 
 /** 一列草稿是否可以正式確認（非 INVALID/AMBIGUOUS/CONFLICT/DUPLICATE，且已解析出信眾或已明確要建新）。 */

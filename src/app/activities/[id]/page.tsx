@@ -91,6 +91,13 @@ export default async function ActivityHomePage({
             />
             {/* V14.4：白米年度配額設定＋即時摘要（沿用同一年度活動設定頁，不另建設定中心）。 */}
             <WhiteRicePanel templeEventId={id} year={eventPricing.year} />
+            {/* V14.4：普渡列印中心入口（牌位／寶袋列印物件；沿用既有跨家戶列印中心）。 */}
+            <Link
+              href={`/universal-salvation/${eventPricing.year}/print-center`}
+              className="rounded-3xl bg-white/70 p-4 text-sm text-ink-soft shadow-card hover:bg-white"
+            >
+              🖨 普渡列印中心（牌位／寶袋，確認完成列印）→
+            </Link>
             {/* V14.4 Part 6B：普渡 Excel 匯入入口（沿用普渡年度，不建第二個活動中心）。 */}
             <Link
               href={`/universal-salvation/${eventPricing.year}/import`}

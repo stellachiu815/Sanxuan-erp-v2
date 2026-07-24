@@ -638,6 +638,10 @@ export type RegisteredItemView = {
    *   贊普 → 自訂名稱（本人…）
    */
   displayLabel: string;
+  /** V14.4：內容型態（RICE/SPONSOR/TABLET…），供明細顯示白米重量/單價。 */
+  contentKind: string;
+  /** V14.4：鎖定單價（白米＝每斤金額；null 代表本項不以單價計）。 */
+  unitPrice: number | null;
   /** V14.2：陽上人（祖先／乙位正魂，讀 UniversalSalvationEntry；其餘為空）。 */
   yangshangNames: string[];
   /** V14.2：牌位地址（沿用既有 UniversalSalvationEntry.tabletAddress，同列印欄位）。 */
@@ -835,10 +839,17 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       // 贊普：顯示自訂名稱（本人…）。
       subjectName = r.customName ?? categoryName;
       displayLabel = subjectName;
+    } else if (kind === "RICE") {
+      // V14.4 驗收：白米可閱讀——顯示「白米 N 斤」，單價與金額另欄呈現（沿用本項自身金額）。
+      subjectName = "白米";
+      displayLabel = `白米 ${r.quantity} 斤`;
     } else {
       subjectName = r.customName ?? categoryName;
       displayLabel = subjectName;
     }
+
+    // V14.4：鎖定單價（白米＝每斤金額；其他 per-unit 項目亦可能有），供明細顯示「單價」。
+    const unitPrice = r.lockedUnitPrice !== null && r.lockedUnitPrice !== undefined ? Number(r.lockedUnitPrice) : null;
 
     return {
       id: r.id,
@@ -848,6 +859,8 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       categoryName,
       subjectName,
       displayLabel,
+      contentKind: kind,
+      unitPrice,
       yangshangNames,
       tabletAddress,
       activityGroupName: r.registrationItemType.activityGroupName,

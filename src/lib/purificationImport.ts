@@ -122,6 +122,13 @@ export async function analyzePurificationImport(input: {
     candidatesByName.set(m.name, arr);
   }
 
+  // 家戶候選（正式普渡 Excel 常以家戶編號辨識，未必有信眾姓名欄）。
+  const householdCodes = [...new Set(normalized.map((n) => n.householdCode).filter((x): x is string => !!x))];
+  const households = householdCodes.length
+    ? await prisma.household.findMany({ where: { id: { in: householdCodes }, deletedAt: null }, select: { id: true, name: true, phone: true, mobile: true, address: true } })
+    : [];
+  const householdCandidates = households.map((h) => ({ id: h.id, name: h.name, phone: h.phone ?? h.mobile ?? null, address: h.address ?? null }));
+
   const seen = new Set<string>();
   const summary: Record<string, number> = { totalRows: rows.length, matchedCount: 0, newCount: 0, ambiguousCount: 0, conflictCount: 0, invalidCount: 0, duplicateCount: 0, confirmableCount: 0 };
 
@@ -141,14 +148,15 @@ export async function analyzePurificationImport(input: {
       const n = normalized[i];
       const rowInput: ImportRowInput = { householdCode: n.householdCode, devoteeName: n.devoteeName, phone: n.phone, address: n.address, tabletCategory: n.tabletCategory, tabletName: n.tabletName };
       const cands = n.devoteeName ? candidatesByName.get(n.devoteeName) ?? [] : [];
-      const m = classifyMatch(rowInput, cands, seen);
-      seen.add(`${n.householdCode ?? ""}|${n.devoteeName ?? ""}|${n.phone ?? ""}`);
+      const m = classifyMatch(rowInput, cands, seen, householdCandidates);
+      seen.add(`${n.householdCode ?? ""}|${n.devoteeName ?? ""}|${n.tabletName ?? ""}|${n.phone ?? ""}`);
 
-      const confirmable = isRowConfirmable(m.status, m.matchedDevoteeId, false);
+      const confirmable = isRowConfirmable(m.status, m.matchedDevoteeId, false) || (m.status === "MATCHED" && !!m.matchedHouseholdId);
       summary[`${m.status.toLowerCase()}Count`] = (summary[`${m.status.toLowerCase()}Count`] ?? 0) + 1;
       if (confirmable) summary.confirmableCount++;
 
-      const matchedHouseholdId = m.matchedDevoteeId ? members.find((x) => x.id === m.matchedDevoteeId)?.householdId ?? null : null;
+      // matchedHouseholdId 由 classifyMatch 直接回傳（家戶編號一致或信眾所屬家戶）。
+      const matchedHouseholdId = m.matchedHouseholdId ?? (m.matchedDevoteeId ? members.find((x) => x.id === m.matchedDevoteeId)?.householdId ?? null : null);
       await tx.purificationImportRow.create({
         data: {
           batchId: batch.id,
