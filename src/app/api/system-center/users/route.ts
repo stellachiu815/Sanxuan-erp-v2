@@ -32,10 +32,21 @@ export async function GET(request: NextRequest) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, loginId: true, passwordHash: true },
     orderBy: { name: "asc" },
   });
-  return NextResponse.json({ users });
+  // 不回傳 passwordHash 本身，只回傳「是否已設定密碼」（能否登入）給前端顯示。
+  const safe = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    isActive: u.isActive,
+    createdAt: u.createdAt,
+    loginId: u.loginId,
+    hasPassword: Boolean(u.passwordHash),
+  }));
+  return NextResponse.json({ users: safe });
 }
 
 /**
@@ -61,12 +72,12 @@ export async function POST(request: NextRequest) {
   if (!VALID_ROLES.includes(role as Role)) {
     return NextResponse.json({ error: "角色選項不正確" }, { status: 400 });
   }
-  // V12 指令「九」明確只開放指定 ADMIN／STAFF／READONLY 三種角色——
-  // SUPER_ADMIN／FINANCE_CLERK 不開放透過這個新畫面建立，避免一般管理員
-  // 誤操作就能建立出另一個最高管理員帳號（FINANCE_CLERK 是尚未真正啟用
-  // 的預留角色，同樣不開放）。
-  if (role === "SUPER_ADMIN" || role === "FINANCE_CLERK") {
-    return NextResponse.json({ error: "這個角色不開放從此畫面建立" }, { status: 400 });
+  // V14.3：本頁（manageUsers）自 V14.3 起僅 SUPER_ADMIN 可進入（ADMIN 已無
+  // manageUsers），因此開放建立四種正式角色 SUPER_ADMIN／ADMIN／STAFF／
+  // READONLY，供最高管理員建立各角色登入帳號。FINANCE_CLERK 為尚未啟用的
+  // 預留角色，維持不開放。
+  if (role === "FINANCE_CLERK") {
+    return NextResponse.json({ error: "這個角色尚未啟用，不開放建立" }, { status: 400 });
   }
 
   // V14.3 正式登入：可一併設定登入帳號（loginId）與初始密碼。未提供則帳號建立

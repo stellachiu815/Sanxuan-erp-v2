@@ -31,6 +31,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const data: { name?: string; role?: Role; isActive?: boolean } = {};
 
+  // 防鎖定：若此操作會讓系統「沒有任何一位啟用中的最高管理員」，一律拒絕。
+  async function wouldRemoveLastActiveSuperAdmin(): Promise<boolean> {
+    if (existing!.role !== "SUPER_ADMIN") return false;
+    const otherActiveSupers = await prisma.user.count({
+      where: { role: "SUPER_ADMIN", isActive: true, id: { not: id } },
+    });
+    return otherActiveSupers === 0;
+  }
+
   if ("name" in body) {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) {
@@ -44,15 +53,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!VALID_ROLES.includes(role as Role)) {
       return NextResponse.json({ error: "角色選項不正確" }, { status: 400 });
     }
-    // 跟建立帳號同一個限制：這個畫面不開放把任何人指定成 SUPER_ADMIN／
-    // FINANCE_CLERK，也不開放把既有的 SUPER_ADMIN 帳號改成其他角色（避免
-    // 一般管理員誤操作把系統唯一的最高管理員降級，導致沒有人能再進入
-    // 系統管理中心）。
-    if (role === "SUPER_ADMIN" || role === "FINANCE_CLERK") {
-      return NextResponse.json({ error: "這個角色不開放從此畫面指定" }, { status: 400 });
+    // FINANCE_CLERK 為尚未啟用的預留角色，不開放指定；其餘四種正式角色皆可。
+    if (role === "FINANCE_CLERK") {
+      return NextResponse.json({ error: "這個角色尚未啟用，不開放指定" }, { status: 400 });
     }
-    if (existing.role === "SUPER_ADMIN") {
-      return NextResponse.json({ error: "不開放從此畫面修改最高管理員帳號的角色" }, { status: 400 });
+    // 不可把「最後一位啟用中的最高管理員」降級成其他角色（避免無人能再管理）。
+    if (existing.role === "SUPER_ADMIN" && role !== "SUPER_ADMIN" && (await wouldRemoveLastActiveSuperAdmin())) {
+      return NextResponse.json({ error: "這是最後一位最高管理員，不可降級，請先指定另一位最高管理員" }, { status: 400 });
     }
     data.role = role as Role;
   }
@@ -61,8 +68,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (typeof body.isActive !== "boolean") {
       return NextResponse.json({ error: "啟用狀態格式不正確" }, { status: 400 });
     }
-    if (existing.role === "SUPER_ADMIN" && body.isActive === false) {
-      return NextResponse.json({ error: "不開放從此畫面停用最高管理員帳號" }, { status: 400 });
+    // 不可停用「最後一位啟用中的最高管理員」。
+    if (body.isActive === false && (await wouldRemoveLastActiveSuperAdmin())) {
+      return NextResponse.json({ error: "這是最後一位最高管理員，不可停用" }, { status: 400 });
     }
     data.isActive = body.isActive;
   }
