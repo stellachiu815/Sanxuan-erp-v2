@@ -6,6 +6,7 @@ import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
 import PocketPriceCard from "@/components/activities/PocketPriceCard";
 import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
 import TabletPriceCard from "@/components/activities/TabletPriceCard";
+import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { prisma } from "@/lib/prisma";
 
@@ -88,6 +89,15 @@ export default async function ActivityHomePage({
               year={eventPricing.year}
               initialPrices={tabletPrices}
             />
+            {/* V14.4：白米年度配額設定＋即時摘要（沿用同一年度活動設定頁，不另建設定中心）。 */}
+            <WhiteRicePanel templeEventId={id} year={eventPricing.year} />
+            {/* V14.4 Part 6B：普渡 Excel 匯入入口（沿用普渡年度，不建第二個活動中心）。 */}
+            <Link
+              href={`/universal-salvation/${eventPricing.year}/import`}
+              className="rounded-3xl bg-white/70 p-4 text-sm text-ink-soft shadow-card hover:bg-white"
+            >
+              📥 從 Excel 匯入普渡報名（上傳→預檢→草稿→確認）→
+            </Link>
           </>
         )}
 

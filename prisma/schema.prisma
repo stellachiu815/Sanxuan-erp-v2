@@ -641,6 +641,12 @@ model RitualRegistrationItem {
   /// 贊普二選一：FIXED（固定費用）/ CUSTOM（自訂金額）。其他項目為 null。
   feeChoice    String?
 
+  /// V14.4：建立報名當下鎖定的每單位單價（白米＝每斤金額；其他 per-unit 項目
+  /// 亦可用）。應收 amountDue = quantity × lockedUnitPrice。之後修改年度單價
+  /// **不回頭改動**已建立報名的金額（避免舊報名金額被錯誤改變，指令四/五）。
+  /// null＝此項不以鎖定單價計價（沿用既有 feeMode/金額邏輯）。
+  lockedUnitPrice Decimal? @db.Decimal(12, 2)
+
   /// 指回既有明細（比照 AdditionalPrintItem 的 entityType/entityId 慣例，
   /// 不建強制 FK，讓不同明細型別共用同一張索引表）。
   linkedEntryId   String?
@@ -1277,6 +1283,20 @@ model TempleEvent {
   yuanqinUnitPrice  Decimal? @db.Decimal(12, 2)
   wuyuanUnitPrice   Decimal? @db.Decimal(12, 2)
 
+  /// V14.4：中元普渡「白米年度配額」設定（宮方每年由神明指派，不可寫死、不可
+  /// 直接沿用去年）。沿用同一套 per-year TempleEvent 欄位結構，不另建價格表。
+  /// - riceTotalKg：該年度白米總斤數（神明指派）。
+  /// - riceUnitPrice：該年度每斤金額。
+  /// - riceOpen：是否開放認購。
+  /// - riceNote：備註。
+  /// 全部 nullable / 預設關閉：既有活動一律未設定；未設定時白米認購一律擋住
+  /// （顯示「尚未設定白米年度配額」），程式不給任何預設金額或斤數（不寫死）。
+  /// 剩餘斤數一律由有效正式報名即時彙總（見 src/lib/whiteRice.ts），不快取增減。
+  riceTotalKg   Decimal? @db.Decimal(12, 2)
+  riceUnitPrice Decimal? @db.Decimal(12, 2)
+  riceOpen      Boolean  @default(false)
+  riceNote      String?  @db.Text
+
   records                  RitualRecord[]
   bannedNumbers            TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）
   printBatches             TempleEventPrintBatch[]
@@ -1343,6 +1363,11 @@ model TempleEventPrintBatch {
   registrationCount Int
   printedByName     String?
   note              String? @db.Text
+
+  /// V14.4：列印確認的冪等鍵。前端每次「確認完成列印」帶一個穩定 key，
+  /// 相同 key 重送（連點／逾時重試）時因唯一鍵衝突而視為同一次，不重複累加
+  /// printCount（指令一）。null＝舊資料或非普渡列印物件流程。
+  idempotencyKey String? @unique
 
   createdAt DateTime @default(now())
 
@@ -1730,6 +1755,19 @@ model AdditionalPrintItem {
   printedByName   String?
   reprintCount    Int       @default(0)
 
+  /// V14.4「牌位／寶袋獨立列印追蹤」。每個列印物件（TABLET 牌位／POCKET 寶袋…）
+  /// 各自保存三個時間戳與總列印次數，語意（指令二）：
+  /// - printCount=0 未列印；=1 首次列印；>1 已補印 printCount-1 次。
+  /// - firstPrintedAt：第一次列印時間，一旦設定**永不覆蓋**（補印不改）。
+  /// - lastPrintedAt：最後一次列印時間（首印與補印都更新）。
+  /// - lastPrintedByUserId：最後一次列印的登入帳號（session User.id，不接受前端傳入）。
+  /// 既有 printedAt/printedByName/reprintCount 保留相容（migration 安全轉入：
+  /// firstPrintedAt←printedAt、printCount←isPrinted?1+reprintCount）。
+  firstPrintedAt      DateTime?
+  lastPrintedAt       DateTime?
+  lastPrintedByUserId String?
+  printCount          Int       @default(0)
+
   printBatchId String?
   printBatch   TempleEventPrintBatch? @relation(fields: [printBatchId], references: [id], onDelete: SetNull)
 
@@ -1768,6 +1806,7 @@ model AdditionalPrintItem {
   @@index([status])
   @@index([printBatchId])
   @@index([deletedAt])
+  @@index([lastPrintedAt])
   @@map("additional_print_items")
 }
 
@@ -3112,4 +3151,64 @@ enum DevoteeCareAction {
   UNFLAGGED // 取消關懷標記
   CONTACTED // 記錄一次關懷聯絡（更新最後聯絡日期/下次聯絡日期）
   NOTE_UPDATED // 僅更新關懷備註
+}
+
+/// V14.4 Part 6B：普渡 Excel 匯入草稿批次。analyze 只建立草稿（不建正式資料），
+/// confirm 才透過共用正式核心物化。純附加、不影響既有正式資料。
+model PurificationImportBatch {
+  id                String    @id @default(cuid())
+  templeEventId     String?
+  year              Int
+  originalFilename  String?
+  /// PENDING（草稿可編輯）/ PROCESSING（confirm 進行中，鎖）/ CONFIRMED / FAILED
+  status            String    @default("PENDING")
+  detectedColumns   Json?
+  summary           Json?
+  /// confirm 冪等鍵：同一批次確認重送不重複物化。
+  confirmationKey   String?   @unique
+  createdByUserId   String?
+  confirmedByUserId String?
+  confirmedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  rows PurificationImportRow[]
+
+  @@index([templeEventId])
+  @@index([year])
+  @@index([status])
+  @@map("purification_import_batches")
+}
+
+/// V14.4 Part 6B：普渡 Excel 匯入草稿列。
+model PurificationImportRow {
+  id                          String                  @id @default(cuid())
+  batchId                     String
+  batch                       PurificationImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber                   Int
+  rawData                     Json
+  normalizedData              Json
+  matchingStatus              String // MATCHED/NEW/AMBIGUOUS/CONFLICT/INVALID/DUPLICATE
+  matchedDevoteeId            String?
+  matchedHouseholdId          String?
+  candidateIds                Json?
+  issueCodes                  Json?
+  issueMessages               Json?
+  excluded                    Boolean                 @default(false)
+  resolved                    Boolean                 @default(false)
+  createNewDevoteeConfirmed   Boolean                 @default(false)
+  createNewHouseholdConfirmed Boolean                 @default(false)
+  editedData                  Json?
+  /// PENDING / CONFIRMED / FAILED（單列物化狀態，成功後不重做）
+  confirmationStatus          String                  @default("PENDING")
+  /// 物化後可追溯的正式資料 id（ritualRecordId 或 entryId）。
+  confirmedRecordId           String?
+  errorMessage                String?                 @db.Text
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId])
+  @@index([matchingStatus])
+  @@map("purification_import_rows")
 }

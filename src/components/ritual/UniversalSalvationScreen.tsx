@@ -7,6 +7,7 @@ import { errorTextClass } from "@/components/household/formStyles";
 import UniversalSalvationDetailForm from "./UniversalSalvationDetailForm";
 import EntryCategorySection from "./EntryCategorySection";
 import DebtCreditorMemberPicker, { type PickerMember } from "./DebtCreditorMemberPicker";
+import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import Toast from "./Toast";
 import { CATEGORY_SECTIONS, type RecordJSON, type WorshipOptionJSON } from "./types";
 
@@ -293,6 +294,14 @@ export default function UniversalSalvationScreen({
           </Link>
         </div>
       </div>
+
+      {/* V14.4：白米認購整合進既有普渡報名編輯器（不另建白米報名頁）。 */}
+      {record && (
+        <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+          <h2 className="mb-3 text-lg font-medium text-ink">白米認購</h2>
+          <WhiteRicePanel year={year} ritualRecordId={record.id} members={members} />
+        </section>
+      )}
 
       <section className="rounded-3xl bg-white/70 p-8 shadow-card">
         <h2 className="text-lg font-medium text-ink">登記名冊</h2>

@@ -1,7 +1,8 @@
 import { ActivityType, Prisma, RitualRecordStatus, UniversalSalvationEntryCategory } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, type DbClient } from "@/lib/prisma";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
+import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem } from "@/lib/registrationItemRegistration";
 
@@ -68,9 +69,10 @@ export type UniversalSalvationRecordView = Prisma.RitualRecordGetPayload<{
  *  只有從回收區還原後才會重新出現在這支查詢裡。 */
 export async function getUniversalSalvationRecord(
   householdId: string,
-  year: number
+  year: number,
+  db?: DbClient
 ): Promise<UniversalSalvationRecordView | null> {
-  return prisma.ritualRecord.findFirst({
+  return (db ?? prisma).ritualRecord.findFirst({
     where: {
       householdId,
       year,
@@ -238,6 +240,9 @@ export async function copyUniversalSalvationFromPreviousYear(
                     category: entry.category,
                     displayName: entry.displayName,
                     yangshangName: entry.yangshangName,
+                    // V14.4 Part 6A：多位陽上人與每筆牌位地址可安全沿用（純內容，非財務/列印）。
+                    yangshangNames: entry.yangshangNames ?? [],
+                    tabletAddress: entry.tabletAddress ?? null,
                     /**
                      * worshipRecordId 可安全沿用：WorshipRecord 沒有 year 欄位，
                      * 是**跨年度共用的牌位母資料**（歷代祖先／乙位正魂），
@@ -246,6 +251,10 @@ export async function copyUniversalSalvationFromPreviousYear(
                     worshipRecordId: entry.worshipRecordId,
                     sortOrder: entry.sortOrder,
                     notes: copyNotes ? entry.notes : null,
+                    // ⚠️ 一律不沿用任何列印時間／列印次數／操作人與財務狀態欄位；
+                    // 收款、帳本、白米舊單價/總斤/超額核准也不帶入（見下方共用
+                    // ensureTabletPrintObjects 一律建立「未列印」的預設物件；白米改由
+                    // 新年度重新認購）。
                   })),
                 }
               : undefined,
@@ -254,6 +263,33 @@ export async function copyUniversalSalvationFromPreviousYear(
       },
       include: universalSalvationInclude,
     });
+
+    // V14.4 Part 6A（方案 A）：每一筆沿用建立的草稿牌位，一律共用
+    // ensureLinkedTabletItem（DRAFT 計價項目，未 CONFIRMED 不進待收）＋
+    // ensureTabletPrintObjects（預設 TABLET／POCKET，printCount=0、無列印紀錄）。
+    // 不帶入任何去年列印時間/次數/操作人/收款/帳本；白米不沿用，改由新年度重新認購。
+    const copiedEntries = record.universalSalvation?.entries ?? [];
+    for (const e of copiedEntries) {
+      await ensureLinkedTabletItem(tx, {
+        ritualRecordId: record.id,
+        entryId: e.id,
+        category: e.category,
+        year: targetYear,
+        status: "DRAFT",
+        memberId: null,
+      });
+      await ensureTabletPrintObjects(
+        {
+          ritualRecordId: record.id,
+          householdId,
+          sourceEntryId: e.id,
+          printName: e.displayName,
+          memberId: null,
+          activityId: record.templeEventId ?? null,
+        },
+        tx
+      );
+    }
 
     await recordVersion(
       {
@@ -284,16 +320,18 @@ export type CreateBlankUniversalSalvationResult =
  */
 export async function createBlankUniversalSalvationRecord(
   householdId: string,
-  year: number
+  year: number,
+  db?: DbClient
 ): Promise<CreateBlankUniversalSalvationResult> {
-  const household = await prisma.household.findFirst({
+  const client = db ?? prisma;
+  const household = await client.household.findFirst({
     where: { id: householdId, deletedAt: null },
   });
   if (!household) {
     return { ok: false, status: 404, error: "找不到這個家戶" };
   }
 
-  const existing = await prisma.ritualRecord.findUnique({
+  const existing = await client.ritualRecord.findUnique({
     where: {
       householdId_year_activityType: {
         householdId,
@@ -318,7 +356,7 @@ export async function createBlankUniversalSalvationRecord(
     };
   }
 
-  const created = await prisma.$transaction(async (tx) => {
+  const runBlank = async (tx: DbClient) => {
     const record = await tx.ritualRecord.create({
       data: {
         householdId,
@@ -346,7 +384,8 @@ export async function createBlankUniversalSalvationRecord(
     );
 
     return record;
-  });
+  };
+  const created = db ? await runBlank(db) : await prisma.$transaction(runBlank);
 
   return { ok: true, record: created };
 }
@@ -469,9 +508,11 @@ export async function createUniversalSalvationEntry(
   householdId: string,
   year: number,
   input: CreateUniversalSalvationEntryInput,
-  operatorName?: string | null
+  operatorName?: string | null,
+  db?: DbClient
 ): Promise<EntryMutationResult> {
-  const existing = await prisma.ritualRecord.findUnique({
+  const client = db ?? prisma;
+  const existing = await client.ritualRecord.findUnique({
     where: {
       householdId_year_activityType: {
         householdId,
@@ -492,7 +533,7 @@ export async function createUniversalSalvationEntry(
     sameCategory.length > 0 ? Math.max(...sameCategory.map((e) => e.sortOrder)) + 1 : 1;
 
   const universalSalvationId = existing.universalSalvation.id;
-  await prisma.$transaction(async (tx) => {
+  const run = async (tx: DbClient) => {
     const created = await tx.universalSalvationEntry.create({
       data: {
         universalSalvationId,
@@ -530,9 +571,26 @@ export async function createUniversalSalvationEntry(
       status: existing.status,
       memberId: input.linkedItemMemberId ?? null,
     });
-  });
 
-  const record = await getUniversalSalvationRecord(householdId, year);
+    // V14.4 Part 2：牌位建立時自動建立列印物件（TABLET×1、預設 POCKET×1），
+    // 兩者共用同一 entry（不複製姓名/陽上人/地址），冪等防重（同 tx）。
+    await ensureTabletPrintObjects(
+      {
+        ritualRecordId: existing.id,
+        householdId,
+        sourceEntryId: created.id,
+        printName: input.displayName,
+        memberId: input.linkedItemMemberId ?? null,
+        activityId: existing.templeEventId ?? null,
+      },
+      tx
+    );
+  };
+  // 有外部 tx → 納入呼叫端交易（Excel 匯入單列整批 rollback）；否則自開交易（原行為）。
+  if (db) await run(db);
+  else await prisma.$transaction(run);
+
+  const record = await getUniversalSalvationRecord(householdId, year, db);
   return { ok: true, record: record! };
 }
 

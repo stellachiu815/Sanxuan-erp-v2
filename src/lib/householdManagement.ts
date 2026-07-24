@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, type DbClient } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import {
   syncMemberHouseholdReferences,
@@ -338,13 +338,30 @@ async function findNextAutoHouseholdCode(): Promise<string> {
  * 情況），若寫入時真的撞到唯一鍵衝突，會自動往下一個號碼重試，最多
  * 重試 5 次，仍失敗才回報錯誤，不會讓使用者看到原始 Prisma 錯誤。
  */
-export async function createHousehold(rawInput: HouseholdBasicInput, operatorName: string | null) {
+export async function createHousehold(rawInput: HouseholdBasicInput, operatorName: string | null, db?: DbClient) {
   const input = normalizeHouseholdBasicInput(rawInput);
 
   const autoGenerate = !input.id;
   if (!autoGenerate) {
     const codeError = await validateHouseholdCode(input.id!);
     if (codeError) throw new HouseholdManagementError(codeError);
+  }
+
+  // 有外部 tx（Excel 匯入單列 confirm）：不能在同一 tx 內重試（P2002 會中止交易），
+  // 故單次嘗試；撞號時往上拋，由呼叫端整列 rollback＋標 FAILED，重試時取新號。
+  if (db) {
+    const id = autoGenerate ? await findNextAutoHouseholdCode() : input.id!;
+    const created = await db.household.create({
+      data: {
+        id, name: input.name ?? "", contactName: input.contactName ?? null, address: input.address ?? null,
+        phone: input.phone ?? null, mobile: input.mobile ?? null, companyName: input.companyName ?? null, notes: input.notes ?? null,
+      },
+    });
+    await recordVersion(
+      { entityType: "Household", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "Excel 匯入：新增家戶" },
+      db
+    );
+    return { household: created };
   }
 
   const maxAttempts = autoGenerate ? 5 : 1;

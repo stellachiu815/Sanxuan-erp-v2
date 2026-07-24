@@ -13,6 +13,7 @@ import {
   type TabletUnitPrices,
 } from "@/lib/universalSalvationTabletPricing";
 import { resolveYangshangNames } from "@/lib/yangshang";
+import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 
 /**
  * V14：把報名項目回寫到既有明細表，並回填 linkedEntryId／linkedEntryType。
@@ -584,6 +585,19 @@ export async function registerItemsBatch(
             where: { id: created.id },
             data: { universalSalvationEntryId: entry.id },
           });
+          // V14.4 Part 2：全戶冤親牌位建立時，共用 ensureTabletPrintObjects
+          // 自動建立 TABLET＋預設 POCKET（同一 tx；不各自手寫）。
+          await ensureTabletPrintObjects(
+            {
+              ritualRecordId: recordId,
+              householdId: p.householdId,
+              sourceEntryId: entry.id,
+              printName: (p.entry.customName?.trim() || memberName) ?? p.itemType.name,
+              memberId: p.entry.memberId,
+              activityId: null,
+            },
+            tx
+          );
         }
 
         outcomes.push({

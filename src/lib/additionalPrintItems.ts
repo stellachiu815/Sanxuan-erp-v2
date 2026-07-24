@@ -1,5 +1,5 @@
-import { AdditionalPrintItemType, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { AdditionalPrintItemType, AdditionalPrintItemStatus, Prisma } from "@prisma/client";
+import { prisma, type DbClient } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import {
   resolvePocketUnitPrice,
@@ -17,6 +17,7 @@ import {
   resolvePrintName,
   computeAdditionalPrintItemFee,
   applyPrintAction,
+  applyPrintToObject,
   summarizePrintItems,
   matchesSourceEntry,
   resolveDetailSheetQuantity,
@@ -49,8 +50,8 @@ type EntryContext = {
 };
 
 /** 從一筆普渡登記項目（UniversalSalvationEntry）往上找到它所屬的家戶/年度/活動主檔。 */
-async function resolveEntryContext(entryId: string): Promise<EntryContext | null> {
-  const entry = await prisma.universalSalvationEntry.findUnique({
+async function resolveEntryContext(entryId: string, db?: DbClient): Promise<EntryContext | null> {
+  const entry = await (db ?? prisma).universalSalvationEntry.findUnique({
     where: { id: entryId },
     include: {
       universalSalvation: { include: { ritualRecord: true } },
@@ -180,9 +181,11 @@ export async function createAdditionalPrintItem(
   year: number,
   entryId: string,
   input: CreateAdditionalPrintItemInput,
-  operatorName?: string | null
+  operatorName?: string | null,
+  db?: DbClient
 ): Promise<AdditionalPrintItemMutationResult> {
-  const context = await resolveEntryContext(entryId);
+  const client = db ?? prisma;
+  const context = await resolveEntryContext(entryId, db);
   if (!context || context.householdId !== householdId || context.year !== year) {
     return { ok: false, status: 404, error: "找不到這筆普渡登記項目" };
   }
@@ -209,7 +212,7 @@ export async function createAdditionalPrintItem(
   let unitPrice = input.unitPrice ?? null;
   if (isChargeable && (unitPrice === null || unitPrice === undefined)) {
     const activity = context.templeEventId
-      ? await prisma.templeEvent.findUnique({
+      ? await client.templeEvent.findUnique({
           where: { id: context.templeEventId },
           select: { pocketUnitPrice: true },
         })
@@ -225,7 +228,7 @@ export async function createAdditionalPrintItem(
   }
   const fee = { subtotal: feeResult.subtotal };
 
-  const created = await prisma.$transaction(async (tx) => {
+  const runCreate = async (tx: DbClient) => {
     const item = await tx.additionalPrintItem.create({
       data: {
         activityId: context.templeEventId,
@@ -256,7 +259,8 @@ export async function createAdditionalPrintItem(
     );
 
     return item;
-  });
+  };
+  const created = db ? await runCreate(db) : await prisma.$transaction(runCreate);
 
   return { ok: true, item: created };
 }
@@ -649,6 +653,210 @@ export async function generateAdditionalPrintItemBatch(
 }
 
 // ============================================================
+// V14.4「牌位建立時自動建立列印物件」（指令 Part 2）
+// ============================================================
+
+export type EnsureTabletPrintObjectsInput = {
+  ritualRecordId: string;
+  householdId: string;
+  sourceEntryId: string;
+  printName: string;
+  memberId?: string | null;
+  activityId?: string | null;
+};
+
+/**
+ * 確保一筆有效牌位（UniversalSalvationEntry）有其預設列印物件：TABLET × 1、
+ * 預設 POCKET × 1。兩者共用同一 sourceEntryId（姓名/陽上人/地址只存 entry 一份，
+ * 這裡不複製內容，只各自保存列印狀態與版型類型 itemType）。
+ *
+ * 冪等（指令 Part 2.4）：同一 sourceEntryId＋itemType 的「預設物件（isExtra=false、
+ * 未刪除）」已存在就不重複建立——重送/連點不會產生兩個 TABLET 或兩個預設 POCKET。
+ * DB 另有 partial unique index（見 migration）作為硬防重；這裡先查存在再建立，
+ * 兩層一致。可傳入既有 transaction client（tx）以與牌位建立同一交易。
+ *
+ * 預設 POCKET 不收費（isChargeable=false）——額外寶袋才可能產生應收（Part 2.5）。
+ */
+export async function ensureTabletPrintObjects(
+  input: EnsureTabletPrintObjectsInput,
+  client: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<{ createdTablet: boolean; createdPocket: boolean }> {
+  const existing = await client.additionalPrintItem.findMany({
+    where: {
+      sourceEntryId: input.sourceEntryId,
+      sourceEntryType: "UNIVERSAL_SALVATION_ENTRY",
+      isExtra: false,
+      deletedAt: null,
+      itemType: { in: [AdditionalPrintItemType.TABLET, AdditionalPrintItemType.POCKET] },
+    },
+    select: { itemType: true },
+  });
+  const hasTablet = existing.some((e) => e.itemType === AdditionalPrintItemType.TABLET);
+  const hasPocket = existing.some((e) => e.itemType === AdditionalPrintItemType.POCKET);
+
+  const base = {
+    ritualRecordId: input.ritualRecordId,
+    householdId: input.householdId,
+    sourceEntryId: input.sourceEntryId,
+    sourceEntryType: "UNIVERSAL_SALVATION_ENTRY",
+    memberId: input.memberId ?? null,
+    activityId: input.activityId ?? null,
+    printName: input.printName,
+    usesSourceName: true,
+    quantity: 1,
+    isExtra: false,
+    isChargeable: false, // 預設 TABLET／POCKET 不收費（額外寶袋才收費）
+    status: AdditionalPrintItemStatus.PENDING_PRINT,
+    printCount: 0,
+  };
+
+  let createdTablet = false;
+  let createdPocket = false;
+  if (!hasTablet) {
+    await client.additionalPrintItem.create({ data: { ...base, itemType: AdditionalPrintItemType.TABLET } });
+    createdTablet = true;
+  }
+  if (!hasPocket) {
+    await client.additionalPrintItem.create({ data: { ...base, itemType: AdditionalPrintItemType.POCKET } });
+    createdPocket = true;
+  }
+  return { createdTablet, createdPocket };
+}
+
+// ============================================================
+// V14.4「確認完成列印」：列印物件層的首印／補印確認（指令一）
+// ============================================================
+
+export type ConfirmPrintResult =
+  | { ok: true; batchId: string; printedCount: number; reprintedCount: number; deduplicated: boolean }
+  | { ok: false; status: number; error: string };
+
+/**
+ * 確認完成列印（單筆或批次）。**只在使用者按下「確認完成列印」時呼叫**，
+ * 不因開啟預覽而累加（指令一）。
+ *
+ * - 使用 AdditionalPrintItem 作為每個 TABLET／POCKET 列印物件；以純函式
+ *   applyPrintToObject 計算首印／補印後的 printCount 與時間戳。
+ * - 首印設一次 firstPrintedAt；補印保留 firstPrintedAt、更新 lastPrintedAt／
+ *   lastPrintedByUserId（session 使用者），並同步既有相容欄位（isPrinted／
+ *   printedAt／reprintCount／status），不動任何報名/應收/收款（補印不新增應收）。
+ * - 批次一律在單一 transaction 內完成。
+ * - idempotencyKey：相同 key 重送（連點／逾時重試）因 batch 唯一鍵衝突而視為
+ *   同一次，直接回報既有批次、**不重複累加**（deduplicated=true）。
+ *
+ * 操作人 lastPrintedByUserId 一律由呼叫端（API）從 session 帶入，這裡不接受
+ * 前端傳入身分；權限（READONLY 拒絕）由 API 層 assertUniversalSalvationPermission 把關。
+ */
+export async function confirmPrintObjects(
+  itemIds: string[],
+  input: { userId: string; operatorName?: string | null; idempotencyKey: string; templateVersionId?: string | null }
+): Promise<ConfirmPrintResult> {
+  if (itemIds.length === 0) return { ok: false, status: 400, error: "請至少選擇一筆要列印的項目" };
+  if (!input.idempotencyKey || !input.idempotencyKey.trim()) {
+    return { ok: false, status: 400, error: "缺少列印確認識別碼（idempotencyKey）" };
+  }
+  if (!input.userId) return { ok: false, status: 401, error: "尚未登入" };
+
+  // 冪等：同一個 key 已經確認過 → 直接回既有批次，不重複累加。
+  const existingBatch = await prisma.templeEventPrintBatch.findUnique({
+    where: { idempotencyKey: input.idempotencyKey },
+  });
+  if (existingBatch) {
+    return { ok: true, batchId: existingBatch.id, printedCount: 0, reprintedCount: 0, deduplicated: true };
+  }
+
+  const items = await prisma.additionalPrintItem.findMany({
+    where: { id: { in: itemIds }, deletedAt: null },
+  });
+  if (items.length !== itemIds.length) {
+    return { ok: false, status: 404, error: "有選取的項目找不到，請重新整理後再試一次" };
+  }
+  if (items.some((i) => i.status === "CANCELLED")) {
+    return { ok: false, status: 400, error: "選取的項目裡有已取消的項目，請先取消勾選再列印" };
+  }
+
+  const distinctActivityIds = new Set(items.map((i) => i.activityId ?? null));
+  const commonTempleEventId = distinctActivityIds.size === 1 ? [...distinctActivityIds][0] : null;
+
+  let printedCount = 0;
+  let reprintedCount = 0;
+
+  try {
+    const batchId = await prisma.$transaction(async (tx) => {
+      const batch = await tx.templeEventPrintBatch.create({
+        data: {
+          templeEventId: commonTempleEventId,
+          registrationCount: items.length,
+          printedByName: input.operatorName ?? null,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      const now = new Date();
+      for (const item of items) {
+        const wasPrinted = (item.printCount ?? 0) > 0 || item.isPrinted;
+        const next = applyPrintToObject(
+          {
+            printCount: item.printCount ?? 0,
+            firstPrintedAt: item.firstPrintedAt ?? item.printedAt ?? null,
+            lastPrintedAt: item.lastPrintedAt ?? item.printedAt ?? null,
+            lastPrintedByUserId: item.lastPrintedByUserId ?? null,
+          },
+          now,
+          input.userId
+        );
+        if (wasPrinted) reprintedCount++;
+        else printedCount++;
+
+        const after = await tx.additionalPrintItem.update({
+          where: { id: item.id },
+          data: {
+            // 新列印物件層欄位：
+            printCount: next.printCount,
+            firstPrintedAt: next.firstPrintedAt,
+            lastPrintedAt: next.lastPrintedAt,
+            lastPrintedByUserId: next.lastPrintedByUserId,
+            // 相容既有欄位（列印中心/篩選仍會讀）：
+            isPrinted: true,
+            printedAt: item.firstPrintedAt ?? item.printedAt ?? now, // 首印時間，不覆蓋
+            printedByName: input.operatorName ?? item.printedByName ?? null,
+            printedQuantity: wasPrinted ? item.printedQuantity + item.quantity : item.quantity,
+            reprintCount: wasPrinted ? item.reprintCount + 1 : item.reprintCount,
+            printBatchId: batch.id,
+            templateVersionId: input.templateVersionId ?? item.templateVersionId,
+            status: "PRINTED",
+          },
+        });
+
+        await recordVersion(
+          {
+            entityType: "AdditionalPrintItem",
+            entityId: item.id,
+            action: "UPDATE",
+            beforeData: item,
+            afterData: after,
+            operatorName: input.operatorName,
+            changeNote: wasPrinted ? "補印（確認完成列印）" : "列印（確認完成列印）",
+          },
+          tx
+        );
+      }
+
+      return batch.id;
+    });
+
+    return { ok: true, batchId, printedCount, reprintedCount, deduplicated: false };
+  } catch (e) {
+    // 冪等鍵競態：兩個併發請求同 key，其中一個唯一鍵衝突 → 視為重複，不累加。
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const b = await prisma.templeEventPrintBatch.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+      if (b) return { ok: true, batchId: b.id, printedCount: 0, reprintedCount: 0, deduplicated: true };
+    }
+    throw e;
+  }
+}
+
+// ============================================================
 // 活動摘要（需求「十五」）
 // ============================================================
 
@@ -691,6 +899,7 @@ export type PrintCenterFilters = {
 export type PrintCenterItemView = {
   id: string;
   household: { id: string; name: string };
+  sourceEntryId: string;
   sourceCategory: string;
   sourceCategoryLabel: string;
   sourceDisplayName: string;
@@ -702,6 +911,12 @@ export type PrintCenterItemView = {
   isPrinted: boolean;
   printedQuantity: number;
   note: string | null;
+  // V14.4 列印物件層：
+  printCount: number;
+  firstPrintedAt: string | null;
+  lastPrintedAt: string | null;
+  lastPrintedByUserId: string | null;
+  lastPrintedByName: string | null;
 };
 
 /**
@@ -738,6 +953,15 @@ export async function listPrintItemsForPrintCenter(
     : [];
   const sourceEntryById = new Map(sourceEntries.map((e) => [e.id, e]));
 
+  // V14.4：解析最後列印操作人姓名（lastPrintedByUserId → User.name）。
+  const lastPrintedByUserIds = [
+    ...new Set(items.map((i) => i.lastPrintedByUserId).filter((x): x is string => !!x)),
+  ];
+  const users = lastPrintedByUserIds.length
+    ? await prisma.user.findMany({ where: { id: { in: lastPrintedByUserIds } }, select: { id: true, name: true } })
+    : [];
+  const userNameById = new Map(users.map((u) => [u.id, u.name]));
+
   const views: PrintCenterItemView[] = [];
   for (const item of items) {
     const source = sourceEntryById.get(item.sourceEntryId);
@@ -756,6 +980,7 @@ export async function listPrintItemsForPrintCenter(
     views.push({
       id: item.id,
       household: { id: item.household.id, name: item.household.name },
+      sourceEntryId: item.sourceEntryId,
       sourceCategory: source.category,
       sourceCategoryLabel: universalSalvationEntryCategoryLabel[source.category] ?? source.category,
       sourceDisplayName: source.displayName,
@@ -767,10 +992,79 @@ export async function listPrintItemsForPrintCenter(
       isPrinted: item.isPrinted,
       printedQuantity: item.printedQuantity,
       note: item.note,
+      // V14.4 列印物件層欄位：
+      printCount: item.printCount ?? 0,
+      firstPrintedAt: (item.firstPrintedAt ?? item.printedAt) ? (item.firstPrintedAt ?? item.printedAt)!.toISOString() : null,
+      lastPrintedAt: (item.lastPrintedAt ?? item.printedAt) ? (item.lastPrintedAt ?? item.printedAt)!.toISOString() : null,
+      lastPrintedByUserId: item.lastPrintedByUserId ?? null,
+      lastPrintedByName: item.lastPrintedByUserId ? userNameById.get(item.lastPrintedByUserId) ?? null : null,
     });
   }
 
   return views;
+}
+
+/**
+ * V14.4 Part 3：把列印中心清單「以牌位（UniversalSalvationEntry）分組」，每組回傳
+ * TABLET 與預設 POCKET 兩個列印物件的狀態，供普渡列印中心 UI 顯示雙區塊。
+ * 沿用同一個 listPrintItemsForPrintCenter 查詢（同一份資料、同一個 API），不另建第二套。
+ */
+export type PrintObjectView = {
+  id: string;
+  itemType: string;
+  printName: string;
+  status: AdditionalPrintItemStatusValue;
+  printCount: number;
+  firstPrintedAt: string | null;
+  lastPrintedAt: string | null;
+  lastPrintedByName: string | null;
+};
+
+export type GroupedTabletPrintView = {
+  sourceEntryId: string;
+  household: { id: string; name: string };
+  sourceCategoryLabel: string;
+  sourceDisplayName: string;
+  tablet: PrintObjectView | null;
+  pocket: PrintObjectView | null;
+  extras: PrintObjectView[];
+};
+
+export async function listUniversalSalvationPrintGroups(
+  year: number,
+  filters: PrintCenterFilters = {}
+): Promise<GroupedTabletPrintView[]> {
+  const items = await listPrintItemsForPrintCenter(year, filters);
+  const groups = new Map<string, GroupedTabletPrintView>();
+  for (const it of items) {
+    let g = groups.get(it.sourceEntryId);
+    if (!g) {
+      g = {
+        sourceEntryId: it.sourceEntryId,
+        household: it.household,
+        sourceCategoryLabel: it.sourceCategoryLabel,
+        sourceDisplayName: it.sourceDisplayName,
+        tablet: null,
+        pocket: null,
+        extras: [],
+      };
+      groups.set(it.sourceEntryId, g);
+    }
+    const obj: PrintObjectView = {
+      id: it.id,
+      itemType: it.itemType,
+      printName: it.printName,
+      status: it.status,
+      printCount: it.printCount,
+      firstPrintedAt: it.firstPrintedAt,
+      lastPrintedAt: it.lastPrintedAt,
+      lastPrintedByName: it.lastPrintedByName,
+    };
+    if (it.itemType === "TABLET" && !it.isExtra) g.tablet = obj;
+    else if (it.itemType === "POCKET" && !it.isExtra) g.pocket = obj;
+    else g.extras.push(obj);
+  }
+  return [...groups.values()];
 }
 
 // ============================================================

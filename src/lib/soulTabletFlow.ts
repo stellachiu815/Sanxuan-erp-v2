@@ -22,6 +22,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { recordVersion } from "@/lib/recordVersion";
+import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import {
   createWorshipRecordInTransaction,
   findExistingSoulTablet,
@@ -368,6 +369,20 @@ export async function joinUniversalSalvation(params: {
         afterData: entry,
         operatorName: params.operatorName,
         changeNote: `辭世流程：牌位「${record.displayName}」加入民國 ${params.year} 年中元普渡`,
+      },
+      tx
+    );
+
+    // V14.4 Part 2：辭世流程建立牌位時，一律共用 ensureTabletPrintObjects
+    // 自動建立 TABLET＋預設 POCKET（同一 tx；不各自手寫）。
+    await ensureTabletPrintObjects(
+      {
+        ritualRecordId: ritual.id,
+        householdId: record.householdId,
+        sourceEntryId: entry.id,
+        printName: record.displayName,
+        memberId: record.memberId ?? null,
+        activityId: ritual.templeEventId ?? null,
       },
       tx
     );

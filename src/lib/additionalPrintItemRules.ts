@@ -98,6 +98,56 @@ export function applyPrintAction(
 }
 
 // ============================================================
+// 二之二、V14.4 列印物件層：首印／補印次數與時間戳規則（指令二）
+// ============================================================
+//
+// 每個列印物件（TABLET 牌位／POCKET 寶袋…）各自保存 printCount 與三個時間戳。
+// 語意固定：printCount=0 未列印；=1 首次列印；>1 已補印 printCount-1 次。
+// firstPrintedAt 一旦設定永不覆蓋；lastPrintedAt / lastPrintedByUserId 每次更新。
+// 補印只影響列印紀錄，不動報名／應收／收款（真正寫庫在 service 層，這裡是純規則）。
+
+export type PrintObjectState = {
+  printCount: number;
+  firstPrintedAt: Date | null;
+  lastPrintedAt: Date | null;
+  lastPrintedByUserId: string | null;
+};
+
+export type PrintObjectStatus = "UNPRINTED" | "PRINTED" | "REPRINTED";
+
+/** printCount → 狀態：0 未列印、1 已列印、>1 已補印。 */
+export function printObjectStatus(printCount: number): PrintObjectStatus {
+  if (printCount <= 0) return "UNPRINTED";
+  if (printCount === 1) return "PRINTED";
+  return "REPRINTED";
+}
+
+/** 已補印次數＝printCount-1（未列印或首印為 0）。 */
+export function reprintTimes(printCount: number): number {
+  return Math.max(0, printCount - 1);
+}
+
+/**
+ * 對單一列印物件套用「一次列印」（首印或補印）後的新狀態。
+ * - 首印（printCount=0）：printCount→1、設 firstPrintedAt＝lastPrintedAt＝at、記操作帳號。
+ * - 補印（printCount>0）：printCount+1、**firstPrintedAt 保留不覆蓋**、更新 lastPrintedAt 與操作帳號。
+ * at 由伺服器產生、byUserId 一律來自 session（呼叫端保證），這裡不接受前端傳入身分。
+ */
+export function applyPrintToObject(
+  current: PrintObjectState,
+  at: Date,
+  byUserId: string
+): PrintObjectState {
+  const isFirstPrint = current.printCount <= 0;
+  return {
+    printCount: Math.max(0, current.printCount) + 1,
+    firstPrintedAt: isFirstPrint ? at : current.firstPrintedAt,
+    lastPrintedAt: at,
+    lastPrintedByUserId: byUserId,
+  };
+}
+
+// ============================================================
 // 三、收款與費用規則（需求「十一」）
 // ============================================================
 

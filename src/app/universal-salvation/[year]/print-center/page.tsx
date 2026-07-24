@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PrintItemsCenter from "@/components/universal-salvation/PrintItemsCenter";
+import PrintObjectCenter from "@/components/universal-salvation/PrintObjectCenter";
 
 /**
  * V9.1「普渡列印中心」（需求「九」）：跨家戶依年度查看/篩選/批次列印
@@ -30,7 +31,18 @@ export default async function UniversalSalvationPrintCenterPage({
         {!Number.isInteger(year) ? (
           <p className="text-sm text-ink-soft">年度格式錯誤。</p>
         ) : (
-          <PrintItemsCenter year={year} />
+          <>
+            {/* V14.4 Part 3：牌位／寶袋列印物件（各自狀態、確認完成列印）。 */}
+            <section className="flex flex-col gap-3">
+              <h2 className="text-lg font-medium text-ink">牌位與寶袋列印</h2>
+              <PrintObjectCenter year={year} />
+            </section>
+            {/* 既有：附加列印項目（額外寶袋等）明細管理，沿用不動。 */}
+            <section className="flex flex-col gap-3">
+              <h2 className="text-lg font-medium text-ink">附加列印項目管理</h2>
+              <PrintItemsCenter year={year} />
+            </section>
+          </>
         )}
       </main>
     </div>

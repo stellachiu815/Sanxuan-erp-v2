@@ -1,5 +1,5 @@
 import { MemberRole, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, type DbClient } from "@/lib/prisma";
 import { validateLunarBirthdayInput } from "@/lib/lunar";
 import { memberRoleLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
@@ -220,19 +220,22 @@ export async function createMemberForHousehold(
   householdId: string,
   input: CreateMemberInput,
   operatorName: string | null,
-  changeNote = "新增家戶成員"
+  changeNote = "新增家戶成員",
+  db?: DbClient
 ) {
   const normalized = normalizeCreateMemberInput(input);
+  const client = db ?? prisma;
 
-  const household = await prisma.household.findFirst({
+  const household = await client.household.findFirst({
     where: { id: householdId, deletedAt: null },
     select: { id: true },
   });
   if (!household) throw new HouseholdManagementError("找不到這個家戶", 404);
 
-  const member = await prisma.$transaction((tx) =>
-    createMemberInTransaction(tx, householdId, normalized, operatorName, changeNote)
-  );
+  // 有外部 tx → 直接用該 tx（納入呼叫端交易）；否則自開交易（原行為）。
+  const member = db
+    ? await createMemberInTransaction(db, householdId, normalized, operatorName, changeNote)
+    : await prisma.$transaction((tx) => createMemberInTransaction(tx, householdId, normalized, operatorName, changeNote));
 
   return { member };
 }
