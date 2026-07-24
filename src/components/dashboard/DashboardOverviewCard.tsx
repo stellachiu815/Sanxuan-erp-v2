@@ -54,7 +54,7 @@ export default async function DashboardOverviewCard() {
         <div className="rounded-3xl bg-mist-50 p-6 shadow-card transition hover:shadow-pop">
           <p className="text-sm font-medium text-ink">📅 今日活動</p>
           {data.todayActivities.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-faint">目前沒有資料</p>
+            <p className="mt-3 text-sm text-ink-faint">今天沒有活動</p>
           ) : (
             <ul className="mt-3 space-y-3">
               {data.todayActivities.map((e) => (

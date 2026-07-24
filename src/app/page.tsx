@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
+import HomeQuickNav from "@/components/dashboard/HomeQuickNav";
+import PrintPendingCard from "@/components/dashboard/PrintPendingCard";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
 import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
@@ -59,7 +62,40 @@ export default async function HomePage() {
         改由 <DevoteeQuickActions/> 統一處理（內含 OperatorProvider）。
       */}
       <DevoteeQuickActions />
-      <DashboardOverviewCard />
+
+      {/*
+        V15 指令三「首頁快捷入口重新排列」：搜尋（上方 DevoteeQuickActions）維持
+        最高優先，緊接著是宮內最高頻的固定順序快捷入口——信眾中心／新增信眾／
+        收款中心／列印中心／活動中心／供品中心／系統管理（依權限）。全部沿用既有
+        路由，列印中心＝既有 /print-center（不建第二套）。
+      */}
+      <HomeQuickNav showSystemCenter={showSystemCenter} />
+
+      {/*
+        V15 指令三「首頁資料載入 lazy loading」：資訊卡（系統總覽）用 Suspense
+        串流，讓搜尋框與快捷入口先出現，資訊卡稍後補上，避免首頁一次查全部而變卡。
+        「待列印」卡再獨立以 client 端載入，不阻塞其他資訊卡。
+      */}
+      <Suspense
+        fallback={
+          <section className="w-full max-w-5xl">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-40 animate-pulse rounded-3xl bg-cream-100" />
+              ))}
+            </div>
+          </section>
+        }
+      >
+        <DashboardOverviewCard />
+      </Suspense>
+
+      {/* V15 指令三「新增：待列印」資訊卡（可點進列印中心）。 */}
+      <section className="w-full max-w-5xl">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <PrintPendingCard />
+        </div>
+      </section>
       {/*
         V12 指令「一、首頁與主要導覽順序」：信眾中心 → 收款中心 → 活動中心 →
         列印中心 → 供品中心 → 系統管理，信眾中心排在最前面、最顯眼的位置。
