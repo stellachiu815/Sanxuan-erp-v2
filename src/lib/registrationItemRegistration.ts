@@ -68,69 +68,12 @@ async function linkItemToExistingDetail(
     return;
   }
 
-  if (params.contentKind === "SPONSOR") {
-    // 普渡贊普：金額寫進既有 UniversalSalvationDetail（既有贊普收款來源）。
-    // ⚠️ 同步初始化「贊普數量」，不再讓編輯頁顯示 0（V14.1 回歸修正一）。
-    //
-    // V14.1：贊普單價**來源是活動層 TempleEvent.sponsorUnitPrice**（宮方每年設定一次）。
-    //   - 贊普（FIXED）：讀本筆報名所屬 TempleEvent.sponsorUnitPrice：
-    //       尚未設定 → 保留數量、單價/金額皆 null/0（不默默用 0；confirm 會被擋）。
-    //       已設定   → sponsorAmount = 數量 × 單價。
-    //   - 隨喜贊普（CUSTOM）：金額為使用者自訂，已算進 itemAmountDue，單價不適用。
-    let sponsorUnitPrice: number | null;
-    let sponsorAmount: number;
-    if (params.feeMode === "CUSTOM") {
-      sponsorUnitPrice = null;
-      sponsorAmount = params.itemAmountDue;
-    } else {
-      const rec = await tx.ritualRecord.findUnique({
-        where: { id: params.ritualRecordId },
-        select: { templeEvent: { select: { sponsorUnitPrice: true } } },
-      });
-      sponsorUnitPrice =
-        rec?.templeEvent?.sponsorUnitPrice != null
-          ? Number(rec.templeEvent.sponsorUnitPrice)
-          : null;
-      sponsorAmount =
-        sponsorUnitPrice !== null
-          ? Math.round(sponsorUnitPrice * params.quantity * 100) / 100
-          : 0;
-    }
-
-    const detail = await tx.universalSalvationDetail.upsert({
-      where: { ritualRecordId: params.ritualRecordId },
-      create: {
-        ritualRecordId: params.ritualRecordId,
-        isRegistered: true,
-        isSponsor: true,
-        sponsorQuantity: params.quantity,
-        sponsorUnitPrice,
-        sponsorAmount,
-        amountDue: sponsorAmount,
-        amountUnpaid: sponsorAmount,
-      },
-      update: {
-        isSponsor: true,
-        sponsorQuantity: params.quantity,
-        sponsorUnitPrice,
-        sponsorAmount,
-        amountDue: sponsorAmount,
-        amountUnpaid: sponsorAmount,
-      },
-      select: { id: true },
-    });
-    await tx.ritualRegistrationItem.update({
-      where: { id: params.registrationItemId },
-      data: {
-        amountDue: 0,
-        amountUnpaid: 0,
-        linkedEntryType: "UniversalSalvationDetail",
-        linkedEntryId: detail.id,
-      },
-    });
-    return;
-  }
-  // 其餘型態：本項目自身即為索引（RICE/TABLE/ROSTER/龍鳳燈由自身 adapter 收款；
+  // V15R2：贊普／隨喜贊普（SPONSOR）改為**各自獨立、自身計價**的 RitualRegistrationItem
+  // （item.amountDue = quantity × unitPrice），不再把金額塞回 UniversalSalvationDetail
+  // 共用單一贊普欄、不再歸零本項。收款由 receivableAdapters 的 US_SPONSOR/
+  // US_SPONSOR_DONATION item adapter 各自計價；因此這裡 SPONSOR 不做特別連結，
+  // 直接落到下方「其餘型態：本項自身即為收款來源」。
+  // 其餘型態：本項目自身即為索引（RICE/TABLE/ROSTER/龍鳳燈／贊普由自身 adapter 收款；
   // TABLET/POCKET/PURIFICATION/TURTLE/STOVE 由既有專屬流程建立內容）。
 }
 
@@ -631,6 +574,8 @@ export type RegisteredItemView = {
    * 累世冤親債主 → 當事人姓名（member）；贊普 → 自訂名稱（本人…）。
    */
   subjectName: string;
+  /** V15R2：認購人／報名成員實際姓名（白米認購人、贊普本人…；舊「本人」由此補實名）。 */
+  memberName: string | null;
   /**
    * V14.2：已報名項目最終顯示字串（依宮內辨識規則）：
    *   超拔祖先／乙位正魂／無緣子女 → 完整牌位名稱（不加「類別｜」）
@@ -654,6 +599,8 @@ export type RegisteredItemView = {
   amountPaid: number;
   amountUnpaid: number;
   status: string;
+  /** V15R2：舊 Detail 贊普的唯讀相容列（非真實 item，不可從此取消；下次儲存時轉為正式 item）。 */
+  readOnlyLegacy: boolean;
 };
 
 /**
@@ -766,11 +713,173 @@ export async function cancelLinkedTabletItem(
  * 兩張明細都以 ritualRecordId 唯一鍵一次撈回（各 1 筆，非 N+1），
  * 與 devotee360 相同來源，確保普渡頁與信眾資料頁金額完全一致。
  */
-export async function listRegisteredItems(ritualRecordId: string): Promise<RegisteredItemView[]> {
-  // V14.2：開啟草稿／載入清單時自動整理重複的乾淨草稿項目（冪等、只動 DRAFT
-  // 未收款未列印者），讓既有測試重複資料在打開頁面時就收斂成單筆。
-  await cleanupDuplicateDraftItems(ritualRecordId, null);
+/**
+ * V15R2（收斂修正）：普渡編輯頁贊普 → 在**寫入 transaction 內**同步成一筆
+ * 正式、**自身計價**的 US_SPONSOR RitualRegistrationItem（不再把金額塞回
+ * Detail 共用欄、也不在讀取時寫入）。金額＝數量 × 單價（呼叫端已重算）；
+ * customName＝本人（家戶主要聯絡人）。
+ *
+ * 舊資料安全：僅在贊普「未收款」時建立／更新／轉換（呼叫端以 amountPaid===0 判斷），
+ * 已收款的舊 Detail 贊普保留在 Detail（不轉 item、不重算），避免破壞既有收款。
+ * 隨喜贊普（US_SPONSOR_DONATION）維持自身獨立一筆 item，不受此函式影響。
+ */
+export type SponsorItemKey = "US_SPONSOR" | "US_SPONSOR_DONATION";
 
+const SPONSOR_KEY_LABEL: Record<SponsorItemKey, string> = { US_SPONSOR: "贊普", US_SPONSOR_DONATION: "隨喜贊普" };
+
+/**
+ * V15R2（姓名修正＋重複整理）：在寫入 transaction 內同步一筆自身計價的 sponsor item。
+ *
+ * ⚠️ 姓名：一律保存**呼叫端送入的實際姓名**（`customName`）。**不再存「本人」**，也不在
+ * 讀取時猜測；空白時存 null（顯示端顯示「姓名待補」）。便利預填由前端負責（可預填目前
+ * 信眾／報名人姓名），使用者可修改，DB 存修改後的實際姓名。
+ *
+ * ⚠️ 歷史重複：不再只 findFirst。若同 (ritualRecordId, registrationItemTypeId, deletedAt=null,
+ * status≠CANCELLED) 已存在多筆有效 item：
+ *   - 保留一筆（優先保留已收款者，否則最早建立者）並更新；
+ *   - 其他**未收款**重複 → 標記 CANCELLED、amountUnpaid=0（避免兩次應收）；
+ *   - 若有兩筆以上**已收款**重複 → 丟出明確錯誤，要求人工處理（整個 transaction rollback）。
+ *   - active=false 取消時，若有已收款 item → 丟錯（不可用取消勾選繞過退款流程）。
+ * 全部只發生於合法寫入 transaction，不放回 GET。
+ */
+/**
+ * 計價模式：
+ *  - FIXED（US_SPONSOR 一般贊普）：單價由後端鎖定＝該年度活動固定價（fixedUnitPrice），
+ *    **不信任前端單價**；金額＝數量 × 固定價；建立時 lockedUnitPrice 存當下固定價快照，
+ *    日後年度價變動不回頭改；編輯既有（未收款）沿用該筆原 lockedUnitPrice 快照重算金額，
+ *    不用新年度價覆蓋。年度價未設定且需新建 → 丟明確錯誤（不默默用 0 或前端價）。
+ *  - FREE（US_SPONSOR_DONATION 隨喜贊普）：大額自由金額；amount＝amountDue＝amountUnpaid，
+ *    quantity＝1，lockedUnitPrice＝amount。絕不套用一般贊普固定價。
+ */
+export type SponsorPricing =
+  | { mode: "FIXED"; quantity: number; fixedUnitPrice: number | null }
+  | { mode: "FREE"; amount: number };
+
+export async function syncSponsorItemInTx(
+  tx: Prisma.TransactionClient,
+  params: {
+    ritualRecordId: string;
+    /** 贊普＝US_SPONSOR、隨喜贊普＝US_SPONSOR_DONATION（各自一筆、各自計價、可同時存在）。 */
+    itemKey: SponsorItemKey;
+    /** 是否啟用此項（false＝未勾/取消，未收款則取消該筆 item）。 */
+    active: boolean;
+    pricing: SponsorPricing;
+    /** 認購人／贊普人「實際姓名」（不存「本人」；空白存 null）。 */
+    customName?: string | null;
+    status: RitualRecordStatus;
+    operatorName?: string | null;
+  }
+): Promise<void> {
+  const label = SPONSOR_KEY_LABEL[params.itemKey];
+  const type = await tx.registrationItemType.findUnique({ where: { key: params.itemKey }, select: { id: true } });
+  if (!type) return;
+
+  // 找出所有有效（未取消未刪除）同 key item，處理歷史重複（含 lockedUnitPrice 快照）。
+  const actives = await tx.ritualRegistrationItem.findMany({
+    where: { ritualRecordId: params.ritualRecordId, registrationItemTypeId: type.id, deletedAt: null, status: { not: "CANCELLED" } },
+    select: { id: true, amountPaid: true, lockedUnitPrice: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const paidItems = actives.filter((a) => Number(a.amountPaid) > 0);
+  // 姓名一律取實際輸入；空白存 null（不存「本人」）。
+  const name = (params.customName ?? "").trim() || null;
+
+  if (params.active) {
+    if (paidItems.length > 1) {
+      throw new Error(`此報名有多筆已收款的${label}，請先於收款中心處理後再由人工整理，系統不自動變更`);
+    }
+    // 保留者：已收款者優先，否則最早建立者。
+    const keeper = paidItems[0] ?? actives[0] ?? null;
+    // 取消其他未收款重複（避免兩次應收）。
+    for (const a of actives) {
+      if (keeper && a.id === keeper.id) continue;
+      if (Number(a.amountPaid) > 0) {
+        throw new Error(`此報名有多筆已收款的${label}，請人工處理`);
+      }
+      await tx.ritualRegistrationItem.update({
+        where: { id: a.id },
+        data: { status: "CANCELLED", amountUnpaid: 0, deletedAt: new Date(), deletedByName: params.operatorName ?? `系統：整理重複${label}` },
+      });
+    }
+
+    // 依計價模式決定 數量／鎖定單價／金額（後端唯一計算，不信任前端一般贊普單價）。
+    let qty: number;
+    let lockedUnitPrice: number;
+    let amount: number;
+    if (params.pricing.mode === "FIXED") {
+      qty = Math.max(1, Math.floor(params.pricing.quantity) || 1);
+      // 編輯既有未收款：沿用該筆原 lockedUnitPrice 快照；新建：用當下年度固定價。
+      const existingLocked = keeper && Number(keeper.amountPaid) === 0 && keeper.lockedUnitPrice != null ? Number(keeper.lockedUnitPrice) : null;
+      const unit = existingLocked ?? params.pricing.fixedUnitPrice;
+      if (unit == null || !Number.isFinite(unit)) {
+        throw new Error(`尚未設定 ${label} 的年度固定單價，請先於活動設定頁設定後再報名`);
+      }
+      lockedUnitPrice = unit;
+      amount = Math.round(qty * unit);
+    } else {
+      // FREE：大額自由金額。
+      qty = 1;
+      amount = Math.max(0, Math.round(Number(params.pricing.amount) || 0));
+      lockedUnitPrice = amount;
+    }
+
+    if (!keeper) {
+      const rec = await tx.ritualRecord.findUnique({ where: { id: params.ritualRecordId }, select: { householdId: true } });
+      const member = rec
+        ? await tx.member.findFirst({ where: { householdId: rec.householdId, deletedAt: null }, orderBy: [{ isPrimaryContact: "desc" }, { createdAt: "asc" }], select: { id: true } })
+        : null;
+      await tx.ritualRegistrationItem.create({
+        data: {
+          ritualRecordId: params.ritualRecordId,
+          registrationItemTypeId: type.id,
+          memberId: member?.id ?? null,
+          quantity: qty,
+          customName: name, // 實際姓名（可為 null → 顯示「姓名待補」）
+          lockedUnitPrice,
+          amountDue: amount,
+          amountPaid: 0,
+          amountUnpaid: amount,
+          feeChoice: "FIXED",
+          status: params.status,
+        },
+      });
+    } else if (Number(keeper.amountPaid) === 0) {
+      // 未收款才更新數量／金額／姓名；FIXED 沿用原鎖定價快照（不用新年度價覆蓋）。
+      await tx.ritualRegistrationItem.update({
+        where: { id: keeper.id },
+        data: {
+          quantity: qty,
+          lockedUnitPrice,
+          customName: name,
+          amountDue: amount,
+          amountUnpaid: amount,
+          status: params.status,
+        },
+      });
+    }
+    // keeper 已收款：金額／鎖定價不動；姓名為正式資料，允許更新姓名。
+    else if (name !== null) {
+      await tx.ritualRegistrationItem.update({ where: { id: keeper.id }, data: { customName: name } });
+    }
+  } else {
+    // active=false：取消所有未收款有效 item；有已收款則丟錯（不可用取消勾選繞過退款）。
+    if (paidItems.length > 0) {
+      throw new Error(`此報名的${label}已有收款，請先於收款中心處理退款後再取消`);
+    }
+    for (const a of actives) {
+      await tx.ritualRegistrationItem.update({
+        where: { id: a.id },
+        data: { status: "CANCELLED", amountUnpaid: 0, deletedAt: new Date(), deletedByName: params.operatorName ?? `系統：取消${label}` },
+      });
+    }
+  }
+}
+
+export async function listRegisteredItems(ritualRecordId: string): Promise<RegisteredItemView[]> {
+  // V15R2（收斂修正）：**純讀取**——不再於讀取時 create／update／upsert（原本會補建贊普
+  // 索引、整理重複草稿）。資料一致化改在各自「寫入 transaction」內完成（見
+  // syncSponsorItemInTx／registerItemsBatch 冪等）；重複草稿整理改由寫入路徑或
+  // 管理端 cleanupDuplicateDraftItems 主動執行，避免 GET／READONLY 瀏覽產生資料異動。
   const [rows, salvationDetail, lantern] = await Promise.all([
     prisma.ritualRegistrationItem.findMany({
       where: { ritualRecordId, deletedAt: null },
@@ -786,7 +895,17 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
     }),
     prisma.universalSalvationDetail.findUnique({
       where: { ritualRecordId },
-      select: { amountDue: true, amountPaid: true, amountUnpaid: true },
+      select: {
+        amountDue: true, amountPaid: true, amountUnpaid: true,
+        isSponsor: true, sponsorUnitPrice: true, sponsorQuantity: true, sponsorAmount: true,
+        ritualRecord: {
+          select: {
+            status: true,
+            // 舊 Detail 贊普唯讀相容顯示用：取本戶主要聯絡人姓名補實名（不寫入）。
+            household: { select: { members: { where: { deletedAt: null }, orderBy: [{ isPrimaryContact: "desc" }, { createdAt: "asc" }], take: 1, select: { name: true } } } },
+          },
+        },
+      },
     }),
     prisma.lanternRegistration.findUnique({
       where: { ritualRecordId },
@@ -794,17 +913,15 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
     }),
   ]);
 
-  return rows.map((r) => {
+  const views: RegisteredItemView[] = rows.map((r) => {
     const kind = r.registrationItemType.contentKind;
-    // 預設用本項自身金額（無既有收款來源的型態）。
+    // 每個項目一律用本項自身金額為收費來源（贊普／隨喜贊普各自獨立，不共用 Detail、
+    // 不依陣列順序）。SPONSOR→UniversalSalvationDetail 只餘 LANTERN 例外（年度燈金額
+    // 記在 LanternRegistration，避免兩筆應收）。
     let amountDue = Number(r.amountDue);
     let amountPaid = Number(r.amountPaid);
     let amountUnpaid = Number(r.amountUnpaid);
-    if (kind === "SPONSOR" && salvationDetail) {
-      amountDue = Number(salvationDetail.amountDue);
-      amountPaid = Number(salvationDetail.amountPaid);
-      amountUnpaid = Number(salvationDetail.amountUnpaid);
-    } else if (kind === "LANTERN" && lantern) {
+    if (kind === "LANTERN" && lantern) {
       amountDue = Number(lantern.amountDue);
       amountPaid = Number(lantern.amountPaid);
       amountUnpaid = Number(lantern.amountUnpaid);
@@ -836,19 +953,21 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       subjectName = linked?.displayName ?? r.customName ?? memberName ?? categoryName;
       displayLabel = `${categoryName}｜${subjectName}`;
     } else if (kind === "SPONSOR") {
-      // 贊普：顯示自訂名稱（本人…）。
-      subjectName = r.customName ?? categoryName;
-      displayLabel = subjectName;
+      // 贊普／隨喜贊普：顯示「類別｜實際姓名」。舊資料存「本人」或空 → 讀時以 member 關聯補實名
+      //（唯讀，不寫入）；仍找不到 → 顯示「姓名待補」，絕不顯示「本人」。
+      const real = r.customName && r.customName.trim() && r.customName.trim() !== "本人" ? r.customName.trim() : null;
+      subjectName = real ?? memberName ?? "姓名待補";
+      displayLabel = `${categoryName}｜${subjectName}`;
     } else if (kind === "RICE") {
-      // V14.4 驗收：白米可閱讀——顯示「白米 N 斤」，單價與金額另欄呈現（沿用本項自身金額）。
-      subjectName = "白米";
+      // V15R2 驗收：白米顯示認購人＋斤數；單價與金額另欄呈現（沿用本項自身金額）。
+      subjectName = memberName ?? r.customName ?? "本人";
       displayLabel = `白米 ${r.quantity} 斤`;
     } else {
       subjectName = r.customName ?? categoryName;
       displayLabel = subjectName;
     }
 
-    // V14.4：鎖定單價（白米＝每斤金額；其他 per-unit 項目亦可能有），供明細顯示「單價」。
+    // V15R2：贊普／隨喜贊普各自的單價一律讀本項自身鎖定單價（不再讀 Detail）。
     const unitPrice = r.lockedUnitPrice !== null && r.lockedUnitPrice !== undefined ? Number(r.lockedUnitPrice) : null;
 
     return {
@@ -858,6 +977,7 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       itemName: r.customName ?? r.registrationItemType.name,
       categoryName,
       subjectName,
+      memberName,
       displayLabel,
       contentKind: kind,
       unitPrice,
@@ -871,8 +991,49 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       amountPaid,
       amountUnpaid,
       status: r.status,
+      readOnlyLegacy: false,
     };
   });
+
+  // V15R2：舊資料相容（**唯讀、不寫入**）——只有 Detail 記著贊普、且尚未轉成 US_SPONSOR
+  // item 的舊資料，用一筆「唯讀相容 view」顯示，讓舊贊普看得到；不建 DB 列、不可從此取消
+  // （下一次以有寫入權限儲存普渡資料時，由 syncSponsorItemInTx 於同一 transaction 轉成正式 item）。
+  // 判斷：Detail.isSponsor 且 Detail 仍有應收（amountDue>0，代表尚未轉 item）且清單內沒有 US_SPONSOR item。
+  const hasSponsorItem = views.some((v) => v.itemKey === "US_SPONSOR");
+  if (
+    salvationDetail?.isSponsor &&
+    !hasSponsorItem &&
+    Number(salvationDetail.amountDue ?? 0) > 0
+  ) {
+    const legacyAmount = Number(salvationDetail.sponsorAmount ?? salvationDetail.amountDue ?? 0);
+    // 舊 Detail 贊普無 customName：以本戶主要聯絡人姓名唯讀相容顯示；找不到 → 姓名待補（不顯示「本人」）。
+    const legacyName = salvationDetail.ritualRecord?.household?.members?.[0]?.name ?? "姓名待補";
+    views.push({
+      id: `legacy-sponsor:${ritualRecordId}`,
+      registrationItemTypeId: "",
+      itemKey: "US_SPONSOR",
+      itemName: "贊普（舊資料）",
+      categoryName: "贊普",
+      subjectName: legacyName,
+      memberName: legacyName === "姓名待補" ? null : legacyName,
+      displayLabel: `贊普（舊資料）｜${legacyName}`,
+      contentKind: "SPONSOR",
+      unitPrice: salvationDetail.sponsorUnitPrice != null ? Number(salvationDetail.sponsorUnitPrice) : null,
+      yangshangNames: [],
+      tabletAddress: null,
+      activityGroupName: "中元普渡",
+      memberId: null,
+      quantity: salvationDetail.sponsorQuantity ?? 1,
+      customName: null,
+      amountDue: Number(salvationDetail.amountDue ?? legacyAmount),
+      amountPaid: Number(salvationDetail.amountPaid ?? 0),
+      amountUnpaid: Number(salvationDetail.amountUnpaid ?? 0),
+      status: salvationDetail.ritualRecord?.status ?? "DRAFT",
+      readOnlyLegacy: true,
+    });
+  }
+
+  return views;
 }
 
 /**

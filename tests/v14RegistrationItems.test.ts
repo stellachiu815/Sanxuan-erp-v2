@@ -300,13 +300,19 @@ test("R2-2. CONFIRMED 才進待收款：adapter 以項目 status=CONFIRMED 過�
   assert.equal(factory.includes('ritualRecord: { deletedAt: null, status: "CONFIRMED" }'), true);
 });
 
-test("R2-3. linkedEntryId／linkedEntryType 真實回寫（LANTERN／SPONSOR）", () => {
+test("R2-3. linkedEntryId／linkedEntryType 真實回寫（LANTERN 連結；SPONSOR 改自身計價）", () => {
+  // 年度燈仍連結 LanternRegistration 並歸零本項金額（避免兩筆應收）。
   assert.equal(ITEM_REG.includes('linkedEntryType: "LanternRegistration"'), true);
-  assert.equal(ITEM_REG.includes('linkedEntryType: "UniversalSalvationDetail"'), true);
-  // 避免兩筆應收：連結後本項目金額歸零
-  assert.equal(/linkedEntryType: "LanternRegistration"[\s\S]{0,120}?/.test(ITEM_REG), true);
-  const linkFn = ITEM_REG.slice(ITEM_REG.indexOf("async function linkItemToExistingDetail"));
-  assert.equal(linkFn.includes("amountDue: 0"), true, "連結既有明細後項目金額須歸零");
+  const linkFn = ITEM_REG.slice(
+    ITEM_REG.indexOf("async function linkItemToExistingDetail"),
+    ITEM_REG.indexOf("async function ensureRitualRecord")
+  );
+  assert.equal(linkFn.includes("amountDue: 0"), true, "LANTERN 連結既有明細後項目金額須歸零");
+  // V15R2：贊普／隨喜贊普改為自身計價的 item，不再連結／歸零到 UniversalSalvationDetail。
+  assert.equal(linkFn.includes('contentKind === "SPONSOR"'), false, "SPONSOR 不應再連結 Detail");
+  assert.equal(linkFn.includes("universalSalvationDetail.upsert"), false, "SPONSOR 不應再 upsert Detail 金額");
+  // 贊普改由寫入 transaction 內的 syncSponsorItemInTx 建立自身計價 item。
+  assert.equal(ITEM_REG.includes("export async function syncSponsorItemInTx"), true);
 });
 
 test("R2-4. 普渡／年度燈沿用既有明細（不建第二套）", () => {

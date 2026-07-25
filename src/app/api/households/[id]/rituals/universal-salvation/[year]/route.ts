@@ -111,12 +111,17 @@ export async function PATCH(
   if ("enshrinementLocation" in body)
     input.enshrinementLocation = toNullableString(body.enshrinementLocation);
   if ("isSponsor" in body) input.isSponsor = Boolean(body.isSponsor);
+  if ("sponsorName" in body) input.sponsorName = toNullableString(body.sponsorName);
   if ("sponsorQuantity" in body) input.sponsorQuantity = toNullableNumber(body.sponsorQuantity);
   if ("sponsorUnitPrice" in body) input.sponsorUnitPrice = toNullableNumber(body.sponsorUnitPrice);
   if ("sponsorAmount" in body) input.sponsorAmount = toNullableNumber(body.sponsorAmount);
   if ("sponsorNotes" in body) input.sponsorNotes = toNullableString(body.sponsorNotes);
   if ("tableNumber" in body) input.tableNumber = toNullableString(body.tableNumber);
   if ("notes" in body) input.notes = toNullableString(body.notes);
+  // V15R2：隨喜贊普（US_SPONSOR_DONATION）——大額自由金額（donationAmount）。
+  if ("isDonation" in body) input.isDonation = Boolean(body.isDonation);
+  if ("donationName" in body) input.donationName = toNullableString(body.donationName);
+  if ("donationAmount" in body) input.donationAmount = toNullableNumber(body.donationAmount);
 
   const result = await updateUniversalSalvationDetail(
     householdId,

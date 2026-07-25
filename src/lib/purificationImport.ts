@@ -16,6 +16,8 @@ import {
   parseYangshangNames,
   extractRiceKgFromImport,
   classifyMatch,
+  buildImportDupKey,
+  resolveImportAddress,
   isRowConfirmable,
   type DevoteeCandidate,
   type ImportRowInput,
@@ -104,9 +106,17 @@ export async function analyzePurificationImport(input: {
   if (rows.length === 0) return { ok: false, status: 400, error: "Excel 沒有可匯入的資料列" };
   const map = resolveColumnMapping(columns);
 
-  // 候選查詢（保守）：先取本批出現過的姓名，查既有信眾（Member）＋家戶。
+  // 候選查詢（保守）：取本批出現過的「配對用姓名」——報名姓名（devoteeName）＋
+  // 全部陽上人姓名（祖先／正魂 Excel 只有牌位名稱＋陽上人，需靠陽上人配對信眾）。
   const normalized = rows.map((r) => normalizeRow(r, map));
-  const names = [...new Set(normalized.map((n) => n.devoteeName).filter((x): x is string => !!x))];
+  const names = [
+    ...new Set(
+      normalized
+        .flatMap((n) => [n.devoteeName ?? "", ...(n.yangshangNames ?? [])])
+        .map((s) => s.trim())
+        .filter((x) => x.length > 0)
+    ),
+  ];
   const members = names.length
     ? await prisma.member.findMany({
         where: { name: { in: names }, deletedAt: null },
@@ -146,10 +156,14 @@ export async function analyzePurificationImport(input: {
 
     for (let i = 0; i < normalized.length; i++) {
       const n = normalized[i];
-      const rowInput: ImportRowInput = { householdCode: n.householdCode, devoteeName: n.devoteeName, phone: n.phone, address: n.address, tabletCategory: n.tabletCategory, tabletName: n.tabletName };
-      const cands = n.devoteeName ? candidatesByName.get(n.devoteeName) ?? [] : [];
+      const rowInput: ImportRowInput = { householdCode: n.householdCode, devoteeName: n.devoteeName, phone: n.phone, address: n.address, tabletCategory: n.tabletCategory, tabletName: n.tabletName, yangshangNames: n.yangshangNames };
+      // 候選＝這一列可能用到的所有配對姓名（報名姓名＋全部陽上人）對應的既有信眾（去重）。
+      const rowNames = [n.devoteeName ?? "", ...(n.yangshangNames ?? [])].map((s) => s.trim()).filter((s) => s.length > 0);
+      const candMap = new Map<string, DevoteeCandidate>();
+      for (const nm of rowNames) for (const c of candidatesByName.get(nm) ?? []) candMap.set(c.id, c);
+      const cands = [...candMap.values()];
       const m = classifyMatch(rowInput, cands, seen, householdCandidates);
-      seen.add(`${n.householdCode ?? ""}|${n.devoteeName ?? ""}|${n.tabletName ?? ""}|${n.phone ?? ""}`);
+      seen.add(buildImportDupKey(rowInput, m.matchedDevoteeId, m.matchedHouseholdId));
 
       const confirmable = isRowConfirmable(m.status, m.matchedDevoteeId, false) || (m.status === "MATCHED" && !!m.matchedHouseholdId);
       summary[`${m.status.toLowerCase()}Count`] = (summary[`${m.status.toLowerCase()}Count`] ?? 0) + 1;
@@ -203,13 +217,17 @@ export async function confirmPurificationImportBatch(input: {
       deduplicated: true,
     };
   }
-  // 原子鎖定：PENDING → PROCESSING，避免併發/重送重複執行。
+  // 原子鎖定：PENDING/PROCESSING → PROCESSING，避免併發/重送重複執行。
+  // ⚠️ V15R2：也接受既有 PROCESSING（先前確認中途中斷會卡在 PROCESSING，
+  //   造成「確認並正式建立」永遠鎖死）。逐列 transaction 內會重讀 row、已 CONFIRMED
+  //   直接略過，故重入不會重複建立；只把未完成的列補做完。已 CONFIRMED 的整批
+  //   由上方冪等分支處理，不會進到這裡。
   const locked = await prisma.purificationImportBatch.updateMany({
-    where: { id: batch.id, status: "PENDING" },
+    where: { id: batch.id, status: { in: ["PENDING", "PROCESSING"] } },
     data: { status: "PROCESSING", confirmationKey: input.confirmationKey },
   });
   if (locked.count === 0) {
-    return { ok: false, status: 409, error: "此匯入批次已在確認中或已完成，請重新整理查看結果" };
+    return { ok: false, status: 409, error: "此匯入批次已完成，請重新整理查看結果" };
   }
 
   const results: { rowNumber: number; ok: boolean; recordId?: string; error?: string }[] = [];
@@ -365,4 +383,73 @@ async function materializeSponsors(
 // 供 UI 讀取草稿。
 export async function getPurificationImportBatch(batchId: string) {
   return prisma.purificationImportBatch.findUnique({ where: { id: batchId }, include: { rows: { orderBy: { rowNumber: "asc" } } } });
+}
+
+/** 預檢卡片顯示用的補齊資料（配對信眾/電話/家戶編號/戶名/地址/地址來源/候選）。 */
+export type RowEnrichment = {
+  matchedDevoteeName: string | null;
+  householdCode: string | null;
+  householdName: string | null;
+  phone: string | null;
+  address: string | null;
+  addressSource: "家戶" | "信眾" | null;
+  candidates: { id: string; name: string; householdCode: string | null; householdName: string | null }[];
+};
+
+/**
+ * V15R2：讀取草稿並「從信眾管理／家戶管理補齊」每列顯示資料。
+ * Excel 只有最少必要欄位（祖先＝牌位名稱＋陽上人；冤親＝報名姓名）；配對信眾/家戶後，
+ * 地址、家戶編號、戶名、電話一律讀既有資料，不寫回草稿、不改匯入核心，純讀時補齊。
+ */
+export async function getPurificationImportBatchEnriched(batchId: string) {
+  const batch = await getPurificationImportBatch(batchId);
+  if (!batch) return null;
+
+  const memberIds = new Set<string>();
+  const householdIds = new Set<string>();
+  for (const r of batch.rows) {
+    if (r.matchedDevoteeId) memberIds.add(r.matchedDevoteeId);
+    if (r.matchedHouseholdId) householdIds.add(r.matchedHouseholdId);
+    for (const c of ((r.candidateIds as string[] | null) ?? [])) memberIds.add(c);
+  }
+
+  const [members, households] = await Promise.all([
+    memberIds.size
+      ? prisma.member.findMany({
+          where: { id: { in: [...memberIds] } },
+          select: { id: true, name: true, household: { select: { id: true, name: true, address: true, phone: true, mobile: true } } },
+        })
+      : [],
+    householdIds.size
+      ? prisma.household.findMany({ where: { id: { in: [...householdIds] } }, select: { id: true, name: true, address: true, phone: true, mobile: true } })
+      : [],
+  ]);
+  const memberMap = new Map(members.map((m) => [m.id, m]));
+  const hhMap = new Map(households.map((h) => [h.id, h]));
+
+  const rows = batch.rows.map((r) => {
+    const md = r.matchedDevoteeId ? memberMap.get(r.matchedDevoteeId) ?? null : null;
+    const mh = r.matchedHouseholdId ? hhMap.get(r.matchedHouseholdId) ?? null : null;
+    const { address, source } = resolveImportAddress({
+      matchedHouseholdAddress: mh?.address ?? null,
+      devoteeHouseholdAddress: md?.household?.address ?? null,
+      devoteeOwnAddress: null, // 現行 schema：Member 無獨立地址欄
+    });
+    const candidates = ((r.candidateIds as string[] | null) ?? []).map((id) => {
+      const m = memberMap.get(id);
+      return { id, name: m?.name ?? id, householdCode: m?.household?.id ?? null, householdName: m?.household?.name ?? null };
+    });
+    const enrichment: RowEnrichment = {
+      matchedDevoteeName: md?.name ?? null,
+      householdCode: mh?.id ?? md?.household?.id ?? null,
+      householdName: mh?.name ?? md?.household?.name ?? null,
+      phone: md?.household?.phone ?? md?.household?.mobile ?? mh?.phone ?? mh?.mobile ?? null,
+      address,
+      addressSource: source,
+      candidates,
+    };
+    return { ...r, enrichment };
+  });
+
+  return { ...batch, rows };
 }

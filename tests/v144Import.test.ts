@@ -6,11 +6,14 @@ import {
   resolveColumnMapping,
   extractRiceKgFromImport,
   isRowConfirmable,
+  buildImportDupKey,
+  resolveImportAddress,
+  normalizeYangshangSet,
   type DevoteeCandidate,
 } from "../src/lib/purificationImportRules";
 
 /**
- * V14.4 Part 6B「Excel 匯入」純規則測試（沙盒可執行）。對應 6B 測試 2/3/4/5/6/10。
+ * V14.4 Part 6B + V15R2「Excel 匯入」純規則測試（沙盒可執行）。
  * DB/API/UI 整合測試見 tests/v144Import.db.todo（待 Mac/staging，未執行不計通過）。
  */
 
@@ -23,7 +26,6 @@ test("6. 多位陽上人：逗號／中文逗號／頓號／換行 → 陣列（
 test("欄位別名：analyze 回報實際對應欄名（正式格式：「姓名」＝牌位姓名，非信眾）", () => {
   const map = resolveColumnMapping(["家戶編號", "姓名", "陽上人", "白米", "備註", "信眾姓名"]);
   assert.equal(map.householdCode, "家戶編號");
-  // 正式普渡 Excel 的「姓名」是牌位姓名（祭祀對象），不是信眾姓名。
   assert.equal(map.tabletName, "姓名");
   assert.equal(map.devoteeName, "信眾姓名");
   assert.equal(map.yangshang, "陽上人");
@@ -35,18 +37,9 @@ test("10. Excel 白米只採斤數（單價/金額欄位忽略）", () => {
   assert.equal(extractRiceKgFromImport(3.5), 3.5);
   assert.equal(extractRiceKgFromImport("0"), null);
   assert.equal(extractRiceKgFromImport("abc"), null);
-  // 沒有任何採用 Excel 單價/金額的函式——只有斤數萃取（正式價由 confirm 讀今年 riceUnitPrice）。
 });
 
 const base = { tabletCategory: "ANCESTOR_LINE", tabletName: "王姓歷代祖先" };
-
-test("2. 只有姓名相同不自動 MATCHED（→ AMBIGUOUS）", () => {
-  const cands: DevoteeCandidate[] = [{ id: "d1", name: "王小明", householdId: "h1", phone: "0911111111", address: "台北市A路" }];
-  const r = classifyMatch({ ...base, devoteeName: "王小明" }, cands);
-  assert.equal(r.status, "AMBIGUOUS");
-  assert.equal(r.matchedDevoteeId, null);
-  assert.deepEqual(r.candidateIds, ["d1"]);
-});
 
 test("MATCHED：家戶編號＋姓名一致（強依據）", () => {
   const cands: DevoteeCandidate[] = [{ id: "d1", name: "王小明", householdId: "h1", householdCode: "F001", phone: "0911" }];
@@ -62,7 +55,7 @@ test("MATCHED：姓名＋電話一致（強依據）", () => {
   assert.equal(r.matchedDevoteeId, "d1");
 });
 
-test("3. 同名多人 → AMBIGUOUS（列出候選）", () => {
+test("3. 同名多人 → AMBIGUOUS（列出候選，不自動猜測）", () => {
   const cands: DevoteeCandidate[] = [
     { id: "d1", name: "陳美麗", householdId: "h1", phone: "0911" },
     { id: "d2", name: "陳美麗", householdId: "h2", phone: "0922" },
@@ -81,30 +74,98 @@ test("4. 電話與所有同名候選皆不符 → CONFLICT", () => {
   assert.equal(r.status, "CONFLICT");
 });
 
-test("5. 同批次重複列 → DUPLICATE（key＝家戶編號｜信眾｜牌位姓名｜電話）", () => {
-  // base.tabletName＝"王姓歷代祖先"，新 dupKey 格式含牌位姓名。
-  const seen = new Set<string>(["F001|王小明|王姓歷代祖先|0911"]);
-  const r = classifyMatch({ ...base, devoteeName: "王小明", householdCode: "F001", phone: "0911" }, [], seen);
-  assert.equal(r.status, "DUPLICATE");
-});
-
-test("INVALID：缺牌位姓名或牌位類型不合法（正式格式不再要求信眾姓名）", () => {
-  // 缺牌位姓名 → INVALID（牌位姓名才是必要內容，非信眾姓名）。
+test("INVALID：缺牌位姓名或牌位類型不合法（祖先／正魂需牌位姓名）", () => {
   assert.equal(classifyMatch({ tabletCategory: "ANCESTOR_LINE", tabletName: "" }, []).status, "INVALID");
-  // 牌位類型不是四類之一 → INVALID。
   assert.equal(classifyMatch({ tabletCategory: "XXX", tabletName: "王", devoteeName: "王小明" }, []).status, "INVALID");
-  // 只有牌位姓名、無信眾姓名 → 不再是 INVALID（正式普渡 Excel 常無信眾欄）。
   assert.notEqual(classifyMatch({ ...base }, []).status, "INVALID");
 });
 
-test("NEW：查無候選（需明確確認才建新信眾）", () => {
+test("NEW：查無候選（需明確確認才建新信眾）＋ isRowConfirmable", () => {
   const r = classifyMatch({ ...base, devoteeName: "全新信眾" }, []);
   assert.equal(r.status, "NEW");
-  // 未明確確認建新 → 不可確認；明確確認 → 可確認。
   assert.equal(isRowConfirmable("NEW", null, false), false);
   assert.equal(isRowConfirmable("NEW", null, true), true);
-  // 人工指定了正確信眾 → 可確認。
   assert.equal(isRowConfirmable("AMBIGUOUS", "d1", false), true);
-  // MATCHED → 可確認。
   assert.equal(isRowConfirmable("MATCHED", null, false), true);
+});
+
+// ── V15R2 新增回歸測試 ──────────────────────────────────────
+
+test("V15R2-1 祖先只有牌位名稱＋陽上人 → 依陽上人唯一配對信眾（可據以補地址）", () => {
+  const cands: DevoteeCandidate[] = [{ id: "d1", name: "王大明", householdId: "h1", householdCode: "F001", address: "台北市A路1號" }];
+  const r = classifyMatch(
+    { tabletCategory: "ANCESTOR_LINE", tabletName: "王姓歷代祖先", yangshangNames: ["王大明"] },
+    cands
+  );
+  assert.equal(r.status, "MATCHED");
+  assert.equal(r.matchedDevoteeId, "d1");
+  assert.equal(r.matchedHouseholdId, "h1");
+});
+
+test("V15R2-2 乙位正魂只有牌位名稱＋陽上人 → 同樣依陽上人配對", () => {
+  const cands: DevoteeCandidate[] = [{ id: "d9", name: "李小華", householdId: "h9", householdCode: "F009" }];
+  const r = classifyMatch(
+    { tabletCategory: "INDIVIDUAL_SOUL", tabletName: "先父李公", yangshangNames: ["李小華"] },
+    cands
+  );
+  assert.equal(r.status, "MATCHED");
+  assert.equal(r.matchedHouseholdId, "h9");
+});
+
+test("V15R2-3 冤親只有報名姓名 → 依報名姓名配對信眾（無牌位名稱不判 INVALID）", () => {
+  const cands: DevoteeCandidate[] = [{ id: "d3", name: "張三", householdId: "h3", householdCode: "F003" }];
+  const r = classifyMatch({ tabletCategory: "DEBT_CREDITOR", devoteeName: "張三" }, cands);
+  assert.equal(r.status, "MATCHED");
+  assert.equal(r.matchedDevoteeId, "d3");
+});
+
+test("V15R2-3b 冤親查無相符信眾 → 尚未配對（無法取得地址）", () => {
+  const r = classifyMatch({ tabletCategory: "DEBT_CREDITOR", devoteeName: "查無此人" }, []);
+  assert.equal(r.status, "NEW");
+  assert.ok(r.issues.some((m) => m.includes("尚未配對")));
+});
+
+test("V15R2-4 多人同名（陽上人）→ 待確認，列出候選，不自動猜測地址", () => {
+  const cands: DevoteeCandidate[] = [
+    { id: "a1", name: "陳文", householdId: "h1", address: "甲地" },
+    { id: "a2", name: "陳文", householdId: "h2", address: "乙地" },
+  ];
+  const r = classifyMatch(
+    { tabletCategory: "ANCESTOR_LINE", tabletName: "陳姓歷代祖先", yangshangNames: ["陳文"] },
+    cands
+  );
+  assert.equal(r.status, "AMBIGUOUS");
+  assert.equal(r.matchedDevoteeId, null);
+  assert.deepEqual(r.candidateIds.sort(), ["a1", "a2"]);
+});
+
+test("V15R2-5 同姓／同牌位名稱但不同陽上人 → 不同重複鍵（不誤判重複）", () => {
+  const rowA = { tabletCategory: "ANCESTOR_LINE", tabletName: "周姓歷代祖先", yangshangNames: ["周大"] };
+  const rowB = { tabletCategory: "ANCESTOR_LINE", tabletName: "周姓歷代祖先", yangshangNames: ["周二"] };
+  const keyA = buildImportDupKey(rowA, null, null);
+  const keyB = buildImportDupKey(rowB, null, null);
+  assert.notEqual(keyA, keyB);
+  // 用同一批 seen 驗證：A 不會讓 B 被判成 DUPLICATE。
+  const seen = new Set<string>([keyA]);
+  const r = classifyMatch(rowB, [], seen);
+  assert.notEqual(r.status, "DUPLICATE");
+});
+
+test("V15R2-5b 內容完全一致（含陽上集合）→ 才判 DUPLICATE", () => {
+  const row = { tabletCategory: "ANCESTOR_LINE", tabletName: "周姓歷代祖先", yangshangNames: ["周大", "周二"] };
+  const seen = new Set<string>([buildImportDupKey(row, null, null)]);
+  const r = classifyMatch({ ...row, yangshangNames: ["周二", "周大"] }, [], seen); // 集合相同、順序不同
+  assert.equal(r.status, "DUPLICATE");
+});
+
+test("V15R2 normalizeYangshangSet：去空白、去重、排序（順序無關）", () => {
+  assert.deepEqual(normalizeYangshangSet([" 周大 ", "周二", "周大", ""]), ["周二", "周大"]);
+  assert.deepEqual(normalizeYangshangSet(["周二", "周大"]), normalizeYangshangSet(["周大", "周二"]));
+});
+
+test("V15R2 地址來源優先序：家戶 > 信眾所屬家戶 > 信眾本人 > 尚無", () => {
+  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: "家戶地址", devoteeHouseholdAddress: "戶2", devoteeOwnAddress: "本人" }), { address: "家戶地址", source: "家戶" });
+  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: null, devoteeHouseholdAddress: "戶2地址", devoteeOwnAddress: "本人" }), { address: "戶2地址", source: "家戶" });
+  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: null, devoteeHouseholdAddress: null, devoteeOwnAddress: "本人地址" }), { address: "本人地址", source: "信眾" });
+  assert.deepEqual(resolveImportAddress({}), { address: null, source: null });
 });

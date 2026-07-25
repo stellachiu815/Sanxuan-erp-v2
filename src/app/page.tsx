@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
 import HomeQuickNav from "@/components/dashboard/HomeQuickNav";
 import PrintPendingCard from "@/components/dashboard/PrintPendingCard";
+import DashboardErrorBoundary from "@/components/dashboard/DashboardErrorBoundary";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
 import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
@@ -76,19 +77,21 @@ export default async function HomePage() {
         串流，讓搜尋框與快捷入口先出現，資訊卡稍後補上，避免首頁一次查全部而變卡。
         「待列印」卡再獨立以 client 端載入，不阻塞其他資訊卡。
       */}
-      <Suspense
-        fallback={
-          <section className="w-full max-w-5xl">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-40 animate-pulse rounded-3xl bg-cream-100" />
-              ))}
-            </div>
-          </section>
-        }
-      >
-        <DashboardOverviewCard />
-      </Suspense>
+      <DashboardErrorBoundary>
+        <Suspense
+          fallback={
+            <section className="w-full max-w-5xl">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="h-40 animate-pulse rounded-3xl bg-cream-100" />
+                ))}
+              </div>
+            </section>
+          }
+        >
+          <DashboardOverviewCard />
+        </Suspense>
+      </DashboardErrorBoundary>
 
       {/* V15 指令三「新增：待列印」資訊卡（可點進列印中心）。 */}
       <section className="w-full max-w-5xl">

@@ -17,6 +17,17 @@ import { useCurrentUser } from "@/lib/permissionClient";
  *  5. 確認區塊顯示「目前已選 XX 筆／確認後建立 XX 筆」。
  */
 
+type Candidate = { id: string; name: string; householdCode: string | null; householdName: string | null };
+type Enrichment = {
+  matchedDevoteeName: string | null;
+  householdCode: string | null;
+  householdName: string | null;
+  phone: string | null;
+  address: string | null;
+  addressSource: "家戶" | "信眾" | null;
+  candidates: Candidate[];
+};
+
 type Row = {
   id: string;
   rowNumber: number;
@@ -33,7 +44,19 @@ type Row = {
   errorMessage: string | null;
   normalizedData: Record<string, unknown>;
   editedData: Record<string, unknown> | null;
+  /** V15R2：讀時從信眾／家戶管理補齊的顯示資料。 */
+  enrichment?: Enrichment;
 };
+
+/** 一列是否可正式建立（前端判斷，對齊後端 isRowConfirmable，避免顯示與按鈕不一致）。 */
+function isBuildable(r: Row): boolean {
+  if (r.excluded || r.confirmationStatus === "CONFIRMED") return false;
+  if (r.matchingStatus === "MATCHED") return true;
+  if (r.matchedDevoteeId) return true; // 人工指定了正確信眾
+  if (r.matchedHouseholdId) return true; // 已配對家戶
+  if (r.matchingStatus === "NEW" && r.createNewDevoteeConfirmed) return true; // 明確建立新信眾
+  return false;
+}
 
 type Batch = { id: string; year: number; status: string; detectedColumns: Record<string, string> | null; summary: Record<string, number> | null; rows: Row[] };
 
@@ -171,9 +194,9 @@ export default function PurificationImportScreen({ year }: { year: number }) {
   const rows = batch?.rows ?? [];
   const shown = rows.filter((r) => filter === "ALL" ? true : filter === "EXCLUDED" ? r.excluded : r.matchingStatus === filter && !r.excluded);
 
-  // 確認統計：目前已選＝未排除、未建立的列；確認後建立＝已可確認（resolved）且未排除、未建立。
+  // 確認統計：目前已選＝未排除、未建立的列；確認後建立＝真正可建立（對齊後端）的列。
   const selectedCount = rows.filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
-  const willCreateCount = rows.filter((r) => r.resolved && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
+  const willCreateCount = rows.filter((r) => isBuildable(r)).length;
   const newSelectableCount = rows.filter((r) => r.matchingStatus === "NEW" && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
 
   return (
@@ -239,24 +262,41 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                     </span>
                   </div>
 
-                  {/* 完整辨識資訊：讓工作人員一眼知道是哪一家 */}
-                  <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-ink-soft sm:grid-cols-2">
-                    {d.yangshangNames.length > 0 && (
-                      <div><span className="text-ink-faint">陽上人：</span>{d.yangshangNames.join("、")}</div>
-                    )}
-                    {d.tabletAddress && (
-                      <div><span className="text-ink-faint">牌位地址：</span>{d.tabletAddress}</div>
-                    )}
-                    {(d.householdCode || d.householdName) && (
-                      <div><span className="text-ink-faint">家戶：</span>{d.householdCode}{d.householdCode && d.householdName ? "・" : ""}{d.householdName}</div>
-                    )}
-                    {r.matchedDevoteeId && d.devoteeName && (
-                      <div><span className="text-ink-faint">配對信眾：</span>{d.devoteeName}{d.phone ? `（${d.phone}）` : ""}</div>
-                    )}
-                    {!r.matchedDevoteeId && d.devoteeName && (
-                      <div><span className="text-ink-faint">報名信眾：</span>{d.devoteeName}{d.phone ? `（${d.phone}）` : ""}</div>
-                    )}
-                  </dl>
+                  {/* 完整辨識資訊：Excel 只有最少欄位，其餘一律從信眾／家戶管理補齊。 */}
+                  {(() => {
+                    const e = r.enrichment;
+                    const matched = !!(r.matchedDevoteeId || r.matchedHouseholdId);
+                    return (
+                      <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-ink-soft sm:grid-cols-2">
+                        {d.yangshangNames.length > 0 && (
+                          <div><span className="text-ink-faint">陽上人：</span>{d.yangshangNames.join("、")}</div>
+                        )}
+                        {d.devoteeName && (
+                          <div><span className="text-ink-faint">報名姓名：</span>{d.devoteeName}</div>
+                        )}
+                        {e?.matchedDevoteeName && (
+                          <div><span className="text-ink-faint">配對信眾：</span>{e.matchedDevoteeName}</div>
+                        )}
+                        {e?.phone && (
+                          <div><span className="text-ink-faint">電話：</span>{e.phone}</div>
+                        )}
+                        {e?.householdCode && (
+                          <div><span className="text-ink-faint">家戶編號：</span>{e.householdCode}</div>
+                        )}
+                        {e?.householdName && (
+                          <div><span className="text-ink-faint">戶名：</span>{e.householdName}</div>
+                        )}
+                        <div className="sm:col-span-2">
+                          <span className="text-ink-faint">地址：</span>
+                          {e?.address
+                            ? <>{e.address}<span className="ml-2 text-ink-faint">（來源：{e.addressSource}）</span></>
+                            : matched
+                              ? "尚無地址"
+                              : "尚未配對，無法取得地址"}
+                        </div>
+                      </dl>
+                    );
+                  })()}
 
                   {r.issueMessages && r.issueMessages.length > 0 && <p className="mt-1 text-xs text-ink-faint">依據/問題：{r.issueMessages.join("；")}</p>}
                   {r.errorMessage && <p className="mt-1 text-xs text-blossom-500">錯誤：{r.errorMessage}</p>}
@@ -266,7 +306,11 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                         <select value={r.matchedDevoteeId ?? ""} onChange={(e) => patchRow(r.id, { matchedDevoteeId: e.target.value || null })}
                           className="rounded-lg border border-cream-200 px-2 py-1 text-xs min-h-[40px]">
                           <option value="">選擇正確信眾…</option>
-                          {r.candidateIds.map((c) => <option key={c} value={c}>{c}</option>)}
+                          {(r.enrichment?.candidates ?? r.candidateIds.map((c) => ({ id: c, name: c, householdCode: null, householdName: null }))).map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}{c.householdCode ? `（${c.householdCode}${c.householdName ? "・" + c.householdName : ""}）` : ""}
+                            </option>
+                          ))}
                         </select>
                       )}
                       {r.matchingStatus === "NEW" && (
@@ -298,10 +342,11 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                 <span className="text-xs text-ink-faint">確認後建立</span>
                 <span className="text-lg text-ink">{willCreateCount} 筆</span>
               </div>
-              <button onClick={confirm} disabled={confirming || batch.status === "CONFIRMED" || willCreateCount === 0} className={`${btn} bg-blossom-200 text-ink`}>
+              <button onClick={confirm} disabled={confirming || willCreateCount === 0} className={`${btn} bg-blossom-200 text-ink`}>
                 {confirming ? "確認中…" : "確認並正式建立"}
               </button>
-              {batch.status === "CONFIRMED" && <span className="text-xs text-sage-500">此批次已全部確認完成。</span>}
+              {willCreateCount === 0 && batch.status === "CONFIRMED" && <span className="text-xs text-sage-500">此批次已全部確認完成。</span>}
+              {willCreateCount === 0 && batch.status !== "CONFIRMED" && <span className="text-xs text-ink-faint">目前沒有可建立的列（請先配對或勾選建立新信眾）。</span>}
             </div>
           )}
         </>

@@ -85,7 +85,76 @@ export type ImportRowInput = {
   address?: string | null;
   tabletCategory?: string | null;
   tabletName?: string | null;
+  /** V15R2：祖先／乙位正魂用陽上人姓名配對既有信眾／家戶（Excel 只有牌位名稱＋陽上人）。 */
+  yangshangNames?: string[] | null;
 };
+
+/** 祖先／乙位正魂／無緣子女：以陽上人配對；冤親：以報名姓名配對。 */
+const CATEGORY_MATCH_BY_YANGSHANG = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"]);
+
+/** 標準化陽上人集合（去空白、去重、排序）——供重複判斷與顯示，一份標準。 */
+export function normalizeYangshangSet(names: readonly (string | null | undefined)[] | null | undefined): string[] {
+  return [...new Set((names ?? []).map((s) => (s ?? "").replace(/\s+/g, "").trim()).filter((s) => s.length > 0))].sort();
+}
+
+/** 這一列該用哪些「人名」去配對既有信眾（依項目類型）。 */
+function matchNamesFor(row: ImportRowInput): string[] {
+  const cat = (row.tabletCategory ?? "").toString().trim();
+  const devotee = (row.devoteeName ?? "").toString().trim();
+  const yang = (row.yangshangNames ?? []).map((s) => (s ?? "").toString().trim()).filter((s) => s.length > 0);
+  if (CATEGORY_MATCH_BY_YANGSHANG.has(cat)) {
+    // 祖先／乙位正魂：Excel 沒有信眾姓名，用陽上人姓名配對（退回 devoteeName 相容舊格式）。
+    return [...new Set([...yang, devotee].filter((s) => s.length > 0))];
+  }
+  // 冤親（DEBT_CREDITOR）與其他：用報名姓名（devoteeName；相容 tabletName 存報名姓名的舊格式）。
+  return [...new Set([devotee, (row.tabletName ?? "").toString().trim()].filter((s) => s.length > 0))];
+}
+
+/**
+ * V15R2 重複判斷複合鍵（唯一根因修正）。
+ *
+ * 舊鍵＝`家戶編號|報名姓名|牌位姓名|電話`：祖先／正魂沒有家戶編號、報名姓名、電話，
+ * 只要牌位名稱相同（例如兩戶都寫「周姓歷代祖先」）就整串相同 → 被誤判重複。
+ *
+ * 新鍵綜合：項目類型＋完整牌位名稱＋標準化陽上集合＋配對 devoteeId/householdId＋
+ * 報名姓名＋電話＋家戶編號。只有「內容完全一致」才會撞鍵（＝真正重複列）；
+ * 同姓、同牌位名稱、同一位陽上人但其餘不同 → 不同鍵 → 不判重複。
+ */
+export function buildImportDupKey(
+  row: ImportRowInput,
+  matchedDevoteeId: string | null,
+  matchedHouseholdId: string | null
+): string {
+  const cat = (row.tabletCategory ?? "").toString().trim();
+  const tabletName = (row.tabletName ?? "").toString().trim();
+  const devotee = (row.devoteeName ?? "").toString().trim();
+  const phone = (row.phone ?? "").toString().trim();
+  const code = (row.householdCode ?? "").toString().trim();
+  const yangKey = normalizeYangshangSet(row.yangshangNames).join("+");
+  return [cat, tabletName, yangKey, matchedDevoteeId ?? "", matchedHouseholdId ?? "", devotee, phone, code].join("|");
+}
+
+/**
+ * V15R2 地址來源解析（純函式）。優先序：
+ *   1. 已配對家戶的主要地址（家戶）
+ *   2. 配對信眾所屬家戶的主要地址（家戶）
+ *   3. 配對信眾本人有效地址（信眾）
+ *   4. 都沒有 → null（呼叫端顯示「尚無地址」；未配對顯示「尚未配對，無法取得地址」）
+ * ⚠️ 現行 schema：Member 無獨立地址欄，信眾地址＝所屬家戶地址，故第 3 項實務上少觸發。
+ */
+export function resolveImportAddress(input: {
+  matchedHouseholdAddress?: string | null;
+  devoteeHouseholdAddress?: string | null;
+  devoteeOwnAddress?: string | null;
+}): { address: string | null; source: "家戶" | "信眾" | null } {
+  const hh = (input.matchedHouseholdAddress ?? "").trim();
+  if (hh) return { address: hh, source: "家戶" };
+  const dhh = (input.devoteeHouseholdAddress ?? "").trim();
+  if (dhh) return { address: dhh, source: "家戶" };
+  const own = (input.devoteeOwnAddress ?? "").trim();
+  if (own) return { address: own, source: "信眾" };
+  return { address: null, source: null };
+}
 
 /** DB 查出的候選信眾（呼叫端提供）。 */
 export type DevoteeCandidate = {
@@ -134,68 +203,74 @@ export function classifyMatch(
 ): MatchResult {
   const issues: string[] = [];
   const basis: string[] = [];
-  const name = (row.devoteeName ?? "").trim();
   const phone = (row.phone ?? "").trim();
   const code = (row.householdCode ?? "").trim();
   const tabletName = (row.tabletName ?? "").toString().trim();
-
-  // 基本驗證：以「牌位姓名」為必要內容（正式格式未必有信眾姓名欄，故不再要求信眾姓名）。
-  if (!tabletName) issues.push("缺少牌位姓名");
   const cat = (row.tabletCategory ?? "").toString().trim();
+  const isYuanqin = cat === "DEBT_CREDITOR";
+  // 依項目類型決定配對用的人名（祖先／正魂＝陽上人；冤親＝報名姓名）。
+  const matchNames = matchNamesFor(row);
+  const primaryName = matchNames[0] ?? "";
+
+  // 基本驗證（依類型）：
+  //  祖先／正魂／無緣子女 → 必須有牌位姓名；冤親 → 必須有報名姓名。
   if (cat && !VALID_CATEGORIES.has(cat)) issues.push("牌位類型不是四類之一");
+  if (isYuanqin) {
+    if (matchNames.length === 0) issues.push("缺少報名姓名");
+  } else {
+    if (!tabletName) issues.push("缺少牌位姓名");
+  }
   if (issues.length > 0) {
     return { status: "INVALID", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis, issues };
   }
 
-  // 同批次重複列：
-  const dupKey = `${code}|${name}|${tabletName}|${phone}`;
-  if (seenKeys?.has(dupKey)) {
-    return { status: "DUPLICATE", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis, issues: ["同批次重複列"] };
-  }
+  // 只在這一列「配對用人名」集合內的候選信眾（不擴散到其他人）。
+  const relevant = candidates.filter((c) => matchNames.includes(c.name));
 
-  // 強依據 1：家戶編號精確一致（以家戶辨識，正式 Excel 主要方式）。
+  // 先算出配對結果（供複合重複鍵使用），再判斷同批次是否真正重複。
+  let result: MatchResult;
+
+  // 強依據 1：家戶編號精確一致（正式 Excel 若有家戶編號時）。
   const hh = code ? householdCandidates.find((h) => h.id === code) : undefined;
   if (hh) {
-    basis.push("家戶編號一致");
-    // 若同時有姓名且該家戶內有同名信眾，一併帶出 matchedDevoteeId。
-    const memberInHh = name ? candidates.find((c) => c.householdId === hh.id && c.name === name) : undefined;
-    return { status: "MATCHED", matchedDevoteeId: memberInHh?.id ?? null, matchedHouseholdId: hh.id, candidateIds: memberInHh ? [memberInHh.id] : [], basis, issues };
+    const memberInHh = relevant.find((c) => c.householdId === hh.id);
+    result = { status: "MATCHED", matchedDevoteeId: memberInHh?.id ?? null, matchedHouseholdId: hh.id, candidateIds: memberInHh ? [memberInHh.id] : [], basis: ["家戶編號一致"], issues: [] };
+  } else {
+    // 強依據 2：家戶編號＋姓名一致（信眾層）。
+    const byCode = code ? relevant.filter((c) => (c.householdCode ?? "") === code) : [];
+    // 強依據 3：姓名＋電話一致。
+    const byPhone = phone ? relevant.filter((c) => (c.phone ?? "") === phone) : [];
+    if (byCode.length === 1) {
+      result = { status: "MATCHED", matchedDevoteeId: byCode[0].id, matchedHouseholdId: byCode[0].householdId, candidateIds: byCode.map((c) => c.id), basis: ["家戶編號＋姓名一致"], issues: [] };
+    } else if (byPhone.length === 1) {
+      result = { status: "MATCHED", matchedDevoteeId: byPhone[0].id, matchedHouseholdId: byPhone[0].householdId, candidateIds: byPhone.map((c) => c.id), basis: ["姓名＋電話一致"], issues: [] };
+    } else if (relevant.length === 1) {
+      // V15R2：祖先／正魂只有陽上人、冤親只有報名姓名——姓名唯一命中一位既有信眾即配對
+      //（以便從家戶補齊地址）。多人同名才需人工確認（見下）。
+      result = { status: "MATCHED", matchedDevoteeId: relevant[0].id, matchedHouseholdId: relevant[0].householdId, candidateIds: [relevant[0].id], basis: ["姓名唯一配對"], issues: [] };
+    } else if (relevant.length > 1) {
+      // 多人同名：不可自動猜測 → 待確認（附候選），電話全不符則為衝突。
+      const conflicting = phone.length > 0 && relevant.every((c) => (c.phone ?? "") !== phone) && relevant.some((c) => c.phone);
+      result = {
+        status: conflicting ? "CONFLICT" : "AMBIGUOUS",
+        matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: relevant.map((c) => c.id),
+        basis: ["同名多筆"],
+        issues: conflicting ? ["電話與所有同名候選皆不符，資料衝突"] : ["多人同名，請選擇正確信眾"],
+      };
+    } else {
+      // 查無相符信眾／家戶：需明確確認才建新；地址無法取得。
+      result = { status: "NEW", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis: ["查無相符家戶/信眾"], issues: isYuanqin ? ["尚未配對，無法取得地址"] : [] };
+    }
   }
 
-  // 強依據 2：家戶編號＋姓名一致（信眾層）。
-  const byCode = code && name ? candidates.filter((c) => (c.householdCode ?? "") === code && c.name === name) : [];
-  if (byCode.length === 1) {
-    basis.push("家戶編號＋姓名一致");
-    return { status: "MATCHED", matchedDevoteeId: byCode[0].id, matchedHouseholdId: byCode[0].householdId, candidateIds: byCode.map((c) => c.id), basis, issues };
+  // 同批次「真正重複列」判斷（複合鍵，含配對結果）。證據不足（未配對）時，
+  // 只有「內容完全一致」才撞鍵；同姓／同牌位名稱但陽上或配對不同 → 不同鍵、不判重複。
+  const dupKey = buildImportDupKey(row, result.matchedDevoteeId, result.matchedHouseholdId);
+  if (seenKeys?.has(dupKey)) {
+    return { status: "DUPLICATE", matchedDevoteeId: result.matchedDevoteeId, matchedHouseholdId: result.matchedHouseholdId, candidateIds: result.candidateIds, basis: result.basis, issues: ["同批次重複列（內容完全一致）"] };
   }
 
-  // 強依據 3：姓名＋電話一致。
-  const byPhone = name && phone ? candidates.filter((c) => c.name === name && (c.phone ?? "") === phone) : [];
-  if (byPhone.length === 1) {
-    basis.push("姓名＋電話一致");
-    return { status: "MATCHED", matchedDevoteeId: byPhone[0].id, matchedHouseholdId: byPhone[0].householdId, candidateIds: byPhone.map((c) => c.id), basis, issues };
-  }
-
-  // 同名候選（僅在有姓名時）：
-  const byName = name ? candidates.filter((c) => c.name === name) : [];
-  if (byName.length > 1) {
-    const conflicting = phone && byName.every((c) => (c.phone ?? "") !== phone) && byName.some((c) => c.phone);
-    return {
-      status: conflicting ? "CONFLICT" : "AMBIGUOUS",
-      matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: byName.map((c) => c.id),
-      basis: ["同名多筆"],
-      issues: conflicting ? ["電話與所有同名候選皆不符，資料衝突"] : ["同名多人，需人工指定正確信眾"],
-    };
-  }
-  if (byName.length === 1) {
-    return {
-      status: "AMBIGUOUS", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [byName[0].id],
-      basis: ["僅姓名一致（不足以自動比對）"], issues: ["僅姓名相同，需人工確認是否為同一人"],
-    };
-  }
-
-  // 查無可用辨識：需明確確認才建立新家戶/信眾。
-  return { status: "NEW", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis: ["查無相符家戶/信眾"], issues };
+  return { ...result, basis: [...result.basis, ...basis] };
 }
 
 /** 一列草稿是否可以正式確認（非 INVALID/AMBIGUOUS/CONFLICT/DUPLICATE，且已解析出信眾或已明確要建新）。 */

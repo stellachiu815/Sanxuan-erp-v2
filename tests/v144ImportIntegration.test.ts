@@ -34,8 +34,10 @@ test("8/9/19. confirm 共用既有正式核心（createUniversalSalvationEntry /
 
 test("18/防重. confirm 原子鎖定 PENDING→PROCESSING＋confirmationKey 冪等（DB 唯一鍵）", () => {
   const svc = read("src/lib/purificationImport.ts");
-  assert.equal(/updateMany\(\{\s*where: \{ id: batch\.id, status: "PENDING" \}/.test(svc), true, "原子鎖定");
-  assert.equal(svc.includes('status: "PROCESSING"'), true);
+  // V15R2：原子鎖定放寬為 PENDING/PROCESSING → PROCESSING（修復中途中斷卡死 PROCESSING
+  // 導致確認按鈕永遠鎖死；逐列 transaction 內重讀 row 防重，故重入不會重複建立）。
+  assert.equal(/updateMany\(\{\s*where: \{ id: batch\.id, status: \{ in: \["PENDING", "PROCESSING"\] \} \}/.test(svc), true, "原子鎖定（PENDING/PROCESSING）");
+  assert.equal(/data: \{ status: "PROCESSING"/.test(svc), true);
   assert.equal(/confirmationKey === input\.confirmationKey && batch\.status === "CONFIRMED"/.test(svc), true, "同 key 已確認回既有結果");
   const schema = read("prisma/schema.prisma");
   // prisma format 會對齊欄位插入多個空白，故一律用 \s+ 容忍任意空白（不改 schema）。

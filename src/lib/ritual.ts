@@ -4,7 +4,8 @@ import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
-import { ensureLinkedTabletItem, cancelLinkedTabletItem } from "@/lib/registrationItemRegistration";
+import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
+import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -395,12 +396,20 @@ export type UpdateUniversalSalvationDetailInput = {
   yangshangName?: string | null;
   enshrinementLocation?: string | null;
   isSponsor?: boolean;
+  /** V15R2：贊普「實際姓名」（保存於 US_SPONSOR.customName，不存「本人」）。 */
+  sponsorName?: string | null;
   sponsorQuantity?: number | null;
   sponsorUnitPrice?: number | null;
   sponsorAmount?: number | null;
   sponsorNotes?: string | null;
   tableNumber?: string | null;
   notes?: string | null;
+  // V15R2：隨喜贊普（US_SPONSOR_DONATION）——大額自由金額的一筆自身計價 item。
+  // 只在 donationTouched（任一 donation 欄位有帶）時才處理，未帶則不動既有隨喜贊普。
+  isDonation?: boolean;
+  donationName?: string | null;
+  /** 隨喜贊普自由總金額（新臺幣整數；quantity=1、lockedUnitPrice=金額）。 */
+  donationAmount?: number | null;
 };
 
 export type UpdateUniversalSalvationDetailResult =
@@ -455,19 +464,79 @@ export async function updateUniversalSalvationDetail(
   // 同步更新 amountDue／amountUnpaid（贊普的正式應收金額），但絕對不動
   // amountPaid——已收金額只能由 src/lib/receivableAdapters.ts 的收款分錄
   // 邏輯維護，這裡只負責「應收多少」這一半的計算。
+  // V15R2：贊普金額一律由後端重算＝數量 × 單價，**不信任前端送來的 sponsorAmount**。
+  // 數量須為 ≥1 整數、單價 ≥0；單價缺漏或未勾贊普時金額為 0。同步更新 amountDue／amountUnpaid，
+  // 絕不動 amountPaid（已收金額只由 receivableAdapters 維護）。
   const nextIsSponsor = input.isSponsor ?? before.isSponsor;
-  const nextSponsorAmount = input.sponsorAmount !== undefined ? input.sponsorAmount : before.sponsorAmount;
-  if (input.isSponsor !== undefined || input.sponsorAmount !== undefined) {
-    const amountDue = nextIsSponsor ? Number(nextSponsorAmount ?? 0) : 0;
-    data.amountDue = amountDue;
-    data.amountUnpaid = Math.max(0, amountDue - Number(before.amountPaid));
+  const nextQtyRaw = input.sponsorQuantity !== undefined ? input.sponsorQuantity : before.sponsorQuantity;
+  const sponsorTouched =
+    input.isSponsor !== undefined ||
+    input.sponsorName !== undefined ||
+    input.sponsorQuantity !== undefined ||
+    input.sponsorUnitPrice !== undefined ||
+    input.sponsorAmount !== undefined;
+  const donationTouched =
+    input.isDonation !== undefined ||
+    input.donationName !== undefined ||
+    input.donationAmount !== undefined;
+
+  // V15R2（收斂修正＋固定價）：一般贊普＝自身計價的 US_SPONSOR item 為正式應收來源，
+  // **單價由後端鎖定＝該年度活動固定價**（getUniversalSalvationSponsorPrice），不信任前端
+  // sponsorUnitPrice。Detail 只保留顯示欄位、不再作為應收來源（amountDue/amountUnpaid 歸 0）。
+  // 已收款的舊 Detail 贊普（amountPaid>0）不轉 item、保留原樣。
+  const qty = Math.floor(Number(nextQtyRaw ?? 0));
+  const sponsorPaid = Number(before.amountPaid);
+  const convertToItem = sponsorTouched && sponsorPaid === 0; // 未收款才轉為 item 計價
+  // 讀年度固定價（交易外先讀供 Detail 顯示欄；item 計價於 tx 內以固定價/原快照重算）。
+  const yearSponsorPrice = await getUniversalSalvationSponsorPrice(year);
+  if (sponsorTouched) {
+    const displayAmount = nextIsSponsor && yearSponsorPrice != null && qty >= 1 ? Math.round(qty * yearSponsorPrice) : 0;
+    data.sponsorAmount = displayAmount; // Detail 顯示欄（非應收來源）
+    if (convertToItem) {
+      data.amountDue = 0;
+      data.amountUnpaid = 0;
+    }
   }
 
-  await prisma.$transaction(async (tx) => {
+  try {
+   await prisma.$transaction(async (tx) => {
     const after = await tx.universalSalvationDetail.update({
       where: { id: before.id },
       data,
     });
+
+    // 未收款贊普 → 在同一 transaction 建立／更新／取消自身計價的 US_SPONSOR item。
+    // FIXED 計價：單價＝年度固定價（新建）或原鎖定價快照（既有未收款）；不信任前端單價。
+    // customName＝實際贊普姓名（sponsorName），不存「本人」。
+    if (convertToItem) {
+      await syncSponsorItemInTx(tx, {
+        ritualRecordId: existing.id,
+        itemKey: "US_SPONSOR",
+        active: nextIsSponsor,
+        pricing: { mode: "FIXED", quantity: qty, fixedUnitPrice: yearSponsorPrice },
+        customName: input.sponsorName ?? null,
+        status: existing.status,
+        operatorName,
+      });
+    }
+
+    // V15R2：隨喜贊普（US_SPONSOR_DONATION）——與贊普各自獨立的一筆自身計價 item，
+    // 只有帶了任一 donation 欄位（donationTouched）才處理，且在同一 transaction 內。
+    // FREE 計價：大額自由金額（donationAmount），quantity=1，lockedUnitPrice=金額；
+    // **絕不套用一般贊普固定價**。
+    if (donationTouched) {
+      const donationActive = input.isDonation ?? false;
+      const donationAmount = Math.max(0, Math.round(Number(input.donationAmount ?? 0)));
+      await syncSponsorItemInTx(tx, {
+        ritualRecordId: existing.id,
+        itemKey: "US_SPONSOR_DONATION",
+        active: donationActive,
+        pricing: { mode: "FREE", amount: donationAmount },
+        customName: input.donationName ?? null,
+        status: existing.status,
+        operatorName,
+      });
+    }
 
     await recordVersion(
       {
@@ -480,7 +549,13 @@ export async function updateUniversalSalvationDetail(
       },
       tx
     );
-  });
+   });
+  } catch (e) {
+    // V15R2：贊普／隨喜贊普重複已收款、或取消已收款等需人工處理的情況，
+    // syncSponsorItemInTx 會丟出明確錯誤；整個 transaction rollback，回傳可讀錯誤（非 500）。
+    const msg = e instanceof Error ? e.message : "儲存普渡贊普時發生問題";
+    return { ok: false, status: 409, error: msg };
+  }
 
   const record = await getUniversalSalvationRecord(householdId, year);
   return { ok: true, record: record! };

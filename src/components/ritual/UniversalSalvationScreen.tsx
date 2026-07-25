@@ -371,6 +371,7 @@ export default function UniversalSalvationScreen({
         year={year}
         status={record.status}
         detail={detail}
+        ritualRecordId={record.id}
         onSaved={handleUpdated}
       />
     </div>

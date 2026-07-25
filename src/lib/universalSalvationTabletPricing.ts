@@ -81,6 +81,23 @@ export async function getUniversalSalvationTabletPrices(
 }
 
 /**
+ * V15R2：取某年度中元普渡活動的**一般贊普（US_SPONSOR）固定單價**（number｜null）。
+ * 價格來源＝TempleEvent.sponsorUnitPrice（宮方每年設定一次，SponsorPriceCard）。
+ * 查不到活動或未設定 → null（呼叫端必須回明確錯誤，不得默默用 0 或前端價）。
+ * 可傳交易 client（建立報名在 $transaction 內呼叫）。
+ */
+export async function getUniversalSalvationSponsorPrice(
+  year: number,
+  client: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<number | null> {
+  const row = await client.templeEvent.findUnique({
+    where: { activityType_year: { activityType: "UNIVERSAL_SALVATION", year } },
+    select: { sponsorUnitPrice: true },
+  });
+  return row?.sponsorUnitPrice != null ? Number(row.sponsorUnitPrice) : null;
+}
+
+/**
  * 依項目 key + 年度單價，取這個四類牌位的單價（number）。
  * 非四類牌位或未設定 → null（呼叫端把 null 當 0，但不寫死任何金額）。
  */

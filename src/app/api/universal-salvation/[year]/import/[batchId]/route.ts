@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
-import { getPurificationImportBatch } from "@/lib/purificationImport";
+import { getPurificationImportBatchEnriched } from "@/lib/purificationImport";
 
 /**
  * V14.4 Part 6B：GET /api/universal-salvation/[year]/import/[batchId]
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { batchId } = await params;
-  const batch = await getPurificationImportBatch(batchId);
+  const batch = await getPurificationImportBatchEnriched(batchId);
   if (!batch) return NextResponse.json({ error: "找不到匯入批次" }, { status: 404 });
   return NextResponse.json({ ok: true, batch });
 }

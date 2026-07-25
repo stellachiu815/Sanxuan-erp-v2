@@ -382,8 +382,21 @@ const universalSalvationSponsorAdapter: ReceivableSourceAdapter = {
        * V13.4 指令七：**草稿不得進入待收款。**
        * 只有 RitualRecord.status = CONFIRMED 的報名才是有效應收。
        * DRAFT 階段可以先填金額，但不可收款、不可開收據、不可正式列印。
+       *
+       * V15R2（收斂修正）：舊 Detail 贊普 adapter **主動排除**同一報名已有正式
+       * CONFIRMED US_SPONSOR item 的資料——不再只依賴「合法儲存時把 Detail.amountUnpaid
+       * 歸 0」。即使因舊版本／匯入／異常同時存在 Detail.amountDue>0 與 item.amountDue>0，
+       * 也只由正式 item adapter 計一次，Detail 這裡不再產生應收。
+       *   - 已有 CONFIRMED US_SPONSOR item → 排除（只計 item）。
+       *   - 只有 DRAFT／CANCELLED item（未正式）→ 不遮蔽，舊 Detail 仍相容計價。
        */
-      ritualRecord: { deletedAt: null, status: "CONFIRMED" },
+      ritualRecord: {
+        deletedAt: null,
+        status: "CONFIRMED",
+        registrationItems: {
+          none: { registrationItemType: { key: "US_SPONSOR" }, deletedAt: null, status: "CONFIRMED" },
+        },
+      },
     };
     const rows = await prisma.universalSalvationDetail.findMany({
       where,
@@ -1261,6 +1274,15 @@ const universalSalvationTabletAdapter = makeRegistrationItemAdapter(
   ["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN"],
   "普渡牌位"
 );
+// V15R2：贊普（US_SPONSOR）與隨喜贊普（US_SPONSOR_DONATION）各自為**自身計價**的
+// RitualRegistrationItem，經此 adapter 各自進待收款／收款中心／首頁統計（金額取本項自身
+// amountDue，quantity × unitPrice）。舊 Detail 贊普仍由上方 universalSalvationSponsorAdapter
+// 處理；編輯頁未收款贊普儲存時會把 Detail 應收歸 0 並轉為 item，兩邊不重複計入應收。
+const universalSalvationSponsorItemAdapter = makeRegistrationItemAdapter(
+  "UNIVERSAL_SALVATION_SPONSOR_ITEM",
+  ["US_SPONSOR", "US_SPONSOR_DONATION"],
+  "普渡贊普"
+);
 
 // ============================================================
 // Registry
@@ -1278,6 +1300,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   dragonPhoenixLanternAdapter,
   storageTrousersAdapter,
   universalSalvationTabletAdapter,
+  universalSalvationSponsorItemAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

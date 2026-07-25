@@ -16,6 +16,8 @@ type Item = {
   itemName: string;
   categoryName: string;
   subjectName: string;
+  /** V15R2：認購人／報名成員實際姓名（白米認購人、贊普本人）。 */
+  memberName: string | null;
   /** V14.2：最終顯示字串（牌位名稱／類別｜姓名／本人…）。 */
   displayLabel: string;
   /** V14.4：內容型態＋鎖定單價（白米＝每斤金額）。 */
@@ -31,6 +33,8 @@ type Item = {
   amountPaid: number;
   amountUnpaid: number;
   status: string;
+  /** V15R2：舊 Detail 贊普唯讀相容列（非真實 item，不可從此取消）。 */
+  readOnlyLegacy?: boolean;
 };
 
 export default function RegisteredItemsPanel({
@@ -97,8 +101,11 @@ export default function RegisteredItemsPanel({
           尚未報名任何項目。可從信眾詳情頁「新增活動報名」選擇具體項目。
         </p>
       ) : (
-        <table className="mt-3 w-full text-left text-sm">
-          <thead>
+        /* V15R2：項目多時，清單改成固定最大高度、區塊內垂直捲動（表頭 sticky），
+           避免整頁被撐長導致後面項目與「取消項目」按鈕看不到。手機、平板、桌機皆可捲。 */
+        <div className="mt-3 max-h-[380px] overflow-y-auto overflow-x-hidden rounded-2xl border border-cream-200">
+        <table className="w-full text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur">
             <tr className="text-xs text-ink-faint">
               <th className="px-2 py-1.5">類別｜名稱</th>
               <th className="px-2 py-1.5">數量</th>
@@ -110,11 +117,19 @@ export default function RegisteredItemsPanel({
           </thead>
           <tbody>
             {items.map((it) => (
-              <tr key={it.id} className="border-t border-cream-200">
+              <tr key={it.id} className="border-t border-cream-200 align-top">
                 <td className="px-2 py-1.5">
                   <div className="text-ink">{it.displayLabel}</div>
+                  {/* 白米：認購人姓名＋單價（斤數在數量欄、金額在應收欄）。 */}
+                  {it.contentKind === "RICE" && (
+                    <div className="text-xs text-ink-faint">認購人：{it.memberName ?? "本人"}</div>
+                  )}
                   {it.contentKind === "RICE" && it.unitPrice !== null && (
                     <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／斤</div>
+                  )}
+                  {/* 贊普／隨喜贊普：單價（份）。 */}
+                  {it.contentKind === "SPONSOR" && it.unitPrice !== null && (
+                    <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／份</div>
                   )}
                   {it.yangshangNames.length > 0 && (
                     <div className="text-xs text-ink-faint">陽上：{it.yangshangNames.join("、")}</div>
@@ -125,24 +140,28 @@ export default function RegisteredItemsPanel({
                 </td>
                 <td className="px-2 py-1.5 text-ink-soft">
                   {it.quantity}
-                  {it.contentKind === "RICE" && " 斤"}
+                  {it.contentKind === "RICE" ? " 斤" : it.contentKind === "SPONSOR" ? " 份" : ""}
                 </td>
-                <td className="px-2 py-1.5 text-ink-soft">{it.amountDue}</td>
-                <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid}</td>
+                <td className="px-2 py-1.5 text-ink-soft">{it.amountDue.toLocaleString("zh-Hant")}</td>
+                <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid.toLocaleString("zh-Hant")}</td>
                 <td className="px-2 py-1.5 text-ink-faint">
                   {it.status === "CONFIRMED" ? "已確認" : it.status === "CANCELLED" ? "已取消" : "草稿"}
                 </td>
                 {!readOnly && (
                   <td className="px-2 py-1.5">
-                    {it.status !== "CANCELLED" && (
-                      <button
-                        type="button"
-                        onClick={() => void cancelItem(it.id)}
-                        disabled={busyId === it.id}
-                        className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-blossom-100 hover:text-ink disabled:opacity-50"
-                      >
-                        {busyId === it.id ? "處理中…" : "取消項目"}
-                      </button>
+                    {it.readOnlyLegacy ? (
+                      <span className="text-xs text-ink-faint">舊資料（下次儲存自動轉正式項目）</span>
+                    ) : (
+                      it.status !== "CANCELLED" && (
+                        <button
+                          type="button"
+                          onClick={() => void cancelItem(it.id)}
+                          disabled={busyId === it.id}
+                          className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-blossom-100 hover:text-ink disabled:opacity-50"
+                        >
+                          {busyId === it.id ? "處理中…" : "取消項目"}
+                        </button>
+                      )
                     )}
                   </td>
                 )}
@@ -150,6 +169,7 @@ export default function RegisteredItemsPanel({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {/* V14.2：本次報名總計——直接彙總各項目「同一套收費來源」的金額
