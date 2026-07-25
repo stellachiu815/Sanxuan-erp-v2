@@ -938,7 +938,7 @@ export async function reissueReceipt(
   for (const line of oldReceipt.lines) {
     const override = overrideMap.get(line.id);
     if (override?.amount !== undefined && round2(override.amount) !== round2(Number(line.amount))) {
-      return { ok: false, status: 400, error: "換開收據不得變更明細金額，收款金額不得重複計算——如需調整金額請走收款中心的退款/轉款流程" };
+      return { ok: false, status: 400, error: "換開收據不得變更明細金額，收款金額不得重複計算——如需調整金額請走收款管理的退款/轉款流程" };
     }
   }
 

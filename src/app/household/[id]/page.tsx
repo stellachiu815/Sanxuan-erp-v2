@@ -4,6 +4,7 @@ import { getHouseholdDetail } from "@/lib/household";
 import { worshipTypeLabel, activityTypeLabel, memberRoleLabel } from "@/lib/labels";
 import HeaderSearchBar from "@/components/HeaderSearchBar";
 import QuickActionsPanel from "@/components/household/QuickActionsPanel";
+import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 
 export default async function HouseholdPage({
   params,
@@ -151,6 +152,10 @@ export default async function HouseholdPage({
         <section className="rounded-3xl bg-white/70 p-8 shadow-card">
           <h2 className="text-lg font-medium text-ink">今天要辦</h2>
           <p className="mt-1 text-sm text-ink-faint">選擇要為這一戶進行的作業</p>
+          {/* V15R4：年度燈・全戶多人多項目報名（家戶詳情入口，共用同一 picker）。 */}
+          <div className="mt-4">
+            <AnnualLanternPickerButton householdId={household.id} />
+          </div>
           <div className="mt-5">
             <QuickActionsPanel
               householdId={household.id}

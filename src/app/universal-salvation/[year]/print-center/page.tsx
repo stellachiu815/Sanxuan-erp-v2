@@ -23,7 +23,7 @@ export default async function UniversalSalvationPrintCenterPage({
           <Link href="/" className="text-sm text-ink-soft hover:underline">
             ← 三玄宮行政系統
           </Link>
-          <h1 className="text-sm text-ink-soft">{yearParam} 年普渡列印中心</h1>
+          <h1 className="text-sm text-ink-soft">{yearParam} 年普渡列印管理</h1>
         </div>
       </header>
 

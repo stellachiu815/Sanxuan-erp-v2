@@ -57,7 +57,9 @@ type NormalizedRow = {
 const CATEGORY_ALIAS: Record<string, UniversalSalvationEntryCategory> = {
   歷代祖先: "ANCESTOR_LINE", 祖先: "ANCESTOR_LINE", ANCESTOR_LINE: "ANCESTOR_LINE",
   乙位正魂: "INDIVIDUAL_SOUL", 正魂: "INDIVIDUAL_SOUL", INDIVIDUAL_SOUL: "INDIVIDUAL_SOUL",
-  冤親債主: "DEBT_CREDITOR", 累世冤親債主: "DEBT_CREDITOR", DEBT_CREDITOR: "DEBT_CREDITOR",
+  // 累世冤親債主：辨識相容三種常見輸入（含舊資料錯字「歷世」），正式輸出一律「累世冤親債主」。
+  冤親債主: "DEBT_CREDITOR", 累世冤親債主: "DEBT_CREDITOR", 歷世冤親債主: "DEBT_CREDITOR",
+  歷世: "DEBT_CREDITOR", 冤親: "DEBT_CREDITOR", DEBT_CREDITOR: "DEBT_CREDITOR",
   無緣子女: "UNBORN_CHILD", UNBORN_CHILD: "UNBORN_CHILD",
 };
 
@@ -287,11 +289,21 @@ export async function confirmPurificationImportBatch(input: {
         // 2) 今年 record（DRAFT）＋牌位（共用核心，同一 tx）。
         await createBlankUniversalSalvationRecord(householdId, batch.year, tx).catch(() => null);
         const displayName = edited.tabletName ?? edited.devoteeName ?? "牌位";
+        // 牌位地址：套用 preview／commit 同一套優先序（Excel該筆→配對信眾/家戶地址），
+        // 把解析結果「寫入」正式資料（不再只顯示於 preview）。缺地址→null，保留草稿其餘欄位，
+        // 由 completeness gate 於正式確認/列印時擋；每一筆牌位各自保存自己的 tabletAddress。
+        const hhForAddr = await tx.household.findUnique({ where: { id: householdId }, select: { address: true } });
+        const resolvedTabletAddress = resolveImportAddress({
+          rowTabletAddress: edited.tabletAddress ?? null,
+          rowAddress: edited.address ?? null,
+          matchedHouseholdAddress: hhForAddr?.address ?? null,
+          devoteeHouseholdAddress: hhForAddr?.address ?? null,
+        }).address;
         const entryRes = await createUniversalSalvationEntry(
           householdId, batch.year,
           {
             category: (edited.tabletCategory ?? "ANCESTOR_LINE") as UniversalSalvationEntryCategory,
-            displayName, yangshangNames: edited.yangshangNames ?? [], tabletAddress: edited.tabletAddress ?? null,
+            displayName, yangshangNames: edited.yangshangNames ?? [], tabletAddress: resolvedTabletAddress,
             notes: edited.note ?? null, linkedItemMemberId: memberId ?? null,
           },
           input.actor.name, tx
@@ -407,7 +419,7 @@ export type RowEnrichment = {
   householdName: string | null;
   phone: string | null;
   address: string | null;
-  addressSource: "家戶" | "信眾" | null;
+  addressSource: "Excel" | "家戶" | "信眾" | null;
   candidates: { id: string; name: string; householdCode: string | null; householdName: string | null }[];
 };
 
@@ -445,7 +457,11 @@ export async function getPurificationImportBatchEnriched(batchId: string) {
   const rows = batch.rows.map((r) => {
     const md = r.matchedDevoteeId ? memberMap.get(r.matchedDevoteeId) ?? null : null;
     const mh = r.matchedHouseholdId ? hhMap.get(r.matchedHouseholdId) ?? null : null;
+    // 預覽地址＝正式寫入用的同一套解析（Excel該筆→配對信眾→配對家戶），避免預覽/正式不一致。
+    const nd = (r.editedData ?? r.normalizedData) as Partial<NormalizedRow> | null;
     const { address, source } = resolveImportAddress({
+      rowTabletAddress: nd?.tabletAddress ?? null,
+      rowAddress: nd?.address ?? null,
       matchedHouseholdAddress: mh?.address ?? null,
       devoteeHouseholdAddress: md?.household?.address ?? null,
       devoteeOwnAddress: null, // 現行 schema：Member 無獨立地址欄

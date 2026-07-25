@@ -10,6 +10,7 @@ import {
 } from "@/components/household/formStyles";
 import AdditionalPrintItemsPanel from "./AdditionalPrintItemsPanel";
 import YangshangEditor from "./YangshangEditor";
+import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import type { EntryJSON, RecordJSON } from "./types";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
@@ -210,7 +211,7 @@ export default function EntryRow({
     <div className="rounded-xl bg-white/80 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm text-ink">{entry.displayName}</p>
+          <p className="text-sm text-ink">{displayDebtCreditorName(entry.displayName)}</p>
           {(() => {
             const names = initialNames(entry);
             const hasAny = names.length > 0 || entry.tabletAddress || entry.notes;

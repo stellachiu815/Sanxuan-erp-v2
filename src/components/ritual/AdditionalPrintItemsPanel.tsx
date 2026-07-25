@@ -330,7 +330,7 @@ function PrintItemRow({
           ⚠️ 這裡顯示的 amountPaid／amountUnpaid 是 API 依實際
           PaymentAllocation − PaymentAdjustment 即時算出來的，
           **不是**資料庫的 isPaid 快照。畫面上也刻意不提供任何
-          「勾選已付款」的操作——收款一律走收款中心。
+          「勾選已付款」的操作——收款一律走收款管理。
         */}
         {!isCancelled && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">

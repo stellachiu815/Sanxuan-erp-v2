@@ -39,7 +39,7 @@ function GlobalSearchInner() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋信眾姓名/家戶/電話/地址/活動/祭祀姓名/祖先名稱/乙位正魂/冤親債主/供品認捐人/收款人/收據抬頭/收據號碼"
+          placeholder="搜尋信眾姓名/家戶/電話/地址/活動/祭祀姓名/祖先名稱/乙位正魂/累世冤親債主/供品認捐人/收款人/收據抬頭/收據號碼"
           className="w-full rounded-full border border-cream-200 bg-cream-50 px-4 py-2 text-sm text-ink"
         />
       </div>

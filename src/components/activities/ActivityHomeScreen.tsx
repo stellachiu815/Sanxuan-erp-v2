@@ -12,6 +12,8 @@ import {
   secondaryButtonClass,
 } from "@/components/household/formStyles";
 import { useStoredOperatorUserId } from "@/lib/operatorClient";
+import { useComposedSearch } from "@/lib/useComposedSearch";
+import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 
 type SearchResult = { memberId: string | null; name: string; householdId: string };
 
@@ -204,7 +206,8 @@ function ParticipantsPanel({
   // src/lib/operatorClient.tsx 的說明），不是另一套登入或角色機制。
   const operatorUserId = useStoredOperatorUserId();
 
-  const [query, setQuery] = useState("");
+  // V15R4：中文輸入法安全搜尋（共用 useComposedSearch，與首頁同一套）。
+  const { value: query, committedQuery, inputProps: searchInputProps, setValue: setQuery } = useComposedSearch(250);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selected, setSelected] = useState<{ id: string; label: string } | null>(null);
   const [notes, setNotes] = useState("");
@@ -213,12 +216,13 @@ function ParticipantsPanel({
   const [removeTargetId, setRemoveTargetId] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query.trim();
+    const q = committedQuery.trim();
     if (!q) {
       setResults([]);
       return;
     }
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    (async () => {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
       const data = await res.json();
       const seen = new Set<string>();
@@ -228,13 +232,13 @@ function ParticipantsPanel({
         seen.add(r.householdId);
         deduped.push(r);
       }
-      setResults(deduped);
-    }, 250);
-    return () => clearTimeout(timer);
+      if (!cancelled) setResults(deduped);
+    })();
+    return () => { cancelled = true; };
     // operatorUserId 要放進相依陣列：它是在掛載後的 effect 才讀到
     // localStorage，第一次 render 是 null，沒有列進來的話會停在「還沒帶
     // 身分」的那一次查詢結果上。
-  }, [query, operatorUserId]);
+  }, [committedQuery, operatorUserId]);
 
   async function handleAdd() {
     setError(null);
@@ -285,9 +289,9 @@ function ParticipantsPanel({
           <label className={labelClass}>搜尋家戶（編號／電話／地址／聯絡人）</label>
           <input
             className={inputClass}
-            value={query}
+            {...searchInputProps}
             onChange={(e) => {
-              setQuery(e.target.value);
+              searchInputProps.onChange(e);
               setSelected(null);
             }}
           />
@@ -316,10 +320,19 @@ function ParticipantsPanel({
           <label className={labelClass}>備註</label>
           <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
-        <button type="button" className={primaryButtonClass} onClick={handleAdd} disabled={submitting}>
-          ＋ 加入
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={primaryButtonClass} onClick={handleAdd} disabled={submitting}>
+            ＋ 加入
+          </button>
+          {/* V15R4：年度燈活動管理入口——選定家戶後可直接開全戶多人多項目報名 picker（共用同一 picker）。 */}
+          {activityType === "ANNUAL_LANTERN" && selected && (
+            <AnnualLanternPickerButton householdId={selected.id} label="🏮 全戶多人年度燈報名" />
+          )}
+        </div>
       </div>
+      {activityType === "ANNUAL_LANTERN" && (
+        <p className="text-xs text-ink-faint">年度燈：搜尋並選擇家戶後，可用「全戶多人年度燈報名」一次勾選各成員的光明燈／太歲燈／祭改與全家燈。</p>
+      )}
       {error && <p className={errorTextClass}>{error}</p>}
 
       <div className="overflow-x-auto rounded-xl border border-cream-200">

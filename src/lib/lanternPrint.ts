@@ -124,32 +124,67 @@ export async function buildLanternPrintBatch(
   activityType: ActivityType,
   year: number
 ): Promise<LanternPrintBatch | null> {
-  const event = await prisma.templeEvent.findUnique({
-    where: { activityType_year: { activityType, year } },
-  });
+  // V15R4 年度燈統一：新架構下三種燈掛在**單一 ANNUAL_LANTERN 事件**、每位信眾的點燈
+  // 資料在 RitualRegistrationItem（memberId＋項目型別）。列印一律引用信眾／家戶／報名同
+  // 一份資料，不建第二套列印資料。事件優先取年度燈（新），找不到才退回舊的 per-type 事件。
+  const event =
+    (await prisma.templeEvent.findUnique({ where: { activityType_year: { activityType: "ANNUAL_LANTERN", year } } })) ??
+    (await prisma.templeEvent.findUnique({ where: { activityType_year: { activityType, year } } }));
   if (!event) return null;
 
-  // 列印開關檢查（沿用 activityYear 的共用判斷，不另寫一套）
-  const candidates = await listActivityYearCandidates(activityType);
+  // 列印開關檢查（沿用 activityYear 的共用判斷，用實際承載這年度燈的事件類型）
+  const candidates = await listActivityYearCandidates(event.activityType);
   const candidate = candidates.find((c) => c.year === year);
   const printCheck = candidate ? canPrint(candidate) : { ok: false, reason: "找不到活動年度資料" };
 
-  const records = await prisma.ritualRecord.findMany({
-    where: { activityType, year, deletedAt: null },
-    include: {
-      household: { select: { id: true, name: true, address: true } },
-      member: true,
-    },
+  const LANTERN_ITEM_KEY: Record<string, string> = {
+    GUANGMING_LANTERN: "LANTERN_GUANGMING",
+    TAISUI_LANTERN: "LANTERN_TAISUI",
+    FAMILY_LANTERN: "LANTERN_FAMILY",
+  };
+  const itemKey = LANTERN_ITEM_KEY[activityType];
+
+  // 取列印對象（信眾＋家戶），以 memberId 去重：
+  //  (1) 新／V14 item-based：該燈項目的 RitualRegistrationItem → member ＋ ritualRecord.household。
+  //  (2) 舊 per-member：RitualRecord.member（pre-V14 年度燈直接掛在 record 上）。
+  const items = itemKey
+    ? await prisma.ritualRegistrationItem.findMany({
+        where: {
+          registrationItemType: { key: itemKey },
+          deletedAt: null,
+          status: { not: "CANCELLED" },
+          memberId: { not: null },
+          ritualRecord: { year, deletedAt: null },
+        },
+        include: {
+          member: true,
+          ritualRecord: { include: { household: { select: { id: true, name: true, address: true } } } },
+        },
+      })
+    : [];
+  const oldRecords = await prisma.ritualRecord.findMany({
+    where: { activityType, year, deletedAt: null, memberId: { not: null } },
+    include: { household: { select: { id: true, name: true, address: true } }, member: true },
     orderBy: [{ householdId: "asc" }, { createdAt: "asc" }],
   });
 
+  type LanternSubject = {
+    member: NonNullable<(typeof oldRecords)[number]["member"]>;
+    household: { id: string; name: string; address: string | null };
+  };
+  const subjects = new Map<string, LanternSubject>();
+  for (const it of items) {
+    if (!it.member || it.member.deletedAt || !it.ritualRecord.household) continue;
+    subjects.set(it.member.id, { member: it.member, household: it.ritualRecord.household });
+  }
+  for (const r of oldRecords) {
+    if (!r.member || r.member.deletedAt || subjects.has(r.member.id)) continue;
+    subjects.set(r.member.id, { member: r.member, household: r.household });
+  }
+
   const rows: LanternPrintRow[] = [];
 
-  for (const r of records) {
-    // 年度燈是「為某一位信眾點燈」，沒有 member 的紀錄無法產生燈牌
-    if (!r.member || r.member.deletedAt) continue;
-    const m = r.member;
-
+  for (const { member: m, household } of subjects.values()) {
     /**
      * ⚠️ 關鍵：這裡傳的是 `year`（活動使用年度），不是今天。
      * 虛歲、生肖、太歲、建生瑞生全部由這個年度決定。
@@ -166,12 +201,12 @@ export async function buildLanternPrintBatch(
       referenceDate: event.solarDate,
     });
 
-    const address = r.household.address;
+    const address = household.address;
 
     rows.push({
       memberId: m.id,
-      householdId: r.household.id,
-      householdName: r.household.name,
+      householdId: household.id,
+      householdName: household.name,
       name: m.name,
       address,
       addressText: printAddress(address),

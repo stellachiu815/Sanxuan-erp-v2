@@ -135,22 +135,30 @@ export function buildImportDupKey(
 }
 
 /**
- * V15R2 地址來源解析（純函式）。優先序：
- *   1. 已配對家戶的主要地址（家戶）
- *   2. 配對信眾所屬家戶的主要地址（家戶）
- *   3. 配對信眾本人有效地址（信眾）
- *   4. 都沒有 → null（呼叫端顯示「尚無地址」；未配對顯示「尚未配對，無法取得地址」）
- * ⚠️ 現行 schema：Member 無獨立地址欄，信眾地址＝所屬家戶地址，故第 3 項實務上少觸發。
+ * V15R4 地址來源解析（純函式，preview 與 commit 共用同一套，避免兩套結果不一致）。
+ * 正式優先序（依需求「二」）：
+ *   1. Excel 該筆明確地址（牌位地址欄；退回地址欄）——最高優先（Excel）
+ *   2. 已配對信眾的主要地址（＝信眾所屬家戶地址）（信眾）
+ *   3. 已配對家戶的主要地址（家戶）
+ *   4. 配對信眾本人有效地址（信眾）
+ *   5. 都沒有 → null（呼叫端保留草稿並標「缺牌位地址」；正式確認/列印才擋）
+ * ⚠️ 現行 schema：Member 無獨立地址欄，信眾地址＝所屬家戶地址。
  */
 export function resolveImportAddress(input: {
+  /** Excel 該筆牌位地址欄（最高優先）。 */
+  rowTabletAddress?: string | null;
+  /** Excel 該筆一般地址欄（次高優先，牌位地址欄為空時採用）。 */
+  rowAddress?: string | null;
   matchedHouseholdAddress?: string | null;
   devoteeHouseholdAddress?: string | null;
   devoteeOwnAddress?: string | null;
-}): { address: string | null; source: "家戶" | "信眾" | null } {
+}): { address: string | null; source: "Excel" | "家戶" | "信眾" | null } {
+  const excel = ((input.rowTabletAddress ?? "").trim() || (input.rowAddress ?? "").trim());
+  if (excel) return { address: excel, source: "Excel" };
+  const dhh = (input.devoteeHouseholdAddress ?? "").trim();
+  if (dhh) return { address: dhh, source: "信眾" };
   const hh = (input.matchedHouseholdAddress ?? "").trim();
   if (hh) return { address: hh, source: "家戶" };
-  const dhh = (input.devoteeHouseholdAddress ?? "").trim();
-  if (dhh) return { address: dhh, source: "家戶" };
   const own = (input.devoteeOwnAddress ?? "").trim();
   if (own) return { address: own, source: "信眾" };
   return { address: null, source: null };

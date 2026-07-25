@@ -137,6 +137,55 @@ export async function createTempleEvent(
 }
 
 // ============================================================
+// 一之二、年度燈群組（方案A：不改 schema，四個既有 TempleEvent 群組在同一年度）
+// ============================================================
+
+/**
+ * V15R4 年度燈統一（正式規格）。
+ *
+ * 決策：「年度燈」是**一個年度活動＝單一 TempleEvent**（activityType=ANNUAL_LANTERN），
+ * 其下固定含四個既有 RegistrationItemType（光明燈／太歲燈／全家燈／祭改，皆已在
+ * V15R4 migration 統一為 activityType=ANNUAL_LANTERN）。四項共用同一活動狀態、年度
+ * 帳本、統計與列印入口；祭改不再是獨立 TempleEvent，其 PurificationEntry 掛在這個
+ * 年度燈事件底下。**不新增 schema、不新增父活動表、不建第二套架構**——沿用既有
+ * TempleEvent／RegistrationItemType／RitualRegistrationItem／activityGroupName／contentKind。
+ *
+ * 冪等：該年度已存在年度燈事件 → 直接沿用回傳（不覆蓋設定、不報錯）。
+ * 回傳 landing = 這個年度燈活動 id，供精靈導向管理畫面。
+ */
+export const ANNUAL_LANTERN_ITEM_KEYS = [
+  "LANTERN_GUANGMING",
+  "LANTERN_TAISUI",
+  "LANTERN_FAMILY",
+  "LANTERN_PURIFICATION",
+] as const;
+
+export async function createAnnualLanternGroup(
+  input: Omit<CreateTempleEventInput, "activityType" | "name">,
+  operatorName?: string | null
+): Promise<TempleEventResult<{ year: number; landingId: string }>> {
+  // 已存在 → 沿用（冪等）。
+  const existing = await prisma.templeEvent.findUnique({
+    where: { activityType_year: { activityType: "ANNUAL_LANTERN", year: input.year } },
+  });
+  if (existing) {
+    await seedChecklist(existing.id, "ANNUAL_LANTERN", operatorName);
+    return { ok: true, data: { year: input.year, landingId: existing.id } };
+  }
+  // 建立單一年度燈 TempleEvent（沿用既有 createTempleEvent 通用流程＋checklist）。
+  const res = await createTempleEvent({ ...input, activityType: "ANNUAL_LANTERN", name: null }, operatorName);
+  if (!res.ok) return res;
+  // 報名表型態設為 LANTERN（/registration/[id] 分派年度燈編輯器）。
+  await prisma.templeEvent.update({ where: { id: res.data.id }, data: { registrationFormType: "LANTERN" } });
+  return { ok: true, data: { year: input.year, landingId: res.data.id } };
+}
+
+/** 年度燈顯示名稱（依年度組字，例如「民國一一五年度燈」）。 */
+export function formatAnnualLanternGroupName(year: number): string {
+  return formatTempleEventName(year, "年度燈");
+}
+
+// ============================================================
 // 二、沿用去年活動（Step3②）
 // ============================================================
 

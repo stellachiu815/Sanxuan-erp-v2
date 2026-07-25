@@ -11,7 +11,7 @@ export default async function ReceiptHomeCard() {
   return (
     <section className="w-full max-w-3xl rounded-3xl bg-white/70 p-6 shadow-card">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-medium text-ink">🧾 收據中心提醒</h2>
+        <h2 className="text-base font-medium text-ink">🧾 收據管理提醒</h2>
         <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           前往收據中心 →
         </Link>

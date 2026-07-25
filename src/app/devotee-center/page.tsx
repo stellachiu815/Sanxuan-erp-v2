@@ -215,7 +215,7 @@ export default function DevoteeCenterHomePage() {
           <Link href="/" className="text-sm text-ink-soft hover:underline">
             ← 三玄宮行政系統
           </Link>
-          <h1 className="text-sm text-ink-soft">💛 信眾關係中心</h1>
+          <h1 className="text-sm text-ink-soft">💛 信眾管理</h1>
         </div>
       </header>
 

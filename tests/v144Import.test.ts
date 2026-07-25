@@ -163,9 +163,13 @@ test("V15R2 normalizeYangshangSet：去空白、去重、排序（順序無關�
   assert.deepEqual(normalizeYangshangSet(["周二", "周大"]), normalizeYangshangSet(["周大", "周二"]));
 });
 
-test("V15R2 地址來源優先序：家戶 > 信眾所屬家戶 > 信眾本人 > 尚無", () => {
-  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: "家戶地址", devoteeHouseholdAddress: "戶2", devoteeOwnAddress: "本人" }), { address: "家戶地址", source: "家戶" });
-  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: null, devoteeHouseholdAddress: "戶2地址", devoteeOwnAddress: "本人" }), { address: "戶2地址", source: "家戶" });
+test("V15R4 地址來源優先序：Excel該筆 > 配對信眾主要地址 > 配對家戶地址 > 尚無", () => {
+  // V15R4 依需求「二」調整優先序：Excel 該筆最高，接著「已配對信眾主要地址」（信眾所屬家戶），
+  // 再來才是「已配對家戶地址」；preview 與 commit 共用同一函式。
+  assert.deepEqual(resolveImportAddress({ rowTabletAddress: "Excel地址", matchedHouseholdAddress: "家戶地址", devoteeHouseholdAddress: "戶2" }), { address: "Excel地址", source: "Excel" });
+  // 無 Excel 地址 → 配對信眾主要地址（devoteeHouseholdAddress）優先於配對家戶地址。
+  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: "家戶地址", devoteeHouseholdAddress: "戶2", devoteeOwnAddress: "本人" }), { address: "戶2", source: "信眾" });
+  assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: "家戶地址", devoteeHouseholdAddress: null }), { address: "家戶地址", source: "家戶" });
   assert.deepEqual(resolveImportAddress({ matchedHouseholdAddress: null, devoteeHouseholdAddress: null, devoteeOwnAddress: "本人地址" }), { address: "本人地址", source: "信眾" });
   assert.deepEqual(resolveImportAddress({}), { address: null, source: null });
 });

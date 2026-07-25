@@ -15,6 +15,7 @@ import {
 } from "@/lib/universalSalvationTabletPricing";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
+import { createPurificationEntryForRecordInTx } from "@/lib/purification";
 
 /**
  * V14：把報名項目回寫到既有明細表，並回填 linkedEntryId／linkedEntryType。
@@ -318,7 +319,18 @@ export type BatchItemEntry = {
   customName?: string | null;
   customAmount?: number | null;
   feeChoice?: "FIXED" | "CUSTOM" | null;
+  /**
+   * V15R4：全家燈以家戶為一筆，但需記錄要列印的家戶成員（6～13 位）。這些成員
+   * 於同一 tx 一併寫入 RitualParticipant（沿用既有參加者機制，不建第二套）。
+   * 其他項目不帶此欄位；帶入時與 entry.memberId 併集去重。
+   */
+  participantMemberIds?: string[] | null;
 };
+
+/** 這一筆項目要寫入的參加者：entry.memberId ＋（全家燈才有的）participantMemberIds，去重。 */
+function participantIdsFor(entry: BatchItemEntry): string[] {
+  return [...new Set([entry.memberId, ...(entry.participantMemberIds ?? [])].filter((id) => !!id))];
+}
 
 export type BatchItemOutcome = {
   memberId: string;
@@ -472,7 +484,7 @@ export async function registerItemsBatch(
               where: { id: existing.id },
               data: { quantity: newQty, lockedUnitPrice: newLocked, amountDue: newAmount, amountUnpaid: newAmount },
             });
-            await upsertParticipantsInTransaction(tx, recordId, [p.entry.memberId], operatorName ?? null);
+            await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
             await linkItemToExistingDetail(tx, {
               registrationItemId: existing.id,
               contentKind: p.itemType.contentKind,
@@ -542,7 +554,7 @@ export async function registerItemsBatch(
           select: { id: true },
         });
 
-        await upsertParticipantsInTransaction(tx, recordId, [p.entry.memberId], operatorName ?? null);
+        await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
 
         await linkItemToExistingDetail(tx, {
           registrationItemId: created.id,
@@ -594,6 +606,26 @@ export async function registerItemsBatch(
             },
             tx
           );
+        }
+
+        // V15R4 年度燈統一（正式規格）：祭改內容型態（LANTERN_PURIFICATION，contentKind=PURIFICATION）
+        // 在同一 tx 建立 PurificationEntry，掛在**同一個年度燈 RitualRecord**（activityType=ANNUAL_LANTERN）
+        // 底下，使祭改立即進入祭改年度清單與小人頭貼紙列印中心（沿用既有編號規則與列印架構，不建第二套）。
+        // 祭改事件＝這筆報名所屬的年度燈 TempleEvent（與光明燈／太歲燈同一個事件）。
+        if (p.itemType.contentKind === "PURIFICATION") {
+          const annualEvent = await tx.templeEvent.findUnique({
+            where: { activityType_year: { activityType: "ANNUAL_LANTERN", year: p.entry.year } },
+            select: { id: true },
+          });
+          if (!annualEvent) {
+            return { ok: false as const, status: 409, error: "尚未建立本年度「年度燈」活動，無法建立祭改報名" };
+          }
+          const pur = await createPurificationEntryForRecordInTx(
+            tx,
+            { purificationTempleEventId: annualEvent.id, ritualRecordId: recordId, memberId: p.entry.memberId },
+            operatorName
+          );
+          if (!pur.ok) return { ok: false as const, status: pur.status, error: pur.error };
         }
 
         outcomes.push({
@@ -1112,7 +1144,7 @@ export async function removeRegisteredItem(
   if (!item) return { ok: false, status: 404, error: "找不到這個報名項目" };
   if (item.deletedAt || item.status === "CANCELLED") return { ok: true }; // 冪等
   if (Number(item.amountPaid) > 0) {
-    return { ok: false, status: 409, error: "此項目已有收款／收據，請先於收款中心處理退款後再取消" };
+    return { ok: false, status: 409, error: "此項目已有收款／收據，請先於收款管理處理退款後再取消" };
   }
   if (item.printCount > 0 || item.printedAt) {
     return { ok: false, status: 409, error: "此項目已列印，不得直接取消；如需作廢請依既有補印／作廢流程處理" };

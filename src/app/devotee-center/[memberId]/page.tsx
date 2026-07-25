@@ -16,6 +16,7 @@ import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOption
 import { GENDER_OPTIONS } from "@/lib/genderNormalize";
 import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
 import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
+import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 // V13.4 驗收：國曆生日一律以民國長格式顯示，唯一來源在 minguoDate。
 import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
 import BirthdayField, {
@@ -480,18 +481,22 @@ function OverviewTab({
               : "唯讀人員可查看活動紀錄，但沒有新增報名的權限。"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowNewRegistration(true)}
-          disabled={!canRegister}
-          className={`min-h-11 rounded-full px-5 py-2 text-sm font-medium transition ${
-            canRegister
-              ? "bg-yolk-200 text-ink hover:bg-yolk-300"
-              : "cursor-not-allowed bg-cream-200 text-ink-faint"
-          }`}
-        >
-          ＋新增活動報名
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* V15R4：年度燈・全戶多人多項目報名（信眾詳情入口，共用同一 picker）。 */}
+          {canRegister && <AnnualLanternPickerButton householdId={overview.basic.householdId} />}
+          <button
+            type="button"
+            onClick={() => setShowNewRegistration(true)}
+            disabled={!canRegister}
+            className={`min-h-11 rounded-full px-5 py-2 text-sm font-medium transition ${
+              canRegister
+                ? "bg-yolk-200 text-ink hover:bg-yolk-300"
+                : "cursor-not-allowed bg-cream-200 text-ink-faint"
+            }`}
+          >
+            ＋新增活動報名
+          </button>
+        </div>
       </div>
       {showNewRegistration && canRegister && (
         <NewActivityRegistrationDialog

@@ -7,6 +7,7 @@ import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
+import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -929,7 +930,8 @@ export async function getUniversalSalvationPrintData(
     const list = entriesByCategory.get(entry.category) ?? [];
     const names = resolveYangshangNames(entry.yangshangNames, entry.yangshangName);
     list.push({
-      displayName: entry.displayName,
+      // 列印正名：冤親債主／歷世冤親債主等舊寫法一律顯示「累世冤親債主」（非變體原樣）。
+      displayName: displayDebtCreditorName(entry.displayName),
       yangshangName: entry.yangshangName,
       yangshangNames: names,
       yangshangAcclaim: formatYangshangAcclaim(names),

@@ -122,10 +122,10 @@ export const CATEGORY_SECTIONS: {
   },
   {
     category: "DEBT_CREDITOR",
-    title: "冤親債主",
+    title: "累世冤親債主",
     tone: "bg-mist-50",
     addMode: "batch",
-    fixedDisplayName: "冤親債主",
+    fixedDisplayName: "累世冤親債主",
   },
   {
     category: "UNBORN_CHILD",

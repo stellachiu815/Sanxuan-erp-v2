@@ -313,7 +313,7 @@ function AddClaimForm({
 
   async function handleSubmit() {
     if (!selected?.memberId) {
-      setError("請先從信眾中心搜尋並選取認捐人");
+      setError("請先從信眾管理搜尋並選取認捐人");
       return;
     }
     setSubmitting(true);
@@ -345,7 +345,7 @@ function AddClaimForm({
   return (
     <div className="rounded-2xl bg-sage-50 p-5">
       {error && <p className={errorTextClass}>{error}</p>}
-      <label className={labelClass}>認捐人（請先搜尋信眾中心，查無資料請先到家戶資料新增信眾）</label>
+      <label className={labelClass}>認捐人（請先搜尋信眾管理，查無資料請先到家戶資料新增信眾）</label>
       <input className={inputClass} value={query} onChange={(e) => search(e.target.value)} placeholder="輸入姓名搜尋" />
       {results.length > 0 && !selected && (
         <div className="mt-2 flex flex-col gap-1 rounded-xl bg-white p-2">

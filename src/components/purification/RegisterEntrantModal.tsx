@@ -12,6 +12,7 @@ import {
 import BirthdayField, { createEmptyBirthdayValue, type BirthdayValue } from "@/components/birthday/BirthdayField";
 import { purificationPaymentStatusOptions } from "@/lib/labels";
 import { useStoredOperatorUserId } from "@/lib/operatorClient";
+import { useComposedSearch } from "@/lib/useComposedSearch";
 
 type SearchResult = { memberId: string | null; name: string; householdId: string };
 
@@ -41,7 +42,8 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
   const [mode, setMode] = useState<"member" | "temporary">("member");
 
   // 一般報名：信眾搜尋
-  const [query, setQuery] = useState("");
+  // V15R4：中文輸入法安全搜尋（共用 useComposedSearch，與首頁同一套）。
+  const { value: query, committedQuery, inputProps: memberInputProps, setValue: setQuery } = useComposedSearch(250);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedMember, setSelectedMember] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(false);
@@ -56,7 +58,7 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
   // 臨時報名——所屬家戶搜尋（V8.1 起，每一位報名者都必須掛在某一戶底下，
   // 見 src/lib/purification.ts 檔案頂端的說明；一般報名選信眾時已經會
   // 一併帶出所屬家戶，這裡只有「臨時報名」模式才需要另外搜尋/選擇）。
-  const [householdQuery, setHouseholdQuery] = useState("");
+  const { value: householdQuery, committedQuery: householdCommitted, inputProps: householdInputProps, setValue: setHouseholdQuery } = useComposedSearch(250);
   const [householdResults, setHouseholdResults] = useState<SearchResult[]>([]);
   const [selectedHousehold, setSelectedHousehold] = useState<{ id: string; label: string } | null>(null);
   const [householdSearching, setHouseholdSearching] = useState(false);
@@ -72,29 +74,31 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query.trim();
+    // committedQuery 只在「非組字」時更新，注音組字期間不查（見 useComposedSearch）。
+    const q = committedQuery.trim();
     if (!q || mode !== "member") {
       setResults([]);
       return;
     }
     setSearching(true);
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    (async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}${operatorUserId ? `&operatorUserId=${encodeURIComponent(operatorUserId)}` : ""}`);
         const data = await res.json();
-        setResults((data.results ?? []).filter((r: SearchResult) => r.memberId));
+        if (!cancelled) setResults((data.results ?? []).filter((r: SearchResult) => r.memberId));
       } catch {
-        setResults([]);
+        if (!cancelled) setResults([]);
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
-    }, 250);
-    return () => clearTimeout(timer);
+    })();
+    return () => { cancelled = true; };
     // operatorUserId 見 ActivityHomeScreen 同樣位置的說明（掛載後才讀得到）。
-  }, [query, mode, operatorUserId]);
+  }, [committedQuery, mode, operatorUserId]);
 
   useEffect(() => {
-    const q = householdQuery.trim();
+    const q = householdCommitted.trim();
     if (!q || mode !== "temporary") {
       setHouseholdResults([]);
       return;
@@ -120,7 +124,7 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [householdQuery, mode]);
+  }, [householdCommitted, mode, operatorUserId]);
 
   function pickMember(r: SearchResult) {
     setSelectedMember(r);
@@ -244,9 +248,9 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
             <label className={labelClass}>搜尋姓名／電話／地址／家戶編號</label>
             <input
               className={inputClass}
-              value={query}
+              {...memberInputProps}
               onChange={(e) => {
-                setQuery(e.target.value);
+                memberInputProps.onChange(e);
                 setSelectedMember(null);
               }}
               placeholder="輸入關鍵字搜尋信眾"
@@ -281,9 +285,9 @@ export default function RegisterEntrantModal({ purificationYearId, onClose, onRe
               <label className={labelClass}>所屬家戶（搜尋家戶編號／電話／地址／聯絡人）</label>
               <input
                 className={inputClass}
-                value={householdQuery}
+                {...householdInputProps}
                 onChange={(e) => {
-                  setHouseholdQuery(e.target.value);
+                  householdInputProps.onChange(e);
                   setSelectedHousehold(null);
                   setHouseholdId("");
                 }}

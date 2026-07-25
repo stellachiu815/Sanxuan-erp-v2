@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
       customName: typeof e.customName === "string" ? e.customName : null,
       customAmount: typeof e.customAmount === "number" ? e.customAmount : null,
       feeChoice: e.feeChoice === "FIXED" || e.feeChoice === "CUSTOM" ? e.feeChoice : null,
+      // V15R4：全家燈要列印的家戶成員（6～13 位），一併寫入參加者。
+      participantMemberIds: Array.isArray(e.participantMemberIds)
+        ? e.participantMemberIds.filter((x): x is string => typeof x === "string")
+        : null,
     });
   }
 

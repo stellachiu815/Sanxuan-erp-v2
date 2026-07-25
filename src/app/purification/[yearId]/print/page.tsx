@@ -26,7 +26,7 @@ export default async function PurificationPrintPage({
           <Link href={`/purification/${yearId}`} className="text-sm text-ink-soft hover:underline">
             ← {overview.name}
           </Link>
-          <h1 className="text-sm text-ink-soft">小人頭貼紙列印中心</h1>
+          <h1 className="text-sm text-ink-soft">小人頭貼紙列印管理</h1>
         </div>
       </header>
 

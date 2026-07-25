@@ -80,6 +80,34 @@ export default function ActivityWizard({ existingEvents, onClose }: Props) {
     const yearNum = Number(year);
     setSubmitting(true);
     try {
+      // V15R4 年度燈統一（方案A）：一次建立/沿用底下四個既有活動（光明燈／太歲燈／
+      // 全家燈／祭改），共用同一年度帳本。導向光明燈管理畫面。
+      if (activityType === "ANNUAL_LANTERN") {
+        const res = await fetch("/api/temple-events/annual-lantern", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year: yearNum,
+            solarDate: solarDate || null,
+            lunarDateYear: lunarYear ? Number(lunarYear) : null,
+            lunarDateMonth: lunarMonth ? Number(lunarMonth) : null,
+            lunarDateDay: lunarDay ? Number(lunarDay) : null,
+            lunarDateIsLeap: lunarIsLeap,
+            note: note || null,
+            operatorName: operatorName || null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "建立失敗");
+          setSubmitting(false);
+          return;
+        }
+        router.push(`/activities/${data.id}`);
+        router.refresh();
+        return;
+      }
+
       if (method === "COPY") {
         if (!sourceEventId) {
           setError("請選擇來源活動年度");

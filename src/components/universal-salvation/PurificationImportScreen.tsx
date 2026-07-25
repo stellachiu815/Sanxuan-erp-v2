@@ -24,7 +24,7 @@ type Enrichment = {
   householdName: string | null;
   phone: string | null;
   address: string | null;
-  addressSource: "家戶" | "信眾" | null;
+  addressSource: "Excel" | "家戶" | "信眾" | null;
   candidates: Candidate[];
 };
 

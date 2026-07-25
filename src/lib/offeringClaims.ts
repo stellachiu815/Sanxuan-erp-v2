@@ -70,7 +70,7 @@ export async function createOfferingClaim(
     include: { household: true },
   });
   if (!sponsor || sponsor.deletedAt || sponsor.household.deletedAt) {
-    return { ok: false, status: 404, error: "找不到這位信眾，請先從信眾中心搜尋或新增信眾資料" };
+    return { ok: false, status: 404, error: "找不到這位信眾，請先從信眾管理搜尋或新增信眾資料" };
   }
 
   const offeringType = activityOffering.offeringType;

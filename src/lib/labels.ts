@@ -32,12 +32,12 @@ export const activityTypeLabel: Record<string, string> = {
 };
 
 // V8.1「活動精靈」Step1「選擇活動」畫面用的選項順序（依需求規格順序排列）。
+// V15R4 年度燈統一（方案A）：不再讓使用者分別建立「光明燈／太歲燈／全家燈／祭改」
+// 四個獨立活動——改為單一「年度燈」選項（value=ANNUAL_LANTERN），選擇後一次建立/沿用
+// 底下四個既有活動類型並群組在同一年度。既有個別活動資料不刪除，仍可讀取。
 export const templeEventActivityTypeOptions: { value: string; label: string }[] = [
   { value: "UNIVERSAL_SALVATION", label: "中元普渡" },
-  { value: "GUANGMING_LANTERN", label: "光明燈" },
-  { value: "TAISUI_LANTERN", label: "太歲燈" },
-  { value: "FAMILY_LANTERN", label: "全家燈" },
-  { value: "PURIFICATION", label: "祭改" },
+  { value: "ANNUAL_LANTERN", label: "年度燈（含光明燈／太歲燈／全家燈／祭改）" },
   { value: "STORAGE_REPAYMENT", label: "補庫" },
   { value: "TEMPLE_CELEBRATION", label: "宮慶" },
   // V10.1「供品認捐中心」新增

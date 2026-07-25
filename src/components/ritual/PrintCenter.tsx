@@ -188,7 +188,7 @@ export default function PrintCenter({ householdId, householdName, year }: Props)
 
       <div className="print:hidden">
         <p className="text-sm text-ink-faint">{householdName}</p>
-        <h1 className="mt-1 text-2xl font-medium text-ink">🖨 {year} 年普渡牌位列印中心</h1>
+        <h1 className="mt-1 text-2xl font-medium text-ink">🖨 {year} 年普渡牌位列印管理</h1>
       </div>
 
       <section className="rounded-3xl bg-white/70 p-8 shadow-card print:hidden">

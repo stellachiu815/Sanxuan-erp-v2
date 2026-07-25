@@ -1,4 +1,4 @@
-import { Prisma, PurificationPaymentStatus, PurificationEntryStatus } from "@prisma/client";
+import { Prisma, PurificationPaymentStatus, PurificationEntryStatus, ActivityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import { solarToLunar, type LunarDate } from "@/lib/lunar";
@@ -53,6 +53,27 @@ import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
  * 遷移後無法保留（見交付說明的誠實限制章節）。一般報名（從信眾主資料選人）
  * 因為原本就會一併帶出該信眾的所屬家戶，不受影響。
  */
+
+// ============================================================
+// V15R4 年度燈統一：祭改事件型別（相容舊＋新）
+// ============================================================
+//
+// 正式規格：每一年度只有一個「年度燈」TempleEvent（activityType=ANNUAL_LANTERN），
+// 其下含光明燈／太歲燈／全家燈／祭改四個 RegistrationItemType，祭改不再是獨立
+// TempleEvent。祭改的 PurificationEntry 因此掛在 ANNUAL_LANTERN 事件底下。
+//
+// 為了「舊資料相容讀取」，祭改模組同時接受兩種事件型別：
+//   - PURIFICATION：V9.0～V15R3 舊年度的獨立祭改事件（維持可讀可印）。
+//   - ANNUAL_LANTERN：V15R4 起新年度的單一年度燈事件（祭改掛在其下）。
+// 新建立一律用 ANNUAL_LANTERN（見 resolvePurificationEventForYear）。
+
+/** 可承載祭改資料的活動類型（新：ANNUAL_LANTERN；舊相容：PURIFICATION）。 */
+export const PURIFICATION_EVENT_ACTIVITY_TYPES = ["ANNUAL_LANTERN", "PURIFICATION"] as const;
+
+/** 這個活動類型是否可承載祭改（年度燈或舊祭改事件）。 */
+export function isPurificationEvent(activityType: string | null | undefined): boolean {
+  return activityType === "ANNUAL_LANTERN" || activityType === "PURIFICATION";
+}
 
 // ============================================================
 // 一、報名資料的「解析後檢視」（Resolved View）
@@ -234,8 +255,15 @@ export function formatPurificationYearName(year: number): string {
   return formatTempleEventName(year, "祭改");
 }
 
-/** 這個年度是否已經存在（用來檢查唯一性，內部共用）。 */
+/**
+ * 找出承載這個年度祭改的 TempleEvent：優先新架構的年度燈（ANNUAL_LANTERN），
+ * 找不到才退回舊的獨立祭改事件（PURIFICATION）以相容既有資料。內部共用。
+ */
 async function findPurificationEvent(year: number) {
+  const annual = await prisma.templeEvent.findUnique({
+    where: { activityType_year: { activityType: "ANNUAL_LANTERN", year } },
+  });
+  if (annual) return annual;
   return prisma.templeEvent.findUnique({
     where: { activityType_year: { activityType: "PURIFICATION", year } },
   });
@@ -282,12 +310,15 @@ export type PurificationYearDiffItem = {
  */
 async function getOrCreateRitualRecordForEvent(
   tx: Prisma.TransactionClient,
-  event: { id: string; year: number },
+  event: { id: string; year: number; activityType: string },
   householdId: string
 ) {
+  // V15R4：RitualRecord 的 activityType 一律跟隨事件本身——年度燈（ANNUAL_LANTERN）
+  // 新事件會與光明燈／太歲燈同掛一筆 RitualRecord；舊祭改（PURIFICATION）事件維持原樣。
+  const recordActivityType = event.activityType as ActivityType;
   const existing = await tx.ritualRecord.findUnique({
     where: {
-      householdId_year_activityType: { householdId, year: event.year, activityType: "PURIFICATION" },
+      householdId_year_activityType: { householdId, year: event.year, activityType: recordActivityType },
     },
   });
   if (existing) {
@@ -301,7 +332,7 @@ async function getOrCreateRitualRecordForEvent(
     data: {
       householdId,
       year: event.year,
-      activityType: "PURIFICATION",
+      activityType: recordActivityType,
       templeEventId: event.id,
       status: "CONFIRMED",
       registrationSource: "ACTIVITY_PAGE",
@@ -528,13 +559,66 @@ async function getExtraBannedNumbers(
  * ⚠️ V8.1 起，householdId 必填（見檔案頂端的說明：報名者現在一律掛在
  * 「一戶、一年、一種活動類型」的 RitualRecord 底下）。
  */
+/**
+ * V15R4 年度燈統一（方案A）：從「年度燈多人多項目報名」勾選祭改（LANTERN_PURIFICATION
+ * 內容型態＝PURIFICATION）時，於**同一 transaction** 建立一筆祭改 PurificationEntry，
+ * 掛在報名批次已建立的**同一個** RitualRecord 底下（不另建第二套報名主檔），使祭改立即
+ * 出現在祭改年度清單與小人頭貼紙列印中心。沿用既有編號規則（assignSequentialNumbers）
+ * 與 recordVersion，不寫死新流程。
+ *
+ * 冪等：同一 RitualRecord ＋ 同一成員已有未取消的 PurificationEntry → 略過（回 skipped），
+ * 對應多人多項目報名「已存在回 ALREADY_EXISTS，不重複建立」。
+ * 姓名／性別／農曆生日／虛歲／地址一律讀信眾主資料（memberId），缺資料仍可建立草稿、
+ * 由既有小人頭列印就緒檢查（checkPurificationPrintReadiness）在正式列印時阻擋。
+ */
+export async function createPurificationEntryForRecordInTx(
+  tx: Prisma.TransactionClient,
+  params: { purificationTempleEventId: string; ritualRecordId: string; memberId: string },
+  operatorName?: string | null
+): Promise<{ ok: true; id: string; number: number } | { ok: true; skipped: true } | { ok: false; status: number; error: string }> {
+  const event = await tx.templeEvent.findUnique({ where: { id: params.purificationTempleEventId } });
+  if (!event || !isPurificationEvent(event.activityType)) {
+    return { ok: false, status: 404, error: "找不到本年度祭改活動，請先在活動精靈建立年度燈（含祭改）" };
+  }
+  // 冪等：同一報名（RitualRecord）＋成員只掛一筆祭改。
+  const existing = await tx.purificationEntry.findFirst({
+    where: { ritualRecordId: params.ritualRecordId, memberId: params.memberId, deletedAt: null, status: { not: "CANCELLED" } },
+    select: { id: true },
+  });
+  if (existing) return { ok: true, skipped: true };
+
+  const extraBanned = await getExtraBannedNumbers(tx, event.id);
+  const currentMax = await tx.purificationEntry.aggregate({
+    where: { templeEventId: event.id, number: { not: null } },
+    _max: { number: true },
+  });
+  const [assignedNumber] = assignSequentialNumbers(1, currentMax._max.number ?? 0, extraBanned);
+
+  const entry = await tx.purificationEntry.create({
+    data: {
+      ritualRecordId: params.ritualRecordId,
+      templeEventId: event.id,
+      number: assignedNumber,
+      memberId: params.memberId,
+      isTemporaryName: false,
+      paymentStatus: "UNPAID",
+      status: event.numberingLocked ? "SUPPLEMENTARY" : "ACTIVE",
+    },
+  });
+  await recordVersion(
+    { entityType: "PurificationEntry", entityId: entry.id, action: "CREATE", afterData: entry, operatorName, changeNote: "年度燈多人多項目報名：祭改" },
+    tx
+  );
+  return { ok: true, id: entry.id, number: assignedNumber };
+}
+
 export async function registerPurificationEntrant(
   purificationYearId: string,
   input: RegisterPurificationEntrantInput,
   operatorName?: string | null
 ): Promise<PurificationResult<{ id: string; number: number }>> {
   const event = await prisma.templeEvent.findUnique({ where: { id: purificationYearId } });
-  if (!event || event.activityType !== "PURIFICATION") {
+  if (!event || !isPurificationEvent(event.activityType)) {
     return { ok: false, status: 404, error: "找不到這個祭改年度" };
   }
 
@@ -730,7 +814,7 @@ export async function renumberPurificationYear(
     return { ok: false, status: 400, error: "重新編號需要明確二次確認" };
   }
   const event = await prisma.templeEvent.findUnique({ where: { id: purificationYearId } });
-  if (!event || event.activityType !== "PURIFICATION") {
+  if (!event || !isPurificationEvent(event.activityType)) {
     return { ok: false, status: 404, error: "找不到這個祭改年度" };
   }
   if (event.numberingLocked) {
@@ -854,7 +938,7 @@ export async function getPurificationYearOverview(
   purificationYearId: string
 ): Promise<PurificationYearOverview | null> {
   const event = await prisma.templeEvent.findUnique({ where: { id: purificationYearId } });
-  if (!event || event.activityType !== "PURIFICATION") return null;
+  if (!event || !isPurificationEvent(event.activityType)) return null;
 
   const entries = await prisma.purificationEntry.findMany({
     where: { templeEventId: purificationYearId, deletedAt: null },
@@ -897,8 +981,10 @@ export async function getPurificationYearOverview(
  * 這樣前端 YearListScreen.tsx／types.ts 的 JSON 形狀完全不用改。
  */
 export async function listPurificationYears() {
+  // V15R4：祭改年度＝新架構的年度燈事件（ANNUAL_LANTERN）＋舊的獨立祭改事件（PURIFICATION）。
+  // 同一年度兩者理論上只會存在其一（新年度用年度燈；舊年度用祭改），一併列出、依年度排序。
   const events = await prisma.templeEvent.findMany({
-    where: { activityType: "PURIFICATION" },
+    where: { activityType: { in: ["ANNUAL_LANTERN", "PURIFICATION"] } },
     orderBy: { year: "desc" },
   });
   return events.map((e) => ({
@@ -992,7 +1078,7 @@ export async function previewPurificationPrintBatch(
   filter: PrintBatchFilter
 ): Promise<PurificationResult<PrintPreview>> {
   const event = await prisma.templeEvent.findUnique({ where: { id: purificationYearId } });
-  if (!event || event.activityType !== "PURIFICATION") {
+  if (!event || !isPurificationEvent(event.activityType)) {
     return { ok: false, status: 404, error: "找不到這個祭改年度" };
   }
 
@@ -1021,7 +1107,7 @@ export async function generatePurificationPrintBatch(
   note?: string | null
 ): Promise<PurificationResult<GeneratedPrintBatch>> {
   const event = await prisma.templeEvent.findUnique({ where: { id: purificationYearId } });
-  if (!event || event.activityType !== "PURIFICATION") {
+  if (!event || !isPurificationEvent(event.activityType)) {
     return { ok: false, status: 404, error: "找不到這個祭改年度" };
   }
 

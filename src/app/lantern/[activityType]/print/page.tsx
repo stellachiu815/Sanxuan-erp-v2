@@ -71,7 +71,7 @@ export default async function LanternPrintPage({
           </div>
         ) : (
           <>
-            <h1 className="mb-6 text-xl font-medium text-ink print:hidden">{label}列印中心</h1>
+            <h1 className="mb-6 text-xl font-medium text-ink print:hidden">{label}列印管理</h1>
             <LanternPrintCenter
               activityType={activityType}
               activityTypeLabel={label}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOperator } from "@/lib/operatorClient";
 import { DEVOTEE_SEARCH_PLACEHOLDER } from "@/lib/devoteeSearchFields";
+import { useComposedSearch, useRequestSeq } from "@/lib/useComposedSearch";
 
 /**
  * 首頁／家戶頁的快速搜尋框。
@@ -51,15 +52,18 @@ export default function SearchBar({
 }: Props) {
   const router = useRouter();
   const { operatorUserId } = useOperator();
-  const [query, setQuery] = useState("");
+  // V15R4：中文輸入法（注音）安全搜尋——共用 useComposedSearch，組字期間不查、
+  // compositionEnd 後以完整中文字查一次，並用 useRequestSeq 防舊回應覆蓋新結果。
+  const { value: query, committedQuery, inputProps, reset: resetSearch } = useComposedSearch(250);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
   const [focused, setFocused] = useState(false);
+  const reqSeq = useRequestSeq();
 
   useEffect(() => {
-    const q = query.trim();
+    const q = committedQuery.trim();
     if (!q) {
       setResults([]);
       setSearched(false);
@@ -67,14 +71,16 @@ export default function SearchBar({
       return;
     }
 
+    const seq = reqSeq.next();
     setLoading(true);
     setError(null);
-    const timer = setTimeout(async () => {
+    (async () => {
       try {
         const params = new URLSearchParams({ q });
         if (operatorUserId) params.set("operatorUserId", operatorUserId);
         const res = await fetch(`/api/search?${params.toString()}`);
         const data = await res.json().catch(() => ({}));
+        if (!reqSeq.isLatest(seq)) return; // 舊回應：丟棄，不覆蓋新結果。
         if (!res.ok) {
           // 401／403 的訊息直接顯示伺服器端說明（例如「請先選擇目前操作
           // 人員」），比一句籠統的「搜尋失敗」有用。
@@ -84,19 +90,20 @@ export default function SearchBar({
         }
         setResults(data.results ?? []);
       } catch {
-        setError("搜尋時發生錯誤，請稍後再試一次。");
+        if (reqSeq.isLatest(seq)) setError("搜尋時發生錯誤，請稍後再試一次。");
       } finally {
-        setLoading(false);
-        setSearched(true);
+        if (reqSeq.isLatest(seq)) {
+          setLoading(false);
+          setSearched(true);
+        }
       }
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [query, operatorUserId]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedQuery, operatorUserId]);
 
   function goTo(result: SearchResult) {
     setFocused(false);
-    setQuery("");
+    resetSearch();
     setResults([]);
     // V6.0「信眾時間軸」：進家戶頁時把 memberId 一起帶上，家戶頁與之後的
     // 「歷年紀錄」連結會接力保留這個資訊。信眾結果直接進信眾詳情頁，不需要
@@ -114,8 +121,7 @@ export default function SearchBar({
   const input = (
     <input
       type="text"
-      value={query}
-      onChange={(e) => setQuery(e.target.value)}
+      {...inputProps}
       onFocus={() => setFocused(true)}
       onBlur={() => setTimeout(() => setFocused(false), 150)}
       placeholder={placeholder}

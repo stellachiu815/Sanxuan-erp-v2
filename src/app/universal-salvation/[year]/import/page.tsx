@@ -12,7 +12,7 @@ export default async function PurificationImportPage({ params }: { params: Promi
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <Link href="/activities" className="text-sm text-ink-soft hover:underline">← 宮務活動中心</Link>
+          <Link href="/activities" className="text-sm text-ink-soft hover:underline">← 活動管理</Link>
           <h1 className="text-sm text-ink-soft">{yearParam} 年普渡 Excel 匯入</h1>
         </div>
       </header>

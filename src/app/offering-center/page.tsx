@@ -75,7 +75,7 @@ export default async function OfferingCenterHomePage() {
           <Link href="/" className="text-sm text-ink-soft hover:underline">
             ← 三玄宮行政系統
           </Link>
-          <h1 className="text-sm text-ink-soft">🙏 供品認捐中心</h1>
+          <h1 className="text-sm text-ink-soft">🙏 供品管理</h1>
         </div>
       </header>
 
@@ -114,7 +114,7 @@ export default async function OfferingCenterHomePage() {
 
         {byYear.size === 0 && (
           <p className="text-sm text-ink-faint">
-            目前還沒有宮慶／神明聖誕／普渡／其他活動可以設定供品。請先到「宮務活動中心」建立活動，再回到這裡加入供品。
+            目前還沒有宮慶／神明聖誕／普渡／其他活動可以設定供品。請先到「活動管理」建立活動，再回到這裡加入供品。
           </p>
         )}
       </main>

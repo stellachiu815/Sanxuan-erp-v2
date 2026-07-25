@@ -143,7 +143,7 @@ export function pickDefaultActivityYear(
     ok: false,
     reason:
       candidates.length === 0
-        ? "尚未建立任何年度活動，請先於活動中心建立活動年度"
+        ? "尚未建立任何年度活動，請先於活動管理建立活動年度"
         : "既有的活動年度都已完成、已截止或已封存，請先建立新的活動年度",
     alternatives: sorted,
   };

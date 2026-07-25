@@ -54,7 +54,7 @@ export default async function CollectionCenterHomePage() {
           <Link href="/" className="text-sm text-ink-soft hover:underline">
             ← 三玄宮行政系統
           </Link>
-          <h1 className="text-sm text-ink-soft">💰 全宮共用收款中心</h1>
+          <h1 className="text-sm text-ink-soft">💰 全宮共用收款管理</h1>
         </div>
       </header>
 
