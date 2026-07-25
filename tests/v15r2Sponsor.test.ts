@@ -115,6 +115,18 @@ test("一般贊普固定價：後端用年度固定價、不信任前端 sponsor
   assert.equal(/sponsorUnitPrice: isSponsor/.test(form), false, "前端不再送出贊普單價");
 });
 
+test("P0-2 再次新增贊普：份數累加、沿用鎖定價快照；隨喜贊普同筆更新自由金額", () => {
+  const reg = read("src/lib/registrationItemRegistration.ts");
+  const batch = reg.slice(reg.indexOf("export async function registerItemsBatch"));
+  // 一般贊普累加：existing.quantity + 本次；沿用 existing.lockedUnitPrice 快照重算。
+  assert.equal(batch.includes("newQty = existing.quantity + p.quantity"), true, "US_SPONSOR 份數累加");
+  assert.equal(batch.includes("Number(existing.lockedUnitPrice)"), true, "沿用既有鎖定價快照，不覆蓋");
+  // 隨喜贊普同筆更新自由金額（quantity=1）。
+  assert.equal(/US_SPONSOR_DONATION"\)\s*\{[\s\S]*?newQty = 1/.test(batch), true, "隨喜贊普 quantity=1、更新自由金額");
+  // 首次建立贊普：US_SPONSOR 用年度固定價、存 lockedUnitPrice。
+  assert.equal(batch.includes("getUniversalSalvationSponsorPrice(p.entry.year, tx)"), true, "首建贊普用年度固定價");
+});
+
 test("US_SPONSOR 姓名保存實際 sponsorName、不再固定「本人」", () => {
   const reg = read("src/lib/registrationItemRegistration.ts");
   // syncSponsorItemInTx 一律保存實際姓名（不再 || member?.name、不存「本人」）。

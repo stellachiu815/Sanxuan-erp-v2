@@ -22,6 +22,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const file = form?.get("file");
   if (!file || typeof file === "string") return NextResponse.json({ error: "請選擇要匯入的 Excel 檔案" }, { status: 400 });
   const buffer = Buffer.from(await (file as File).arrayBuffer());
+  // V15R3（P0-4）：匯入類別（自動判斷＝空）。冤親名單只有姓名時必選「累世冤親債主」。
+  const forcedCategoryRaw = form?.get("forcedCategory");
+  const forcedCategory = typeof forcedCategoryRaw === "string" && forcedCategoryRaw.trim() ? forcedCategoryRaw.trim() : null;
 
   const event = await prisma.templeEvent.findFirst({ where: { activityType: "UNIVERSAL_SALVATION", year }, select: { id: true } });
 
@@ -31,6 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     templeEventId: event?.id ?? null,
     originalFilename: typeof (file as File).name === "string" ? (file as File).name : null,
     createdByUserId: check.operator.id,
+    forcedCategory,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 

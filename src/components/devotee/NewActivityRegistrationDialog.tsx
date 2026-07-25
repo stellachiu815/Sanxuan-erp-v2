@@ -90,7 +90,20 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     void load();
   }, [load]);
 
+  // V15R3（P0-1）：切換信眾時**重置整份表單狀態**，避免沿用上一位信眾的
+  // 選取項目／贊普姓名／冤親勾選（React state 不得跨信眾殘留）。
+  useEffect(() => {
+    setSelected({});
+    setYuanqinMemberIds({});
+    setSelectedGroup("");
+    setSelectedYear("");
+    setMessage(null);
+    setError(null);
+  }, [memberId]);
+
   const group = groups?.find((g) => g.activityGroup === selectedGroup) ?? null;
+  // 目前信眾姓名（供贊普／隨喜贊普姓名初始化）。
+  const currentMemberName = householdMembers.find((m) => m.id === memberId)?.name ?? "";
 
   // 這個主活動可選的年度（跨其項目 activityType 的開放年度聯集）。
   const groupYears: number[] = (() => {
@@ -137,7 +150,9 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
       else
         next[it.id] = {
           quantity: it.defaultQuantity,
-          customName: "",
+          // V15R3（P0-1）：贊普／隨喜贊普姓名預設帶入**目前信眾**姓名（可再修改），
+          // 不留空、不沿用上一位信眾。其餘項目維持空字串。
+          customName: it.contentKind === "SPONSOR" ? currentMemberName : "",
           feeChoice: "FIXED",
           customAmount: "",
         };

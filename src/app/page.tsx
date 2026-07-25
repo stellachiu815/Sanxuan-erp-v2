@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
 import HomeQuickNav from "@/components/dashboard/HomeQuickNav";
 import PrintPendingCard from "@/components/dashboard/PrintPendingCard";
+import DataCompletenessCard from "@/components/dashboard/DataCompletenessCard";
 import DashboardErrorBoundary from "@/components/dashboard/DashboardErrorBoundary";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
@@ -93,10 +94,11 @@ export default async function HomePage() {
         </Suspense>
       </DashboardErrorBoundary>
 
-      {/* V15 指令三「新增：待列印」資訊卡（可點進列印中心）。 */}
+      {/* V15 指令三「待列印」＋ V15R3「資料待補」資訊卡（皆可點入對應頁）。 */}
       <section className="w-full max-w-5xl">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <PrintPendingCard />
+          <DataCompletenessCard />
         </div>
       </section>
       {/*

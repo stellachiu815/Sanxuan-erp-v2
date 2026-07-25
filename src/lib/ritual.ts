@@ -6,6 +6,7 @@ import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
+import { resolveTabletAddress } from "@/lib/dataCompleteness";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -607,6 +608,23 @@ export async function createUniversalSalvationEntry(
   const nextSortOrder =
     sameCategory.length > 0 ? Math.max(...sameCategory.map((e) => e.sortOrder)) + 1 : 1;
 
+  // V15R3（安全地址來源）：祖先／乙位正魂新增未帶牌位地址時自動帶入，但**只能用這一筆
+  // 自己的來源**——新建沒有「同一筆既有 entry」可參考，故僅：本次輸入 → 本家戶
+  // Household.address → 留空（顯示「缺牌位地址」）。**絕不**拿同一次報名其他牌位的地址
+  // （同 ritualRecord 可能有多筆不同祖先／正魂），也不跨家戶。冤親／無緣子女不自動帶。
+  const AUTO_ADDRESS_CATS = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL"]);
+  let resolvedTabletAddress = input.tabletAddress ?? null;
+  if ((resolvedTabletAddress == null || resolvedTabletAddress.trim() === "") && AUTO_ADDRESS_CATS.has(input.category)) {
+    const hh = await client.household.findUnique({ where: { id: householdId }, select: { address: true } });
+    resolvedTabletAddress = resolveTabletAddress({
+      inputAddress: input.tabletAddress,
+      sameEntryAddress: null, // 新建沒有同一筆既有 entry
+      dedicatedTabletAddress: null, // 現行 schema 無牌位專用地址欄
+      householdAddress: hh?.address ?? null,
+      devoteeAddress: null, // 現行 schema Member 無獨立地址欄
+    });
+  }
+
   const universalSalvationId = existing.universalSalvation.id;
   const run = async (tx: DbClient) => {
     const created = await tx.universalSalvationEntry.create({
@@ -619,7 +637,7 @@ export async function createUniversalSalvationEntry(
           ? input.yangshangNames[0]
           : input.yangshangName ?? null,
         yangshangNames: input.yangshangNames ?? [],
-        tabletAddress: input.tabletAddress ?? null,
+        tabletAddress: resolvedTabletAddress,
         notes: input.notes ?? null,
         sortOrder: nextSortOrder,
       },

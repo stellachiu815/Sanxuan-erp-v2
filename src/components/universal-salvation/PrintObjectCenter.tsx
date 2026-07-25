@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCurrentUser } from "@/lib/permissionClient";
+import IncompletePreviewBanner from "./IncompletePreviewBanner";
 
 /**
  * V14.4 Part 3：普渡列印中心（列印物件層）。沿用既有列印中心頁面與資料查詢
@@ -75,6 +76,7 @@ export default function PrintObjectCenter({ year }: { year: number }) {
   const [previewReady, setPreviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [incompleteMissing, setIncompleteMissing] = useState<string[]>([]);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
 
@@ -158,7 +160,15 @@ export default function PrintObjectCenter({ year }: { year: number }) {
         body: JSON.stringify({ ids: [...selected], idempotencyKey }),
       });
       const data = await res.json().catch(() => null);
+      if (res.status === 422 && data?.code === "INCOMPLETE_DATA") {
+        // 資料不完整：後端已擋、未寫任何列印狀態。顯示缺項提示，不視為成功。
+        const fields: string[] = Array.isArray(data?.missingFields) ? data.missingFields : [];
+        setIncompleteMissing(fields);
+        setConfirmError(`${data?.message ?? "資料尚未完整"}：${fields.map((f) => `缺${f}`).join("、")}`);
+        return;
+      }
       if (!res.ok) throw new Error(data?.error ?? "確認完成列印失敗");
+      setIncompleteMissing([]);
       setOkMsg(
         data?.deduplicated
           ? "此次列印先前已確認過（重送已忽略，未重複累加）。"
@@ -263,6 +273,9 @@ export default function PrintObjectCenter({ year }: { year: number }) {
           {!previewReady && pendingCount > 0 && <span className="text-xs text-ink-faint">請先「產生列印頁 / 預覽」，成功後才能確認</span>}
           {okMsg && <span className="text-xs text-sage-500">{okMsg}</span>}
           {confirmError && <span className="text-xs text-blossom-500">⚠️ {confirmError}</span>}
+          {incompleteMissing.length > 0 && (
+            <div className="w-full"><IncompletePreviewBanner missingFields={incompleteMissing} /></div>
+          )}
         </div>
       )}
       {!canPrint && <p className="rounded-3xl bg-white/70 p-4 text-xs text-ink-faint shadow-soft">您目前為唯讀權限，可查看列印狀態，但無法確認完成列印。</p>}

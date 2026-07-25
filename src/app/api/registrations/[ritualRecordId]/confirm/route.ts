@@ -7,6 +7,7 @@ import {
   cancelRegistration,
   validateForConfirm,
 } from "@/lib/activityRegistration";
+import { checkRitualRecordCompleteness, incompleteDataPayload } from "@/lib/completenessGate";
 
 /**
  * V13.4：確認報名 / 取消報名。
@@ -31,11 +32,14 @@ export async function GET(
 
   const { ritualRecordId } = await params;
   const validation = await validateForConfirm(ritualRecordId);
+  // V15R3：預檢一併回報資料完整度缺項（純讀取，不寫入），供前端顯示「⚠ 缺牌位地址…」。
+  const completeness = await checkRitualRecordCompleteness(ritualRecordId);
 
   return NextResponse.json({
     ok: true,
-    canConfirm: validation.ok,
+    canConfirm: validation.ok && completeness.complete,
     reasons: validation.ok ? [] : validation.reasons,
+    missingFields: completeness.missing.map((m) => m.label),
   });
 }
 
@@ -48,6 +52,12 @@ export async function POST(
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { ritualRecordId } = await params;
+  // V15R3：正式確認前套用資料完整度驗證（純讀取）。缺資料 → 422 結構化錯誤，維持草稿、不確認。
+  const completeness = await checkRitualRecordCompleteness(ritualRecordId);
+  if (!completeness.complete) {
+    return NextResponse.json(incompleteDataPayload(completeness), { status: 422 });
+  }
+
   const result = await confirmRegistration(ritualRecordId, check.operator.name);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

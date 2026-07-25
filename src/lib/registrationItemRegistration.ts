@@ -8,6 +8,7 @@ import {
 } from "@/lib/registrationItems";
 import {
   getUniversalSalvationTabletPrices,
+  getUniversalSalvationSponsorPrice,
   isUniversalSalvationTabletKey,
   tabletUnitPriceFor,
   type TabletUnitPrices,
@@ -439,14 +440,37 @@ export async function registerItemsBatch(
             deletedAt: null,
             status: { not: "CANCELLED" },
           },
-          select: { id: true, status: true, amountPaid: true },
+          select: { id: true, status: true, amountPaid: true, quantity: true, lockedUnitPrice: true },
         });
         if (existing) {
           const editable = existing.status === "DRAFT" && Number(existing.amountPaid) === 0;
           if (editable) {
+            // V15R3（P0-2）：再次新增相同項目時的行為——
+            //   一般贊普（US_SPONSOR）：份數**累加**（existing.quantity + 本次），沿用既有
+            //     lockedUnitPrice 快照重算金額（不重新讀新年度價覆蓋快照）。
+            //   隨喜贊普（US_SPONSOR_DONATION）：自由金額，**同筆更新**為本次金額（不累加、不套固定價）。
+            //   其他項目：沿用原本「以本次數量／金額取代」行為（牌位多筆內容靠 entry 表達）。
+            let newQty = p.quantity;
+            let newAmount = p.amountDue;
+            let newLocked = existing.lockedUnitPrice != null ? Number(existing.lockedUnitPrice) : null;
+            if (p.itemType.key === "US_SPONSOR") {
+              newQty = existing.quantity + p.quantity;
+              const unit = existing.lockedUnitPrice != null
+                ? Number(existing.lockedUnitPrice)
+                : await getUniversalSalvationSponsorPrice(p.entry.year, tx);
+              if (unit == null || !Number.isFinite(unit)) {
+                return { ok: false as const, status: 409, error: "尚未設定本年度贊普固定單價，請先於活動設定頁設定後再報名" };
+              }
+              newLocked = unit;
+              newAmount = Math.round(newQty * unit);
+            } else if (p.itemType.key === "US_SPONSOR_DONATION") {
+              newQty = 1;
+              newAmount = p.amountDue; // 本次自由金額
+              newLocked = p.amountDue;
+            }
             await tx.ritualRegistrationItem.update({
               where: { id: existing.id },
-              data: { quantity: p.quantity, amountDue: p.amountDue, amountUnpaid: p.amountDue },
+              data: { quantity: newQty, lockedUnitPrice: newLocked, amountDue: newAmount, amountUnpaid: newAmount },
             });
             await upsertParticipantsInTransaction(tx, recordId, [p.entry.memberId], operatorName ?? null);
             await linkItemToExistingDetail(tx, {
@@ -455,22 +479,50 @@ export async function registerItemsBatch(
               feeMode: p.itemType.feeMode,
               activityType: p.itemType.activityType,
               ritualRecordId: recordId,
-              itemAmountDue: p.amountDue,
+              itemAmountDue: newAmount,
               unitPrice: p.itemType.defaultUnitPrice === null ? null : Number(p.itemType.defaultUnitPrice),
-              quantity: p.quantity,
+              quantity: newQty,
               participantCount: 1,
               operatorName,
             });
+            outcomes.push({
+              memberId: p.entry.memberId,
+              registrationItemTypeId: p.itemType.id,
+              outcome: "ALREADY_EXISTS",
+              registrationItemId: existing.id,
+              ritualRecordId: recordId,
+              amountDue: newAmount,
+            });
+            continue;
           }
+          // 已確認／已收款：不自動改動（保護收款快照）。
           outcomes.push({
             memberId: p.entry.memberId,
             registrationItemTypeId: p.itemType.id,
             outcome: "ALREADY_EXISTS",
             registrationItemId: existing.id,
             ritualRecordId: recordId,
-            amountDue: editable ? p.amountDue : 0,
+            amountDue: 0,
           });
           continue;
+        }
+
+        // V15R3（P0-2）：首次建立贊普／隨喜贊普的計價——US_SPONSOR 用年度固定價、
+        // 存 lockedUnitPrice 快照；US_SPONSOR_DONATION 用自由金額（customAmount）、quantity=1。
+        let createQty = p.quantity;
+        let createAmount = p.amountDue;
+        let createLocked: number | null = null;
+        if (p.itemType.key === "US_SPONSOR") {
+          const unit = await getUniversalSalvationSponsorPrice(p.entry.year, tx);
+          if (unit == null || !Number.isFinite(unit)) {
+            return { ok: false as const, status: 409, error: "尚未設定本年度贊普固定單價，請先於活動設定頁設定後再報名" };
+          }
+          createLocked = unit;
+          createAmount = Math.round(createQty * unit);
+        } else if (p.itemType.key === "US_SPONSOR_DONATION") {
+          createQty = 1;
+          createLocked = p.amountDue;
+          createAmount = p.amountDue;
         }
 
         const created = await tx.ritualRegistrationItem.create({
@@ -478,11 +530,12 @@ export async function registerItemsBatch(
             ritualRecordId: recordId,
             registrationItemTypeId: p.itemType.id,
             memberId: p.entry.memberId,
-            quantity: p.quantity,
+            quantity: createQty,
             customName: p.entry.customName ?? null,
-            amountDue: p.amountDue,
+            lockedUnitPrice: createLocked,
+            amountDue: createAmount,
             amountPaid: 0,
-            amountUnpaid: p.amountDue,
+            amountUnpaid: createAmount,
             feeChoice: p.entry.feeChoice ?? null,
             status: "DRAFT",
           },
@@ -497,9 +550,9 @@ export async function registerItemsBatch(
           feeMode: p.itemType.feeMode,
           activityType: p.itemType.activityType,
           ritualRecordId: recordId,
-          itemAmountDue: p.amountDue,
+          itemAmountDue: createAmount,
           unitPrice: p.itemType.defaultUnitPrice === null ? null : Number(p.itemType.defaultUnitPrice),
-          quantity: p.quantity,
+          quantity: createQty,
           participantCount: 1,
           operatorName,
         });

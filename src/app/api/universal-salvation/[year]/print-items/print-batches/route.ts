@@ -8,6 +8,7 @@ import {
 
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
+import { checkRitualRecordsCompleteness, ritualRecordIdsForPrintObjects } from "@/lib/completenessGate";
 /**
  * 普渡列印中心：產生列印批次（需求「九」：全部列印/只印預設寶袋/只印額外
  * 寶袋/指定寶袋補印/指定家戶列印/指定名稱搜尋，都是同一支 API，只是
@@ -97,6 +98,18 @@ export async function POST(
 
   if (itemIds.length === 0) {
     return NextResponse.json({ error: "沒有符合條件、可以列印的項目" }, { status: 400 });
+  }
+
+  // V15R3：正式列印批次（首印／補印，會增加 printCount／reprintCount、建立列印批次）前套用
+  // 資料完整度驗證（純讀取）。任一涵蓋報名不完整 → 整批擋、回 422 結構化錯誤，
+  // generateAdditionalPrintItemBatch 完全不執行 → 不寫任何列印狀態、不建列印批次。
+  const gateRecordIds = await ritualRecordIdsForPrintObjects(itemIds);
+  const gate = await checkRitualRecordsCompleteness(gateRecordIds);
+  if (!gate.allComplete) {
+    return NextResponse.json(
+      { code: "INCOMPLETE_DATA", message: "部分項目資料尚未完整，無法正式列印", missingFields: gate.missingFields, incompleteRecords: gate.incompleteRecords },
+      { status: 422 }
+    );
   }
 
   const printedByName = check.operator.name;

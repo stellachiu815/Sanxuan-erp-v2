@@ -106,6 +106,8 @@ export default function PurificationImportScreen({ year }: { year: number }) {
   const canWrite = !!role && role !== "READONLY";
   const [batch, setBatch] = useState<Batch | null>(null);
   const [filter, setFilter] = useState<Filter>("ALL");
+  // V15R3（P0-4）：匯入類別。冤親名單只有姓名時選「累世冤親債主」，避免誤判成祖先。
+  const [importCategory, setImportCategory] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [bulking, setBulking] = useState(false);
@@ -125,6 +127,7 @@ export default function PurificationImportScreen({ year }: { year: number }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (importCategory) fd.append("forcedCategory", importCategory);
       const res = await fetch(`/api/universal-salvation/${year}/import/analyze`, { method: "POST", body: fd });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? "解析失敗");
@@ -206,9 +209,25 @@ export default function PurificationImportScreen({ year }: { year: number }) {
         <h3 className="text-sm font-medium text-ink">從 Excel 匯入普渡報名</h3>
         <p className="mt-1 text-xs text-ink-faint">上傳後只建立可編輯草稿，不會直接寫入正式報名；逐列確認後才正式建立。</p>
         {canWrite ? (
-          <input type="file" accept=".xlsx,.xls,.csv" disabled={uploading}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
-            className="mt-3 block w-full text-sm min-h-[44px]" />
+          <>
+            <label className="mt-3 block text-xs text-ink-soft">
+              匯入類別
+              <select
+                value={importCategory}
+                onChange={(e) => setImportCategory(e.target.value)}
+                disabled={uploading}
+                className="mt-1 block w-full rounded-lg border border-cream-200 px-2 py-2 text-sm min-h-[44px]"
+              >
+                <option value="">自動判斷（依 Excel 類別欄）</option>
+                <option value="ANCESTOR_LINE">歷代祖先</option>
+                <option value="INDIVIDUAL_SOUL">乙位正魂</option>
+                <option value="DEBT_CREDITOR">累世冤親債主（名單只有姓名時請選此）</option>
+              </select>
+            </label>
+            <input type="file" accept=".xlsx,.xls,.csv" disabled={uploading}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
+              className="mt-3 block w-full text-sm min-h-[44px]" />
+          </>
         ) : <p className="mt-2 text-xs text-blossom-500">您目前為唯讀權限，無法匯入。</p>}
         {msg && <p className="mt-2 text-xs text-sage-500">{msg}</p>}
         {error && <p className="mt-2 text-xs text-blossom-500">⚠️ {error}</p>}

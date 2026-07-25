@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { confirmPrintObjects } from "@/lib/additionalPrintItems";
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
+import { checkRitualRecordsCompleteness, ritualRecordIdsForPrintObjects } from "@/lib/completenessGate";
 
 /**
  * V14.4「確認完成列印」：普渡列印物件（TABLET／POCKET）首印／補印確認。
@@ -36,6 +37,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!idempotencyKey) return NextResponse.json({ error: "缺少列印確認識別碼（idempotencyKey）" }, { status: 400 });
 
   const templateVersionId = typeof body?.templateVersionId === "string" ? body.templateVersionId : null;
+
+  // V15R3：正式列印（首印／補印）前套用資料完整度驗證（純讀取）。任一筆報名資料不完整 →
+  // **整批擋**，回 422 結構化錯誤（含每筆缺項），confirmPrintObjects 完全不執行，因此
+  // 不寫 printedAt／firstPrintedAt／lastPrintedAt、不增加 printCount／reprintCount、不建列印批次。
+  const recordIds = await ritualRecordIdsForPrintObjects(ids);
+  const completeness = await checkRitualRecordsCompleteness(recordIds);
+  if (!completeness.allComplete) {
+    return NextResponse.json(
+      { code: "INCOMPLETE_DATA", message: "部分項目資料尚未完整，無法正式列印", missingFields: completeness.missingFields, incompleteRecords: completeness.incompleteRecords },
+      { status: 422 }
+    );
+  }
 
   const result = await confirmPrintObjects(ids, {
     userId: check.operator.id, // 一律 session 使用者，忽略前端傳入身分

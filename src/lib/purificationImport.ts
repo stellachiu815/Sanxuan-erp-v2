@@ -101,14 +101,29 @@ export async function analyzePurificationImport(input: {
   templeEventId: string | null;
   originalFilename?: string | null;
   createdByUserId: string;
+  /** V15R3（P0-4）：匯入類別強制指定（自動判斷＝不帶）。冤親名單只有報名姓名、無類別欄時必用。 */
+  forcedCategory?: string | null;
 }): Promise<{ ok: true; batchId: string; summary: Record<string, number>; detectedColumns: Record<string, string> } | { ok: false; status: number; error: string }> {
   const { columns, rows } = parseSpreadsheetBuffer(input.buffer);
   if (rows.length === 0) return { ok: false, status: 400, error: "Excel 沒有可匯入的資料列" };
   const map = resolveColumnMapping(columns);
 
+  // V15R3（P0-4）：若指定匯入類別，覆蓋每列的 tabletCategory（供 classifyMatch 與 confirm 一致使用）。
+  //   累世冤親債主：名單只有姓名（多對應到「姓名」欄＝tabletName），classifyMatch 會以報名姓名配對信眾，
+  //   不要求祖先牌位格式；祖先／正魂維持既有格式。自動判斷則沿用 Excel 類別欄。
+  const forced = input.forcedCategory ? normalizeCategory(input.forcedCategory) : null;
+
   // 候選查詢（保守）：取本批出現過的「配對用姓名」——報名姓名（devoteeName）＋
   // 全部陽上人姓名（祖先／正魂 Excel 只有牌位名稱＋陽上人，需靠陽上人配對信眾）。
-  const normalized = rows.map((r) => normalizeRow(r, map));
+  const normalized = rows.map((r) => {
+    const n = normalizeRow(r, map);
+    if (forced) {
+      n.tabletCategory = forced;
+      // 冤親名單常把報名姓名放在「姓名」欄（對應 tabletName）；補到 devoteeName 供配對。
+      if (forced === "DEBT_CREDITOR" && !n.devoteeName && n.tabletName) n.devoteeName = n.tabletName;
+    }
+    return n;
+  });
   const names = [
     ...new Set(
       normalized
