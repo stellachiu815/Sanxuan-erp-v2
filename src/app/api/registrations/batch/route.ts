@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const result = await registerItemsBatch(entries, check.operator.name);
+  const result = await registerItemsBatch(entries, check.operator.name, check.operator.id);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
   const primaryRecord = result.ritualRecordIds[0] ?? null;

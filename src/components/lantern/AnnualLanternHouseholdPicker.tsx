@@ -10,7 +10,6 @@ import {
   labelClass,
 } from "@/components/household/formStyles";
 import { useStoredOperatorUserId } from "@/lib/operatorClient";
-import { familyLanternTierLabel } from "@/lib/familyLanternTier";
 
 /**
  * V15R4 年度燈統一：全戶多人多項目報名 picker（信眾詳情／家戶詳情／年度燈活動管理
@@ -28,9 +27,13 @@ type OpenYear = { year: number; templeEventId: string; name: string };
 type LastYear = { fromYear: number | null; perMember: { memberId: string; itemKeys: string[] }[]; hadFamily: boolean };
 
 type PerMember = { guangming: boolean; taisui: boolean; purification: boolean };
+type FamilyContact = { contactName: string | null; contactSource: string };
 
-const FAMILY_MIN = 6;
-const FAMILY_MAX = 13;
+/** 戶主/主要聯絡人顯示：UNSET（DB 無資料）→「尚未設定」；否則顯示姓名。 */
+function contactDisplay(c: FamilyContact | null): string {
+  if (!c || c.contactSource === "UNSET" || !c.contactName) return "尚未設定";
+  return c.contactName;
+}
 
 export default function AnnualLanternHouseholdPicker({
   householdId,
@@ -43,12 +46,16 @@ export default function AnnualLanternHouseholdPicker({
   const operatorUserId = useStoredOperatorUserId();
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [householdName, setHouseholdName] = useState<string>("");
   const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
+  const [contact, setContact] = useState<FamilyContact | null>(null);
+  const [eligibleIds, setEligibleIds] = useState<string[]>([]); // 合格成員（在世且未刪除）id
   const [items, setItems] = useState<Record<string, ItemView>>({});
   const [openYears, setOpenYears] = useState<OpenYear[]>([]);
   const [lastYear, setLastYear] = useState<LastYear | null>(null);
   const [year, setYear] = useState<number | "">("");
   const [perMember, setPerMember] = useState<Record<string, PerMember>>({});
+  // 全家燈當年度納入名單（預設全部合格成員；可逐位取消、可全部納入恢復）。
   const [familyMemberIds, setFamilyMemberIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -66,7 +73,13 @@ export default function AnnualLanternHouseholdPicker({
         return;
       }
       setMembers(data.members ?? []);
+      setHouseholdName(data.household?.name ?? "");
       setHouseholdAddress(data.household?.address ?? null);
+      setContact(data.familyLantern ? { contactName: data.familyLantern.contactName ?? null, contactSource: data.familyLantern.contactSource ?? "UNSET" } : null);
+      // V15R5.3：全家燈預設納入所有合格成員（在世且未刪除；辭世/封存不預設納入）。
+      const elig: string[] = data.familyLantern?.eligibleMemberIds ?? [];
+      setEligibleIds(elig);
+      setFamilyMemberIds(Object.fromEntries(elig.map((id) => [id, true])));
       const byKey: Record<string, ItemView> = {};
       for (const it of data.lanternGroup?.items ?? []) byKey[it.key] = it;
       setItems(byKey);
@@ -103,18 +116,20 @@ export default function AnnualLanternHouseholdPicker({
       next[pm.memberId] = cur;
     }
     setPerMember(next);
-    if (lastYear.hadFamily) {
-      const fam: Record<string, boolean> = {};
-      for (const m of members) fam[m.id] = true;
-      setFamilyMemberIds(fam);
-    }
-    setMessage(`已沿用民國 ${lastYear.fromYear} 年報名內容（金額將依本年度單價重新計算，不含去年付款）。`);
+    // V15R5.3：沿用去年只沿用「是否報全家燈」；成員名單一律重讀當下合格成員（不沿用去年取消名單）。
+    if (lastYear.hadFamily) includeAllEligible();
+    setMessage(`已沿用民國 ${lastYear.fromYear} 年報名內容（金額依本年度單價重算、不含去年付款；全家燈成員重讀當下合格成員）。`);
+  }
+
+  // 全部納入：恢復所有合格成員（在世且未刪除）。
+  function includeAllEligible() {
+    setFamilyMemberIds(Object.fromEntries(eligibleIds.map((id) => [id, true])));
   }
 
   function startFresh() {
     setPerMember({});
-    setFamilyMemberIds({});
-    setMessage("已清空，改為全新建立。");
+    includeAllEligible(); // 全家燈預設仍為全體合格成員
+    setMessage("已清空個人燈；全家燈維持預設全體合格成員。");
   }
 
   function toggle(memberId: string, field: keyof PerMember) {
@@ -124,11 +139,14 @@ export default function AnnualLanternHouseholdPicker({
     });
   }
 
-  const familyCount = useMemo(
-    () => Object.values(familyMemberIds).filter(Boolean).length,
-    [familyMemberIds]
+  // 只計入「合格成員且勾選」者（辭世/封存不可納入，即使殘留旗標也不算）。
+  const eligibleSet = useMemo(() => new Set(eligibleIds), [eligibleIds]);
+  const familyIncludedIds = useMemo(
+    () => eligibleIds.filter((id) => familyMemberIds[id]),
+    [eligibleIds, familyMemberIds]
   );
-  const familyValid = familyCount === 0 || (familyCount >= FAMILY_MIN && familyCount <= FAMILY_MAX);
+  const familyCount = familyIncludedIds.length;
+  const allEligibleIncluded = eligibleIds.length > 0 && familyCount === eligibleIds.length;
 
   const entries = useMemo(() => {
     if (year === "") return [];
@@ -143,13 +161,13 @@ export default function AnnualLanternHouseholdPicker({
       if (sel.taisui && t) out.push({ memberId: m.id, registrationItemTypeId: t.id, year });
       if (sel.purification && p) out.push({ memberId: m.id, registrationItemTypeId: p.id, year });
     }
+    // 全家燈：以家戶一筆，納入名單＝合格且勾選的成員（至少一位）。伺服器會重查資格再寫快照。
     const family = items["LANTERN_FAMILY"];
-    const famIds = members.filter((m) => familyMemberIds[m.id]).map((m) => m.id);
-    if (family && famIds.length >= FAMILY_MIN && famIds.length <= FAMILY_MAX) {
-      out.push({ memberId: famIds[0], registrationItemTypeId: family.id, year, participantMemberIds: famIds });
+    if (family && familyIncludedIds.length >= 1) {
+      out.push({ memberId: familyIncludedIds[0], registrationItemTypeId: family.id, year, participantMemberIds: familyIncludedIds });
     }
     return out;
-  }, [year, items, members, perMember, familyMemberIds]);
+  }, [year, items, members, perMember, familyIncludedIds]);
 
   async function submit() {
     setError(null);
@@ -158,12 +176,8 @@ export default function AnnualLanternHouseholdPicker({
       setError("目前沒有開放中的年度燈活動，請先於活動管理建立年度燈。");
       return;
     }
-    if (familyCount > 0 && !familyValid) {
-      setError(`全家燈需勾選 ${FAMILY_MIN}～${FAMILY_MAX} 位成員（目前 ${familyCount} 位）。`);
-      return;
-    }
     if (entries.length === 0) {
-      setError("請至少勾選一項報名項目。");
+      setError("請至少勾選一項報名項目（全家燈需至少納入一位有效成員）。");
       return;
     }
     setBusy(true);
@@ -265,35 +279,72 @@ export default function AnnualLanternHouseholdPicker({
             </table>
           </div>
 
+          {/* ── 全家燈：以家戶一筆，預設納入全體合格成員（在世且未刪除），可逐位取消／全部納入 ── */}
           <div className="rounded-2xl bg-cream-100 p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-ink">全家燈（以家戶一筆，勾選 6～13 位）</span>
-              <span className={`text-xs ${familyValid ? "text-ink-soft" : "text-blossom-400"}`}>
-                已選 {familyCount} 位{familyCount > 0 ? `｜${familyLanternTierLabel(familyCount)}` : ""}
-              </span>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-ink">全家燈（以家戶一筆；預設納入全體合格成員）</span>
+              <button
+                type="button"
+                onClick={includeAllEligible}
+                disabled={allEligibleIncluded || eligibleIds.length === 0}
+                className="min-h-9 whitespace-nowrap rounded-full bg-sage-100 px-3 py-1.5 text-xs text-ink transition hover:bg-sage-200 disabled:opacity-40"
+              >
+                全部納入
+              </button>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3">
-              {members.map((m) => (
-                <label key={m.id} className="flex items-center gap-1.5 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    checked={!!familyMemberIds[m.id]}
-                    onChange={() => setFamilyMemberIds((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
-                  />
-                  {m.name}
-                </label>
-              ))}
+            {/* 手機：摘要卡置頂；桌機：摘要靠右（flex-row-reverse）。地址只在摘要顯示一次，不逐列重複。 */}
+            <div className="flex flex-col gap-3 sm:flex-row-reverse sm:items-start">
+              <div className="rounded-xl bg-white/70 p-3 text-xs sm:w-56 sm:shrink-0">
+                <div className="text-sm font-medium text-ink">{householdName || "（未命名家戶）"}</div>
+                <dl className="mt-1 space-y-1 text-ink-soft">
+                  <div>戶主／主要聯絡人：<span className={contact && contact.contactSource !== "UNSET" ? "text-ink" : "text-blossom-400"}>{contactDisplay(contact)}</span></div>
+                  <div>
+                    家戶地址：
+                    {householdAddress
+                      ? <span className="text-ink">{householdAddress}</span>
+                      : <span className="text-blossom-400">缺地址（草稿可存，確認／列印前需補）</span>}
+                  </div>
+                  <div>全家燈年度：民國 {year === "" ? "—" : year} 年</div>
+                  <div>本次納入：<span className="text-ink">{familyCount}</span> / {eligibleIds.length} 位</div>
+                </dl>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                {eligibleIds.length === 0 ? (
+                  <p className="rounded-xl bg-white/70 px-3 py-2 text-xs text-blossom-400">
+                    此家戶目前沒有可納入的有效成員（皆已辭世或已刪除），無法建立全家燈。
+                  </p>
+                ) : (
+                  <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {members.map((m) => {
+                      const eligible = eligibleSet.has(m.id);
+                      const included = eligible && !!familyMemberIds[m.id];
+                      return (
+                        <li key={m.id} className="flex items-center justify-between gap-2 rounded-xl bg-white/70 px-3 py-2">
+                          <span className="truncate text-sm text-ink">
+                            {m.name}
+                            {m.isDeceased && <span className="ml-1 text-xs text-ink-faint">（歿）</span>}
+                          </span>
+                          {eligible ? (
+                            <button
+                              type="button"
+                              onClick={() => setFamilyMemberIds((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
+                              className={`min-h-9 whitespace-nowrap rounded-full px-3 py-1 text-xs transition ${
+                                included ? "bg-sage-200 text-ink hover:bg-blossom-100" : "bg-cream-200 text-ink-soft hover:bg-sage-100"
+                              }`}
+                            >
+                              {included ? "取消納入" : "納入"}
+                            </button>
+                          ) : (
+                            <span className="whitespace-nowrap text-xs text-ink-faint">不可納入</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
-            {/* V15R5：全家燈報名時明確顯示列印地址與來源供確認；缺地址可存草稿、正式確認/列印擋。 */}
-            <div className="mt-2 text-xs">
-              <span className="text-ink-faint">目前列印地址：</span>
-              {householdAddress
-                ? <>{householdAddress}<span className="ml-2 text-ink-faint">（來源：家戶地址）</span></>
-                : <span className="text-blossom-400">缺地址（可暫存草稿，正式確認／列印前需補家戶地址）</span>}
-            </div>
-            {!familyValid && (
-              <p className="mt-1 text-xs text-blossom-400">全家燈需勾選 {FAMILY_MIN}～{FAMILY_MAX} 位成員。</p>
-            )}
           </div>
 
           {error && <p className={errorTextClass}>{error}</p>}

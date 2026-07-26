@@ -178,6 +178,50 @@ test("V15R5.1：報名計價——光明/太歲/全家燈改讀年度單價，�
   assert.equal(/光明\/太歲燈用項目 defaultUnitPrice/.test(reg), false, "移除『光明/太歲用 defaultUnitPrice』舊註解與邏輯");
 });
 
+// ── V15R5.3 全家燈永久資料共用架構 Phase 2（只全家燈）──
+test("V15R5.3 schema：全家燈兩張專屬表（正式 FK；防重＝ritualRecord+household；成員 Restrict 保護歷史）", () => {
+  const s = read("prisma/schema.prisma");
+  assert.equal(s.includes("model FamilyLanternRegistration"), true, "FamilyLanternRegistration");
+  assert.equal(s.includes("model FamilyLanternMember"), true, "FamilyLanternMember");
+  assert.equal(s.includes("ritualRegistrationItemId String                  @unique") || /ritualRegistrationItemId String\s+@unique/.test(s), true, "全家燈 item 1:1 @unique");
+  assert.equal(/@@unique\(\[ritualRecordId, householdId\]\)/.test(s), true, "防重＝(ritualRecordId, householdId)，非單純 year");
+  assert.equal(/member   Member @relation\(fields: \[memberId\], references: \[id\], onDelete: Restrict\)/.test(s), true, "成員 FK Restrict（不 Cascade 刪歷史快照）");
+  assert.equal(s.includes("addressSnapshot") && s.includes("contactNameSnapshot") && s.includes("contactSourceSnapshot") && s.includes("memberNameSnapshot"), true, "地址/戶主/成員姓名快照欄位");
+});
+
+test("V15R5.3 migration：純新增兩表（CREATE TABLE）、不改既有資料；成員 FK RESTRICT", () => {
+  const m = read("prisma/migrations/20260813000000_v15r5_3_family_lantern_snapshot/migration.sql");
+  assert.equal(/CREATE TABLE "family_lantern_registrations"/.test(m), true);
+  assert.equal(/CREATE TABLE "family_lantern_members"/.test(m), true);
+  assert.equal(/family_lantern_members_memberId_fkey[\s\S]*ON DELETE RESTRICT/.test(m), true, "成員 FK RESTRICT 保護歷史");
+  assert.equal(/ALTER TABLE "(ritual_registration_items|households|members|ritual_records)"[\s\S]*(DROP|ALTER COLUMN)/.test(m), false, "不改既有表欄位");
+  assert.equal(/UNIQUE INDEX "family_lantern_registrations_ritualRecordId_householdId_key"/.test(m), true);
+});
+
+test("V15R5.3 service：registerItemsBatch 全家燈以 (record, LANTERN_FAMILY) 防重＋寫年度快照", () => {
+  const reg = read("src/lib/registrationItemRegistration.ts");
+  assert.equal(reg.includes("writeFamilyLanternSnapshotInTx"), true, "交易內寫快照");
+  assert.equal(/p\.itemType\.key === "LANTERN_FAMILY"/.test(reg), true, "全家燈專屬分支");
+  // 全家燈防重不以第一位成員區分（findFirst 不含 memberId）。
+  assert.equal(/ritualRecordId: recordId, registrationItemTypeId: p\.itemType\.id, deletedAt: null, status: \{ not: "CANCELLED" \}/.test(reg), true, "以 (record, itemType) 防重");
+  const fam = read("src/lib/familyLantern.ts");
+  assert.equal(fam.includes("isDeceased: false") && fam.includes("deletedAt: null"), true, "合格＝在世且未刪除");
+  assert.equal(fam.includes("HOUSEHOLD_HEAD") && fam.includes("isPrimaryContact") && fam.includes("contactName"), true, "戶主優先序 HEAD→PRIMARY→contactName");
+  assert.equal(fam.includes('source: "UNSET"'), true, "無資料＝UNSET（不存『尚未設定』）");
+  assert.equal(fam.includes("至少需納入一位有效成員"), true, "至少一位");
+});
+
+test("V15R5.3 UI：全家燈預設全納入合格成員、全部納入/取消納入、戶主+地址摘要、手機置頂", () => {
+  const p = read("src/components/lantern/AnnualLanternHouseholdPicker.tsx");
+  assert.equal(p.includes("eligibleMemberIds"), true, "讀合格成員預設全納入");
+  assert.equal(p.includes("全部納入"), true, "全部納入按鈕");
+  assert.equal(p.includes("取消納入") && p.includes("納入"), true, "逐位納入/取消納入");
+  assert.equal(p.includes("戶主／主要聯絡人"), true, "顯示戶主/主要聯絡人");
+  assert.equal(p.includes("contactDisplay"), true, "UNSET→尚未設定（畫面轉換）");
+  assert.equal(p.includes("sm:flex-row-reverse"), true, "桌機摘要靠右、手機置頂");
+  assert.equal(/FAMILY_MIN|FAMILY_MAX/.test(p), false, "移除 6～13 硬限制（改至少一位）");
+});
+
 test("V15R5.1 UI：已報名項目每列顯示報名者（it.memberName，非僅 RICE）、欄序正確、手機有姓名", () => {
   const panel = read("src/components/registration/RegisteredItemsPanel.tsx");
   // 桌機表頭含「報名者」欄，且欄序＝報名者→類別｜名稱→數量→應收→未收→狀態。
@@ -311,9 +355,10 @@ test("性別匯入：個人 Excel 性別無法辨識時不猜測（回 null＋�
 });
 
 // ── 3. 全家燈地址確認 ─────────────────────────────────────────
-test("全家燈報名顯示列印地址與來源（家戶地址）；缺地址可草稿", () => {
+test("全家燈報名顯示家戶地址（摘要區，共用一個地址）；缺地址可草稿並警告", () => {
   const picker = read("src/components/lantern/AnnualLanternHouseholdPicker.tsx");
-  assert.equal(picker.includes("目前列印地址："), true);
-  assert.equal(picker.includes("來源：家戶地址"), true);
+  // V15R5.3：地址移入家戶摘要區、全戶共用一個地址（不逐列重複）。
+  assert.equal(picker.includes("家戶地址："), true, "摘要顯示家戶地址");
   assert.equal(picker.includes("householdAddress"), true);
+  assert.equal(picker.includes("缺地址（草稿可存，確認／列印前需補）"), true, "缺地址可草稿並警告");
 });

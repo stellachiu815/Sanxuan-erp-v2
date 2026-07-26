@@ -28,6 +28,7 @@ model Household {
   worshipRecords           WorshipRecord[]
   activities               Activity[]
   ritualRecords            RitualRecord[]
+  familyLanternRegistrations FamilyLanternRegistration[] // V15R5.3：本戶各年度全家燈快照
   additionalPrintItems     AdditionalPrintItem[] // V9.1「附加列印項目（寶袋等）」
   offeringClaims           OfferingClaim[] // V10.1「供品認捐中心」：本戶的認捐紀錄
   stoveMasterRegistrations StoveMasterRegistration[] // V10.1：本戶的爐主/副爐主登錄
@@ -212,6 +213,7 @@ model Member {
   ritualRecords            RitualRecord[]
   /// V13.4：這位信眾參加過的活動報名（RitualParticipant 子表）
   ritualParticipants       RitualParticipant[]
+  familyLanternMembers     FamilyLanternMember[] // V15R5.3：歷年全家燈納入快照（保留歷史，不隨成員刪除消失）
   /// V14：這位信眾報名過的活動項目（RitualRegistrationItem 子表）
   ritualRegistrationItems  RitualRegistrationItem[]
   purificationEntries      PurificationEntry[] // V8.1 起：祭改報名項目已併入通用 RitualRecord 架構，見下方 PurificationEntry
@@ -428,6 +430,7 @@ model RitualRecord {
 
   universalSalvation   UniversalSalvationDetail?
   purificationEntries  PurificationEntry[] // V8.1：祭改報名項目（activityType = PURIFICATION 時使用）
+  familyLanternRegistrations FamilyLanternRegistration[] // V15R5.3：全家燈年度快照（本 record 底下）
   additionalPrintItems AdditionalPrintItem[] // V9.1：附加列印項目（寶袋等），目前只有普渡（UNIVERSAL_SALVATION）在使用
 
   // V8.0「刪除保護」：同 Household，見上方註解。軟刪除後 @@unique 仍會
@@ -670,6 +673,10 @@ model RitualRegistrationItem {
   deletedAt     DateTime?
   deletedByName String?
 
+  /// V15R5.3：全家燈專屬「年度不可變快照」（1:1）。只有 LANTERN_FAMILY 項目會有；
+  /// 其他項目一律為 null（不影響既有金流/列印/收款）。
+  familyLanternRegistration FamilyLanternRegistration?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -678,6 +685,68 @@ model RitualRegistrationItem {
   @@index([memberId])
   @@index([deletedAt])
   @@map("ritual_registration_items")
+}
+
+/// V15R5.3 全家燈永久資料共用架構 Phase 2：全家燈「年度不可變快照」主檔（1:1 對應全家燈 item）。
+/// 永久主資料沿用 Household／Member 既有關聯與狀態（不另建永久名單）；本表只保存
+/// **建立當年度**實際納入成員、家戶地址、戶主/主要聯絡人的快照，日後永久資料變動不改寫舊年度。
+/// 只處理全家燈，不觸及其他活動、收款、收據、對帳、列印、財務。
+model FamilyLanternRegistration {
+  id String @id @default(cuid())
+
+  /// 1:1 對應全家燈 RitualRegistrationItem（一筆全家燈項目只能有一份專屬快照）。
+  ritualRegistrationItemId String                  @unique
+  ritualRegistrationItem   RitualRegistrationItem  @relation(fields: [ritualRegistrationItemId], references: [id], onDelete: Cascade)
+
+  /// 正式年度活動實體與家戶（正式 FK，非多型字串）。
+  ritualRecordId String
+  ritualRecord   RitualRecord @relation(fields: [ritualRecordId], references: [id], onDelete: Cascade)
+  householdId    String
+  household      Household    @relation(fields: [householdId], references: [id], onDelete: Restrict)
+
+  /// 冗餘年度（民國年），方便跨年查詢；快照真值以本表為準。
+  year Int
+
+  /// 當年度快照（伺服器端取得，不信任前端）。
+  addressSnapshot       String? // 當年度家戶地址（Household.address 快照）
+  contactNameSnapshot   String? // 當年度戶主/主要聯絡人顯示名（無資料時為 null）
+  contactSourceSnapshot String? // 來源標記：HEAD / PRIMARY / CONTACT_NAME / UNSET
+
+  /// 建立者（沿用既有 operator user 關聯；SetNull 保護歷史快照不因帳號刪除而消失）。
+  createdByUserId     String?
+  createdByUser       User?   @relation("FamilyLanternCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByNameSnapshot String?
+
+  members FamilyLanternMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// 同一 RitualRecord、同一家戶只能有一筆全家燈主資料（防重；不用單純 year 以免與未來活動設定衝突）。
+  @@unique([ritualRecordId, householdId])
+  @@index([householdId])
+  @@index([year])
+  @@map("family_lantern_registrations")
+}
+
+/// V15R5.3：全家燈「當年度實際納入成員」快照（1:N）。memberId 為正式 FK；同時保存 memberNameSnapshot，
+/// 日後成員改名/辭世/封存/轉戶都不改寫此快照。onDelete: Restrict 保護歷史（成員不得被硬刪而連帶刪快照）。
+model FamilyLanternMember {
+  id String @id @default(cuid())
+
+  familyLanternRegistrationId String
+  familyLanternRegistration   FamilyLanternRegistration @relation(fields: [familyLanternRegistrationId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  memberNameSnapshot String
+
+  createdAt DateTime @default(now())
+
+  @@unique([familyLanternRegistrationId, memberId])
+  @@index([memberId])
+  @@map("family_lantern_members")
 }
 
 /// 普渡登記明細：RitualRecord.activityType = UNIVERSAL_SALVATION 時，
@@ -849,6 +918,7 @@ model User {
 
   createdFinanceRecords FinanceRecord[] @relation("FinanceRecordCreatedBy")
   voidedFinanceRecords  FinanceRecord[] @relation("FinanceRecordVoidedBy")
+  createdFamilyLanternRegistrations FamilyLanternRegistration[] @relation("FamilyLanternCreatedBy") // V15R5.3
   auditLogs             AuditLog[]
   sessions              Session[]
 

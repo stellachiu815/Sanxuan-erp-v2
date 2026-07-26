@@ -23,6 +23,7 @@ import {
   annualLanternItemUnitPrice,
   type AnnualLanternPrices,
 } from "@/lib/annualLanternPricing";
+import { assertFamilyLanternInclusion, writeFamilyLanternSnapshotInTx, FamilyLanternError } from "@/lib/familyLantern";
 import {
   listHouseholdAncestorOptions,
   listHouseholdIndividualSoulOptions,
@@ -474,7 +475,8 @@ export type BatchResult =
 
 export async function registerItemsBatch(
   entries: BatchItemEntry[],
-  operatorName?: string | null
+  operatorName?: string | null,
+  operatorUserId?: string | null
 ): Promise<BatchResult> {
   if (entries.length === 0) return { ok: false, status: 400, error: "沒有要報名的項目" };
 
@@ -614,6 +616,77 @@ export async function registerItemsBatch(
           recordCache.set(recKey, recordId);
         }
         recordIds.add(recordId);
+
+        // ── V15R5.3 全家燈：以家戶一筆、依 (RitualRecord, LANTERN_FAMILY) 防重（**不以第一位成員區分**）──
+        // 建立/更新全家燈 item（年度單價自身計價）＋於同一交易寫「年度不可變快照」
+        //（FamilyLanternRegistration＋FamilyLanternMember：伺服器重查合格成員、地址、戶主，不信任前端）。
+        // 已存在→更新同一筆、不建第二筆；至少一位合格成員否則整筆 rollback。只影響全家燈。
+        if (p.itemType.key === "LANTERN_FAMILY") {
+          // ⚠️ 先驗證納入名單合法性（在建立**任何** item / 快照之前）。無效即 throw
+          // FamilyLanternError → 整筆交易 rollback（Prisma 只在 throw 時回滾；return 會 commit），
+          // 不會殘留 RitualRegistrationItem / FamilyLanternRegistration / FamilyLanternMember。
+          const familyResolved = await assertFamilyLanternInclusion(tx, {
+            householdId: p.householdId,
+            includedMemberIds: p.entry.participantMemberIds ?? [p.entry.memberId],
+          });
+          const prices = annualPriceByYear.get(p.entry.year);
+          const unit = prices ? annualLanternItemUnitPrice("LANTERN_FAMILY", prices) : null;
+          const amount = unit != null && unit > 0 ? Math.round(unit * 100) / 100 : 0;
+          const existingFam = await tx.ritualRegistrationItem.findFirst({
+            where: { ritualRecordId: recordId, registrationItemTypeId: p.itemType.id, deletedAt: null, status: { not: "CANCELLED" } },
+            select: { id: true, amountPaid: true },
+          });
+          let famItemId: string;
+          let famOutcome: "CREATED" | "ALREADY_EXISTS";
+          if (existingFam) {
+            // 未收款才依當年度單價重算（已收款保留快照，不動金額）。
+            if (Number(existingFam.amountPaid) === 0) {
+              await tx.ritualRegistrationItem.update({
+                where: { id: existingFam.id },
+                data: { quantity: 1, memberId: p.entry.memberId, lockedUnitPrice: unit, amountDue: amount, amountUnpaid: amount, status: "DRAFT" },
+              });
+            }
+            famItemId = existingFam.id;
+            famOutcome = "ALREADY_EXISTS";
+          } else {
+            const created = await tx.ritualRegistrationItem.create({
+              data: {
+                ritualRecordId: recordId,
+                registrationItemTypeId: p.itemType.id,
+                memberId: p.entry.memberId,
+                quantity: 1,
+                lockedUnitPrice: unit,
+                amountDue: amount,
+                amountPaid: 0,
+                amountUnpaid: amount,
+                status: "DRAFT",
+              },
+              select: { id: true },
+            });
+            famItemId = created.id;
+            famOutcome = "CREATED";
+          }
+          await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
+          // 已驗證 → 寫年度快照（此步不再驗證，用 familyResolved 的伺服器端資料）。
+          await writeFamilyLanternSnapshotInTx(tx, {
+            ritualRegistrationItemId: famItemId,
+            ritualRecordId: recordId,
+            householdId: p.householdId,
+            year: p.entry.year,
+            resolved: familyResolved,
+            operatorUserId,
+            operatorName,
+          });
+          outcomes.push({
+            memberId: p.entry.memberId,
+            registrationItemTypeId: p.itemType.id,
+            outcome: famOutcome,
+            registrationItemId: famItemId,
+            ritualRecordId: recordId,
+            amountDue: amount,
+          });
+          continue;
+        }
 
         // ── V15R5 正式規格：命名牌位（祖先／乙位正魂／無緣）建立報名即建立 linked Draft ──
         // 直接建立 1 筆 UniversalSalvationEntry（帶入本戶既有牌位姓名／地址／陽上人）＋
@@ -921,6 +994,8 @@ export async function registerItemsBatch(
     // 祭改事件預取到交易外、降低查詢數；此處再給合理上限（20s），不是無限拉長。
     { timeout: 20000, maxWait: 15000 });
   } catch (e) {
+    // 全家燈資格驗證失敗（交易內 throw → 已 rollback）：回傳其原始狀態碼與訊息。
+    if (e instanceof FamilyLanternError) return { ok: false, status: e.status, error: e.message };
     const msg = e instanceof Error ? e.message : "整批報名時發生未預期錯誤";
     return { ok: false, status: 500, error: msg };
   }

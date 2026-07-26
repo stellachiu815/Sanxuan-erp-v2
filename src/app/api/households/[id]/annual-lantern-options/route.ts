@@ -6,6 +6,7 @@ import { readOperatorUserId } from "@/lib/requestOperator";
 import { listActivityGroups } from "@/lib/registrationItems";
 import { canAcceptRegistration } from "@/lib/activityYear";
 import { getHouseholdAnnualLanternLastYear } from "@/lib/registrationItemRegistration";
+import { resolveFamilyContact } from "@/lib/familyLantern";
 
 /**
  * V15R4 年度燈統一：全戶多人多項目報名 picker 的資料來源（家戶入口）。
@@ -30,10 +31,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       id: true,
       name: true,
       address: true,
+      contactName: true,
       members: {
         where: { deletedAt: null },
-        select: { id: true, name: true, role: true, isDeceased: true },
-        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, role: true, isDeceased: true, isPrimaryContact: true },
+        orderBy: [{ isPrimaryContact: "desc" }, { createdAt: "asc" }],
       },
     },
   });
@@ -74,12 +76,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const targetYear = openYears[0]?.year ?? null;
   const lastYear = targetYear != null ? await getHouseholdAnnualLanternLastYear(household.id, targetYear) : null;
 
+  // V15R5.3 全家燈：合格成員＝在世（isDeceased!==true）且未刪除（查詢已排除 deletedAt）；戶主/主要聯絡人
+  // 依 HEAD→PRIMARY→Household.contactName→UNSET 於有效成員中解析（伺服器端，與寫入快照同一套邏輯）。
+  const eligibleMembers = household.members.filter((m) => !m.isDeceased);
+  const contact = resolveFamilyContact(
+    eligibleMembers.map((m) => ({ id: m.id, name: m.name, role: m.role, isPrimaryContact: m.isPrimaryContact })),
+    household.contactName
+  );
+
   return NextResponse.json({
     ok: true,
-    household: { id: household.id, name: household.name, address: household.address },
+    household: { id: household.id, name: household.name, address: household.address, contactName: household.contactName },
     members: household.members,
     lanternGroup,
     openYears,
     lastYear,
+    familyLantern: {
+      eligibleMemberIds: eligibleMembers.map((m) => m.id),
+      contactName: contact.name,
+      contactSource: contact.source,
+    },
   });
 }
