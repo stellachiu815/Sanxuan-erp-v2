@@ -6,6 +6,7 @@ import { renderSnapshotTexts } from "@/lib/activityPrintProfile";
 import { printAddress, printAge, printMinguoYear, printLunarMonthDay } from "@/lib/printChinese";
 import { adToMinguo } from "@/lib/minguoDate";
 import { buildActivityYearPrintProfile } from "@/lib/zodiacSexagenary";
+import { solarToLunar } from "@/lib/lunar";
 
 /**
  * V13.4：年度燈（光明燈／太歲燈／全家燈）報名與計價。
@@ -243,22 +244,40 @@ export async function buildLanternPrintBatch(
         snapshotMissing,
       };
     }
-    // 未確認：依「活動年度＋成員目前生日」現算虛歲／生肖／太歲（與列印中心同一套 buildActivityYearPrintProfile）。
+    // 未確認：依「活動年度＋成員目前生日」現算虛歲／生肖／太歲。
+    // 與家戶詳情頁 deriveBirthdayInfo、列印中心同一套邏輯：農曆年月日缺漏時，
+    // 由國曆生日 solarToLunar 換算補齊，才能推出生肖／虛歲／太歲（很多匯入信眾只有國曆）。
     const m = p.member;
+    let lunarY = m?.lunarBirthYear ?? null;
+    let lunarM = m?.lunarBirthMonth ?? null;
+    let lunarD = m?.lunarBirthDay ?? null;
+    let lunarLeap = m?.lunarIsLeapMonth ?? false;
+    if ((lunarY === null || lunarM === null || lunarD === null) && m?.solarBirthDate) {
+      try {
+        const conv = solarToLunar(m.solarBirthDate);
+        const monthDayFromSolar = lunarM === null && lunarD === null;
+        if (lunarY === null) lunarY = conv.year;
+        if (lunarM === null) lunarM = conv.month;
+        if (lunarD === null) lunarD = conv.day;
+        if (monthDayFromSolar) lunarLeap = conv.isLeapMonth;
+      } catch {
+        /* 無效國曆日期：維持現值，下方顯示為空 */
+      }
+    }
     const profile = m
       ? buildActivityYearPrintProfile({
           activityMinguoYear: record.year,
-          birthLunarYearAD: m.lunarBirthYear,
+          birthLunarYearAD: lunarY,
           solarBirthDate: m.solarBirthDate,
           gender: m.gender,
           referenceDate,
         })
       : null;
     const lunarBirthText =
-      m && m.lunarBirthYear !== null && m.lunarBirthMonth !== null && m.lunarBirthDay !== null
-        ? `農曆民國${printMinguoYear(adToMinguo(m.lunarBirthYear))}年${printLunarMonthDay(m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)}`
-        : m && m.lunarBirthMonth !== null && m.lunarBirthDay !== null
-          ? `農曆${printLunarMonthDay(m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)}`
+      lunarY !== null && lunarM !== null && lunarD !== null
+        ? `農曆民國${printMinguoYear(adToMinguo(lunarY))}年${printLunarMonthDay(lunarM, lunarD, lunarLeap)}`
+        : lunarM !== null && lunarD !== null
+          ? `農曆${printLunarMonthDay(lunarM, lunarD, lunarLeap)}`
           : "";
     return {
       participantId: p.id,
