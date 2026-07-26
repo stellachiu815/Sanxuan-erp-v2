@@ -138,7 +138,10 @@ dbTest("單一全家燈：應收只在 RitualRegistrationItem；無 LanternRegis
   }
 });
 
-dbTest("同一人祭改＋光明燈：各自一份應收，不雙重；重複提交 ALREADY_EXISTS 不增應收", async () => {
+// V15R5.1：光明燈改為逐年單價；尚未 PATCH 前一律 0（不得讀 defaultUnitPrice/defaults）。
+// Case A：年度單價未設定 → 光明燈 amountDue=0；Case B：先 PATCH 500 → 光明燈 amountDue=500。
+// 保留：祭改只建 PurificationEntry、光明燈只建 RitualRegistrationItem、ALREADY_EXISTS 不增應收。
+dbTest("同一人祭改＋光明燈：未設定光明價=0、PATCH 500 後=500；各自一份、重複提交不增", async () => {
   const { prisma, templeEvents, reg, pricing } = await load();
   const year = 982;
   const hhId = hhIdFor(year);
@@ -146,32 +149,46 @@ dbTest("同一人祭改＋光明燈：各自一份應收，不雙重；重複提
     await cleanup(prisma, year, hhId); // pre-clean：恢復上一輪/中斷殘留
     const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試");
     assert.equal(grp.ok, true, grp.ok ? "" : `建立年度燈失敗：${grp.error}`);
+    // 只設祭改單價；**刻意不設**光明燈年度單價（brightLightUnitPrice 維持 NULL）。
     if (grp.ok) await pricing.updateAnnualLanternPrices(grp.data.landingId, { purificationUnitPrice: 300 });
+    const landingId = grp.ok ? grp.data.landingId : "";
     const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
     const m = await prisma.member.create({ data: { householdId: hh.id, name: "甲", isPrimaryContact: true } });
     const keys = await itemKeys(prisma);
 
-    const batch = await reg.registerItemsBatch(
+    // ── Case A：光明燈年度單價未設定 → amountDue = 0（不得讀 defaultUnitPrice/defaults）──
+    const batchA = await reg.registerItemsBatch(
       [
         { memberId: m.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
         { memberId: m.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year },
       ],
       "測試"
     );
-    assert.equal(batch.ok, true, batch.ok ? "" : `整批報名失敗：${batch.error}`);
-    const purEntries = await prisma.purificationEntry.count({ where: { templeEvent: { year } } });
-    const gm = await prisma.ritualRegistrationItem.findMany({ where: { registrationItemType: { key: "LANTERN_GUANGMING" }, ritualRecord: { year } } });
-    assert.equal(purEntries, 1, "祭改一筆 PurificationEntry");
-    assert.equal(gm.length, 1);
-    assert.ok(Number(gm[0].amountDue) > 0, "光明燈自身計價 > 0");
+    assert.equal(batchA.ok, true, batchA.ok ? "" : `整批報名失敗：${batchA.error}`);
+    assert.equal(await prisma.purificationEntry.count({ where: { templeEvent: { year } } }), 1, "祭改只建一筆 PurificationEntry");
+    const gmA = await prisma.ritualRegistrationItem.findMany({ where: { registrationItemType: { key: "LANTERN_GUANGMING" }, ritualRecord: { year } } });
+    assert.equal(gmA.length, 1, "光明燈只建一筆 RitualRegistrationItem");
+    assert.equal(Number(gmA[0].amountDue), 0, "Case A：年度單價未設定 → 光明燈 amountDue=0（不讀 defaultUnitPrice）");
+    // 祭改只在 PurificationEntry 計價，其 item 金額 0（不雙重）。
+    const purItem = await prisma.ritualRegistrationItem.findFirst({ where: { registrationItemType: { key: "LANTERN_PURIFICATION" }, ritualRecord: { year } } });
+    assert.equal(Number(purItem?.amountDue ?? -1), 0, "祭改 item 金額 0（收款走 PurificationEntry）");
+    assert.equal(await prisma.lanternRegistration.count({ where: { ritualRecord: { year } } }), 0, "不產生 LanternRegistration");
 
-    // 重複提交：不新增。
+    // ── Case B：PATCH 光明燈年度單價 500 後，新報名（另一位成員）→ amountDue=500 ──
+    await pricing.updateAnnualLanternPrices(landingId, { brightLightUnitPrice: 500 });
+    const m2 = await prisma.member.create({ data: { householdId: hh.id, name: "乙" } });
+    const batchB = await reg.registerItemsBatch([{ memberId: m2.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year }], "測試");
+    assert.equal(batchB.ok, true, batchB.ok ? "" : `Case B 報名失敗：${batchB.error}`);
+    const gmB = await prisma.ritualRegistrationItem.findFirst({ where: { registrationItemType: { key: "LANTERN_GUANGMING" }, ritualRecord: { year }, memberId: m2.id } });
+    assert.equal(Number(gmB?.amountDue ?? -1), 500, "Case B：PATCH 500 後 → 光明燈 amountDue=500");
+
+    // ── ALREADY_EXISTS：重複提交（甲的祭改）不新增應收／不增 item ──
     await reg.registerItemsBatch([{ memberId: m.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year }], "測試");
     assert.equal(await prisma.purificationEntry.count({ where: { templeEvent: { year } } }), 1, "重複提交不增 PurificationEntry");
     assert.equal(
-      (await prisma.ritualRegistrationItem.count({ where: { registrationItemType: { key: "LANTERN_GUANGMING" }, ritualRecord: { year } } })),
-      1,
-      "重複提交不增光明燈 item"
+      await prisma.ritualRegistrationItem.count({ where: { registrationItemType: { key: "LANTERN_GUANGMING" }, ritualRecord: { year } } }),
+      2,
+      "光明燈仍為 2 筆（甲 Case A＋乙 Case B），重複提交祭改不影響"
     );
   } finally {
     await cleanup(prisma, year, hhId);

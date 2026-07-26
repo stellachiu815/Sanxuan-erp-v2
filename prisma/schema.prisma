@@ -1295,6 +1295,15 @@ model TempleEvent {
   purificationUnitPrice  Decimal? @db.Decimal(12, 2)
   familyLanternUnitPrice Decimal? @db.Decimal(12, 2)
 
+  /// V15R5.1：年度燈四項目改為各自逐年單價（光明燈／太歲燈也不再讀全域
+  /// RegistrationItemType.defaultUnitPrice、不寫死 500）。同一套 per-year 欄位模式：
+  ///   - brightLightUnitPrice：光明燈單價（每份）。收款＝RitualRegistrationItem 自身計價。
+  ///   - taisuiLightUnitPrice：太歲燈單價（每份）。收款＝RitualRegistrationItem 自身計價。
+  /// 與 familyLanternUnitPrice／purificationUnitPrice 合為年度燈四項目單價；nullable 同上語意
+  ///（未設定＝該項應收 0；只影響之後新建/重算的 DRAFT 未收款，不動既有快照）。
+  brightLightUnitPrice   Decimal? @db.Decimal(12, 2)
+  taisuiLightUnitPrice   Decimal? @db.Decimal(12, 2)
+
   /// V14.4：中元普渡「白米年度配額」設定（宮方每年由神明指派，不可寫死、不可
   /// 直接沿用去年）。沿用同一套 per-year TempleEvent 欄位結構，不另建價格表。
   /// - riceTotalKg：該年度白米總斤數（神明指派）。

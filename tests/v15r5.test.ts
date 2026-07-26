@@ -98,9 +98,11 @@ test("金流：全家燈自身計價（RitualRegistrationItem），年度統一�
   const reg = read("src/lib/registrationItemRegistration.ts");
   // 年度燈統一後 LANTERN 不再歸零/路由 LanternRegistration。
   assert.equal(/if \(params\.activityType === "ANNUAL_LANTERN"\) return;/.test(reg), true, "ANNUAL_LANTERN 不路由 LanternRegistration");
-  // 全家燈以年度 familyLanternUnitPrice 計價、整戶一筆。
-  assert.equal(reg.includes('p.itemType.key === "LANTERN_FAMILY"'), true);
-  assert.equal(reg.includes("familyLanternUnitPrice"), true);
+  // 全家燈以年度單價計價、整戶一筆（qty=1）；V15R5.1 起四項年度價統一由 annualLanternItemUnitPrice
+  // 依項目 key 取該年度 TempleEvent 欄位（familyLanternUnitPrice 對照現移至 annualLanternPricing.ts）。
+  assert.equal(reg.includes('p.itemType.key === "LANTERN_FAMILY"'), true, "全家燈整戶一筆 qty=1");
+  assert.equal(reg.includes("annualLanternItemUnitPrice"), true, "四項年度價依 key 取（含全家燈）");
+  assert.equal(read("src/lib/annualLanternPricing.ts").includes("familyLanternUnitPrice"), true, "全家燈年度欄位對照在唯一價格層");
   // 收款來源 adapter 已註冊三種年度燈項目（自身計價），祭改不在其中。
   const adapters = read("src/lib/receivableAdapters.ts");
   assert.equal(adapters.includes('"ANNUAL_LANTERN_ITEM"'), true);
@@ -119,6 +121,74 @@ test("金額：schema 與 migration 只新增必要欄位/enum，不改既有金
   assert.equal(/CREATE TABLE|DROP/.test(m1), false, "不建表/不刪除");
   const m2 = read("prisma/migrations/20260811000001_v15r5_annual_lantern_item_source/migration.sql");
   assert.equal(/ADD VALUE IF NOT EXISTS 'ANNUAL_LANTERN_ITEM'/.test(m2), true);
+});
+
+// ── V15R5.1：年度燈四項目各自逐年單價（光明/太歲不再讀 defaultUnitPrice、不寫死 500）──
+test("V15R5.1：schema 新增光明燈/太歲燈年度單價欄位", () => {
+  const schema = read("prisma/schema.prisma");
+  assert.equal(schema.includes("brightLightUnitPrice   Decimal?"), true, "光明燈年度單價欄位");
+  assert.equal(schema.includes("taisuiLightUnitPrice   Decimal?"), true, "太歲燈年度單價欄位");
+});
+
+test("V15R5.1：migration 只 ADD COLUMN，不 backfill（不覆蓋既有年度價、不刪資料、不硬寫 500）", () => {
+  const m = read("prisma/migrations/20260812000000_v15r5_1_lantern_item_prices/migration.sql");
+  // 只檢查「可執行 SQL」（濾掉 -- 註解行；註解可自由說明 500/backfill 背景）。
+  const sql = m
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  assert.equal(/ADD COLUMN IF NOT EXISTS "brightLightUnitPrice"/.test(sql), true);
+  assert.equal(/ADD COLUMN IF NOT EXISTS "taisuiLightUnitPrice"/.test(sql), true);
+  assert.equal(/CREATE TABLE|DROP|DELETE/.test(sql), false, "不建表/不刪除");
+  // 不得主動寫入 TempleEvent（不 UPDATE/backfill）——避免覆蓋既有不同年度價格。
+  assert.equal(/UPDATE/i.test(sql), false, "不得 backfill 覆蓋既有年度價");
+  assert.equal(/\b500\b/.test(sql), false, "SQL 不得硬寫 500");
+});
+
+test("V15R5.1：預設值改由設定畫面預帶——API 回 defaults、UI 按儲存才寫入", () => {
+  // API GET 回傳各項目 defaultUnitPrice 作為建議預設（供首次開啟預帶顯示，尚未寫入 DB）。
+  const api = read("src/app/api/temple-events/[id]/annual-lantern-prices/route.ts");
+  assert.equal(api.includes("defaults"), true, "GET 回傳 defaults 建議值");
+  assert.equal(api.includes("defaultUnitPrice"), true, "來源＝RegistrationItemType.defaultUnitPrice");
+  // UI：DB 為 NULL 時預帶建議值、標記尚未儲存；只有按「儲存單價」才寫入。
+  const ui = read("src/components/activities/AnnualLanternPriceSettings.tsx");
+  assert.equal(ui.includes("data?.defaults"), true, "UI 讀 API defaults 預帶");
+  assert.equal(ui.includes("尚未儲存"), true, "顯示『尚未儲存』提示");
+});
+
+test("V15R5.1：annualLanternPricing 四項唯一讀寫層（key→年度欄位對照，光明/太歲入列）", () => {
+  const p = read("src/lib/annualLanternPricing.ts");
+  for (const f of ["brightLightUnitPrice", "taisuiLightUnitPrice", "familyLanternUnitPrice", "purificationUnitPrice"]) {
+    assert.equal(p.includes(f), true, `含 ${f}`);
+  }
+  assert.equal(p.includes("ANNUAL_LANTERN_ITEM_PRICE_FIELD"), true, "項目 key→欄位對照表");
+  assert.equal(/LANTERN_GUANGMING: "brightLightUnitPrice"/.test(p), true);
+  assert.equal(/LANTERN_TAISUI: "taisuiLightUnitPrice"/.test(p), true);
+  assert.equal(p.includes("isAnnualLanternPricedItemKey"), true);
+});
+
+test("V15R5.1：報名計價——光明/太歲/全家燈改讀年度單價，光明/太歲不再走 defaultUnitPrice", () => {
+  const reg = read("src/lib/registrationItemRegistration.ts");
+  // 使用年度四項單價的唯一來源與 key→欄位對照。
+  assert.equal(reg.includes("isAnnualLanternPricedItemKey"), true, "以項目 key 判定年度燈計價");
+  assert.equal(reg.includes("annualLanternItemUnitPrice"), true, "依 key 取該年度單價");
+  // pre-fetch 條件已改成 isAnnualLanternPricedItemKey（不再只有 LANTERN_FAMILY）。
+  assert.equal(/needsAnnual = isAnnualLanternPricedItemKey\(itemType\.key\)/.test(reg), true);
+  // 光明/太歲不再以 defaultUnitPrice×qty 計價（該分支僅剩非年度燈項目走 computeItemAmountDue）。
+  assert.equal(/光明\/太歲燈用項目 defaultUnitPrice/.test(reg), false, "移除『光明/太歲用 defaultUnitPrice』舊註解與邏輯");
+});
+
+test("V15R5.1：年度單價 API 與 UI 皆含四項", () => {
+  const api = read("src/app/api/temple-events/[id]/annual-lantern-prices/route.ts");
+  for (const f of ["brightLightUnitPrice", "taisuiLightUnitPrice", "familyLanternUnitPrice", "purificationUnitPrice"]) {
+    assert.equal(api.includes(f), true, `API 處理 ${f}`);
+  }
+  const ui = read("src/components/activities/AnnualLanternPriceSettings.tsx");
+  assert.equal(ui.includes("年度燈單價設定"), true, "標題不變");
+  for (const name of ["光明燈", "太歲燈", "全家燈", "祭改"]) {
+    assert.equal(ui.includes(name), true, `UI 顯示 ${name}`);
+  }
+  assert.equal(ui.includes("儲存單價"), true, "單一儲存按鈕");
 });
 
 // ── 7/10. 家戶成員報名活動（回歸）────────────────────────────

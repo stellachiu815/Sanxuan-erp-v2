@@ -17,7 +17,12 @@ import { resolveYangshangNames } from "@/lib/yangshang";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { createPurificationEntryForRecordInTx } from "@/lib/purification";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
-import { getAnnualLanternPrices } from "@/lib/annualLanternPricing";
+import {
+  getAnnualLanternPrices,
+  isAnnualLanternPricedItemKey,
+  annualLanternItemUnitPrice,
+  type AnnualLanternPrices,
+} from "@/lib/annualLanternPricing";
 import {
   listHouseholdAncestorOptions,
   listHouseholdIndividualSoulOptions,
@@ -500,12 +505,13 @@ export async function registerItemsBatch(
 
   // V15R5：年度燈「祭改／全家燈」的年度單價與祭改所屬 ANNUAL_LANTERN 事件——**交易外**一次撈齊
   // （避免在互動式交易內逐項查詢造成 5000ms timeout → rollback → 資料未建立）。
-  const annualPriceByYear = new Map<number, { purificationUnitPrice: number | null; familyLanternUnitPrice: number | null }>();
+  const annualPriceByYear = new Map<number, AnnualLanternPrices>();
   const annualEventIdByYear = new Map<number, string | null>();
   for (const entry of entries) {
     const itemType = itemTypeMap.get(entry.registrationItemTypeId);
     if (!itemType) continue;
-    const needsAnnual = itemType.key === "LANTERN_FAMILY" || itemType.contentKind === "PURIFICATION";
+    // V15R5.1：光明燈/太歲燈/全家燈皆自身計價、依年度燈四項目單價；祭改另走 PurificationEntry。
+    const needsAnnual = isAnnualLanternPricedItemKey(itemType.key) || itemType.contentKind === "PURIFICATION";
     if (needsAnnual && !annualPriceByYear.has(entry.year)) {
       annualPriceByYear.set(entry.year, await getAnnualLanternPrices(entry.year));
       const ev = await prisma.templeEvent.findUnique({
@@ -561,6 +567,17 @@ export async function registerItemsBatch(
         return { ok: false, status: 400, error: `${itemType.name}：數量必須是 1 以上的整數` };
       }
       amountDue = unit !== null ? Math.round(unit * quantity * 100) / 100 : 0;
+    } else if (isAnnualLanternPricedItemKey(itemType.key)) {
+      // V15R5.1：光明燈/太歲燈/全家燈＝依「該年度活動」單價（brightLight/taisui/familyLantern），
+      // **不再讀全域 defaultUnitPrice、不寫死 500**；未設定 → 0（不擋報名、可存草稿）。
+      // 全家燈整戶一筆固定價（qty=1）；光明/太歲依份數計價。前端傳入的金額一律不採信。
+      const prices = annualPriceByYear.get(entry.year);
+      const unit = prices ? annualLanternItemUnitPrice(itemType.key, prices) : null;
+      const qty = itemType.key === "LANTERN_FAMILY" ? 1 : quantity;
+      if (!Number.isInteger(qty) || qty < 1) {
+        return { ok: false, status: 400, error: `${itemType.name}：數量必須是 1 以上的整數` };
+      }
+      amountDue = unit != null && unit > 0 ? Math.round(unit * qty * 100) / 100 : 0;
     } else {
       const amount = computeItemAmountDue({
         feeMode: itemType.feeMode as never,
@@ -777,13 +794,16 @@ export async function registerItemsBatch(
           createQty = 1;
           createLocked = p.amountDue;
           createAmount = p.amountDue;
-        } else if (p.itemType.key === "LANTERN_FAMILY") {
-          // V15R5 全家燈：整戶一筆固定價（年度 familyLanternUnitPrice，交易外已預取）。項目自身計價，
-          // 未設定單價 → 0（不擋報名、可存草稿）。光明/太歲燈用項目 defaultUnitPrice×數量（既有）。
-          const unit = annualPriceByYear.get(p.entry.year)?.familyLanternUnitPrice ?? null;
-          createQty = 1;
+        } else if (isAnnualLanternPricedItemKey(p.itemType.key)) {
+          // V15R5.1：光明燈/太歲燈/全家燈＝依該年度活動單價（brightLight/taisui/familyLantern，
+          // 交易外已預取），項目自身計價，**不讀 defaultUnitPrice、不寫死 500**；未設定 → 0
+          //（不擋報名、可存草稿）。全家燈整戶一筆固定價（qty=1）；光明/太歲依份數。
+          // lockedUnitPrice 存當下年度單價快照，日後改價不回頭改既有 DRAFT。
+          const prices = annualPriceByYear.get(p.entry.year);
+          const unit = prices ? annualLanternItemUnitPrice(p.itemType.key, prices) : null;
+          createQty = p.itemType.key === "LANTERN_FAMILY" ? 1 : createQty;
           createLocked = unit;
-          createAmount = unit != null && unit > 0 ? Math.round(unit * 100) / 100 : 0;
+          createAmount = unit != null && unit > 0 ? Math.round(unit * createQty * 100) / 100 : 0;
         }
         // 註：歷代祖先／乙位正魂／無緣子女不會走到這裡——它們在迴圈上方
         // 「建立報名即建立 linked Draft」分支已建立並連結完成（不留獨立 placeholder）。

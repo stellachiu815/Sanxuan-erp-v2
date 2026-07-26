@@ -39,7 +39,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!event) return NextResponse.json({ error: "找不到這個活動" }, { status: 404 });
 
   const prices = await getAnnualLanternPrices(event.year);
-  return NextResponse.json({ ok: true, activityId: event.id, year: event.year, name: event.name, ...prices });
+
+  // V15R5.1：migration 不 backfill。年度欄位仍為 NULL 時，回傳各項目 RegistrationItemType
+  // .defaultUnitPrice 作為「建議預設值」，供設定畫面首次開啟時預帶顯示（**尚未寫入 DB**）；
+  // 只有使用者按「儲存單價」才真正寫入 TempleEvent，避免覆蓋既有不同年度價格。
+  const defaultRows = await prisma.registrationItemType.findMany({
+    where: { key: { in: ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_FAMILY", "LANTERN_PURIFICATION"] } },
+    select: { key: true, defaultUnitPrice: true },
+  });
+  const byKey = new Map(defaultRows.map((r) => [r.key, r.defaultUnitPrice != null ? Number(r.defaultUnitPrice) : null]));
+  const defaults = {
+    brightLightUnitPrice: byKey.get("LANTERN_GUANGMING") ?? null,
+    taisuiLightUnitPrice: byKey.get("LANTERN_TAISUI") ?? null,
+    familyLanternUnitPrice: byKey.get("LANTERN_FAMILY") ?? null,
+    purificationUnitPrice: byKey.get("LANTERN_PURIFICATION") ?? null,
+  };
+  return NextResponse.json({ ok: true, activityId: event.id, year: event.year, name: event.name, ...prices, defaults });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -50,16 +65,31 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const body = await readJsonBody(request);
   if (!body) return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
 
-  const patch: { purificationUnitPrice?: number | null; familyLanternUnitPrice?: number | null } = {};
-  if ("purificationUnitPrice" in body) {
-    const v = parsePrice(body.purificationUnitPrice);
-    if (v === "invalid") return NextResponse.json({ error: "祭改單價必須是 0～9999999 的數字" }, { status: 400 });
-    patch.purificationUnitPrice = v;
+  const patch: {
+    brightLightUnitPrice?: number | null;
+    taisuiLightUnitPrice?: number | null;
+    familyLanternUnitPrice?: number | null;
+    purificationUnitPrice?: number | null;
+  } = {};
+  if ("brightLightUnitPrice" in body) {
+    const v = parsePrice(body.brightLightUnitPrice);
+    if (v === "invalid") return NextResponse.json({ error: "光明燈單價必須是 0～9999999 的數字" }, { status: 400 });
+    patch.brightLightUnitPrice = v;
+  }
+  if ("taisuiLightUnitPrice" in body) {
+    const v = parsePrice(body.taisuiLightUnitPrice);
+    if (v === "invalid") return NextResponse.json({ error: "太歲燈單價必須是 0～9999999 的數字" }, { status: 400 });
+    patch.taisuiLightUnitPrice = v;
   }
   if ("familyLanternUnitPrice" in body) {
     const v = parsePrice(body.familyLanternUnitPrice);
     if (v === "invalid") return NextResponse.json({ error: "全家燈單價必須是 0～9999999 的數字" }, { status: 400 });
     patch.familyLanternUnitPrice = v;
+  }
+  if ("purificationUnitPrice" in body) {
+    const v = parsePrice(body.purificationUnitPrice);
+    if (v === "invalid") return NextResponse.json({ error: "祭改單價必須是 0～9999999 的數字" }, { status: 400 });
+    patch.purificationUnitPrice = v;
   }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "沒有要更新的單價欄位" }, { status: 400 });
@@ -72,6 +102,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   await updateAnnualLanternPrices(id, patch);
   return NextResponse.json({
     ok: true,
-    message: "已更新年度燈祭改／全家燈單價。祭改收款走 PurificationEntry、全家燈走項目自身計價，皆不重複應收。",
+    message: "已更新年度燈單價（光明燈／太歲燈／全家燈／祭改）。報名時伺服器一律以該年度單價重算應收；祭改收款走 PurificationEntry、其餘走項目自身計價，皆不重複應收。",
   });
 }
