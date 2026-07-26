@@ -314,3 +314,229 @@ dbTest("隔離自檢：跨年度同戶連續重跑兩次均乾淨（無 409、�
     await cleanup(prisma, y2, hhId);
   }
 });
+
+// ── V15R5.1 祭改顯示修正：listRegisteredItems 對 PURIFICATION 讀 PurificationEntry 金額 ──
+// 祭改真正應收只在 PurificationEntry；item.amountDue 恆 0；報名頁顯示與總計須讀 PurificationEntry。
+async function recordIdOf(prisma: P, hhId: string, year: number) {
+  const rec = await prisma.ritualRecord.findFirst({ where: { householdId: hhId, year, activityType: "ANNUAL_LANTERN" }, select: { id: true } });
+  return rec?.id ?? "";
+}
+
+dbTest("V15R5.1 祭改顯示：view 讀 PurificationEntry=500（item DB 仍 0）；四項總計=4500；未設定=0", async () => {
+  const { prisma, templeEvents, reg, pricing } = await load();
+  const year = 983;
+  const hhId = hhIdFor(year);
+  try {
+    await cleanup(prisma, year, hhId);
+    const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試");
+    assert.equal(grp.ok, true);
+    if (grp.ok) await pricing.updateAnnualLanternPrices(grp.data.landingId, { brightLightUnitPrice: 500, taisuiLightUnitPrice: 500, familyLanternUnitPrice: 3000, purificationUnitPrice: 500 });
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m = await prisma.member.create({ data: { householdId: hh.id, name: "甲", isPrimaryContact: true } });
+    const keys = await itemKeys(prisma);
+
+    const batch = await reg.registerItemsBatch(
+      [
+        { memberId: m.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year },
+        { memberId: m.id, registrationItemTypeId: keys["LANTERN_TAISUI"], year },
+        { memberId: m.id, registrationItemTypeId: keys["LANTERN_FAMILY"], year, participantMemberIds: [m.id] },
+        { memberId: m.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
+      ],
+      "測試"
+    );
+    assert.equal(batch.ok, true, batch.ok ? "" : `批次失敗：${batch.error}`);
+
+    const recordId = await recordIdOf(prisma, hhId, year);
+    const views = await reg.listRegisteredItems(recordId);
+    const byKey = (k: string) => views.find((v) => v.itemKey === k);
+    assert.equal(byKey("LANTERN_PURIFICATION")?.amountDue, 500, "祭改 view 讀 PurificationEntry=500");
+    assert.equal(byKey("LANTERN_GUANGMING")?.amountDue, 500, "光明 view=500（不退步）");
+    assert.equal(byKey("LANTERN_TAISUI")?.amountDue, 500, "太歲 view=500（不退步）");
+    assert.equal(byKey("LANTERN_FAMILY")?.amountDue, 3000, "全家 view=3000（不退步）");
+
+    // 報名頁總計＝各 view.amountDue 加總（同 RegisteredItemsPanel 的 reduce）。
+    const total = views.reduce((s, v) => s + v.amountDue, 0);
+    assert.equal(total, 4500, "本次報名總計=4500（含祭改 500）");
+
+    // DB：祭改 item.amountDue 必須仍為 0（不寫回、不雙重）。
+    const purItem = await prisma.ritualRegistrationItem.findFirst({ where: { registrationItemType: { key: "LANTERN_PURIFICATION" }, ritualRecord: { year } } });
+    assert.equal(Number(purItem?.amountDue ?? -1), 0, "祭改 item.amountDue DB 仍為 0");
+    // 收款單一來源：PurificationEntry 只一筆（無雙重應收）。
+    assert.equal(await prisma.purificationEntry.count({ where: { templeEvent: { year } } }), 1, "祭改只一筆 PurificationEntry");
+  } finally {
+    await cleanup(prisma, year, hhId);
+  }
+});
+
+dbTest("V15R5.1 祭改未設定單價：view amountDue=0（PurificationEntry feeStatus=UNSET）", async () => {
+  const { prisma, templeEvents, reg } = await load();
+  const year = 984;
+  const hhId = hhIdFor(year);
+  try {
+    await cleanup(prisma, year, hhId);
+    const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試"); // 不設任何單價
+    assert.equal(grp.ok, true);
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m = await prisma.member.create({ data: { householdId: hh.id, name: "甲", isPrimaryContact: true } });
+    const keys = await itemKeys(prisma);
+    await reg.registerItemsBatch([{ memberId: m.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year }], "測試");
+
+    const views = await reg.listRegisteredItems(await recordIdOf(prisma, hhId, year));
+    assert.equal(views.find((v) => v.itemKey === "LANTERN_PURIFICATION")?.amountDue, 0, "未設定→祭改 view=0");
+  } finally {
+    await cleanup(prisma, year, hhId);
+  }
+});
+
+dbTest("V15R5.1 多位成員祭改：每人 view 依 memberId 對應各自 PurificationEntry 金額；重複提交不疊加", async () => {
+  const { prisma, templeEvents, reg, pricing } = await load();
+  const year = 985;
+  const hhId = hhIdFor(year);
+  try {
+    await cleanup(prisma, year, hhId);
+    const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試");
+    assert.equal(grp.ok, true);
+    if (grp.ok) await pricing.updateAnnualLanternPrices(grp.data.landingId, { purificationUnitPrice: 500 });
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m1 = await prisma.member.create({ data: { householdId: hh.id, name: "甲", isPrimaryContact: true } });
+    const m2 = await prisma.member.create({ data: { householdId: hh.id, name: "乙" } });
+    const keys = await itemKeys(prisma);
+    await reg.registerItemsBatch(
+      [
+        { memberId: m1.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
+        { memberId: m2.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
+      ],
+      "測試"
+    );
+    const recordId = await recordIdOf(prisma, hhId, year);
+    let views = await reg.listRegisteredItems(recordId);
+    const pur = views.filter((v) => v.itemKey === "LANTERN_PURIFICATION");
+    assert.equal(pur.length, 2, "兩位成員各一筆祭改 view");
+    assert.equal(pur.every((v) => v.amountDue === 500), true, "每人 view 各自 500（依 memberId 對應）");
+
+    // 重複提交甲祭改：PurificationEntry 不增、view 不疊加。
+    await reg.registerItemsBatch([{ memberId: m1.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year }], "測試");
+    assert.equal(await prisma.purificationEntry.count({ where: { templeEvent: { year } } }), 2, "重複提交不增 PurificationEntry");
+    views = await reg.listRegisteredItems(recordId);
+    assert.equal(views.find((v) => v.itemKey === "LANTERN_PURIFICATION" && v.memberId === m1.id)?.amountDue, 500, "甲祭改仍 500（不疊加成 1000）");
+  } finally {
+    await cleanup(prisma, year, hhId);
+  }
+});
+
+dbTest("V15R5.1 沿用去年祭改：新年度只讀新年度 PurificationEntry 金額、不帶去年付款", async () => {
+  const { prisma, templeEvents, reg, pricing } = await load();
+  const y1 = 986;
+  const y2 = 987;
+  const hhId = hhIdFor(y1);
+  try {
+    await cleanup(prisma, y1, hhId);
+    await cleanup(prisma, y2, hhId);
+    const g1 = await templeEvents.createAnnualLanternGroup({ year: y1 }, "測試");
+    assert.equal(g1.ok, true);
+    if (g1.ok) await pricing.updateAnnualLanternPrices(g1.data.landingId, { purificationUnitPrice: 300 });
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m = await prisma.member.create({ data: { householdId: hh.id, name: "甲", isPrimaryContact: true } });
+    const keys = await itemKeys(prisma);
+    await reg.registerItemsBatch([{ memberId: m.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year: y1 }], "測試");
+    await prisma.purificationEntry.updateMany({ where: { templeEvent: { year: y1 } }, data: { amountPaid: 200 } }); // 去年已付款
+
+    const g2 = await templeEvents.createAnnualLanternGroup({ year: y2 }, "測試");
+    assert.equal(g2.ok, true);
+    if (g2.ok) await pricing.updateAnnualLanternPrices(g2.data.landingId, { purificationUnitPrice: 500 }); // 今年 500
+
+    const carry = await reg.getHouseholdAnnualLanternLastYear(hh.id, y2);
+    const entries = carry.perMember.flatMap((pm) => pm.itemKeys.map((k) => ({ memberId: pm.memberId, registrationItemTypeId: keys[k], year: y2 })));
+    await reg.registerItemsBatch(entries, "測試");
+
+    const views = await reg.listRegisteredItems(await recordIdOf(prisma, hhId, y2));
+    const pur = views.find((v) => v.itemKey === "LANTERN_PURIFICATION");
+    assert.equal(pur?.amountDue, 500, "沿用去年→今年祭改讀新年度 500（非去年 300）");
+    assert.equal(pur?.amountPaid, 0, "不帶去年付款（amountPaid=0）");
+  } finally {
+    await cleanup(prisma, y1, hhId);
+    await cleanup(prisma, y2, hhId);
+  }
+});
+
+// ── V15R5.1 報名者姓名：同 record 三位成員各報光明燈＝三筆不同成員（非重複）；view 帶正確 memberName ──
+dbTest("V15R5.1 報名者：三位成員各報光明燈 → 3 筆、memberId 相異、memberName 為三人、無重複 active item", async () => {
+  const { prisma, templeEvents, reg, pricing } = await load();
+  const year = 988;
+  const hhId = hhIdFor(year);
+  try {
+    await cleanup(prisma, year, hhId);
+    const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試");
+    assert.equal(grp.ok, true);
+    if (grp.ok) await pricing.updateAnnualLanternPrices(grp.data.landingId, { brightLightUnitPrice: 500 });
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m1 = await prisma.member.create({ data: { householdId: hh.id, name: "陳大", isPrimaryContact: true } });
+    const m2 = await prisma.member.create({ data: { householdId: hh.id, name: "陳二" } });
+    const m3 = await prisma.member.create({ data: { householdId: hh.id, name: "陳三" } });
+    const keys = await itemKeys(prisma);
+    await reg.registerItemsBatch(
+      [
+        { memberId: m1.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year },
+        { memberId: m2.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year },
+        { memberId: m3.id, registrationItemTypeId: keys["LANTERN_GUANGMING"], year },
+      ],
+      "測試"
+    );
+
+    const recordId = await recordIdOf(prisma, hhId, year);
+    const gm = (await reg.listRegisteredItems(recordId)).filter((v) => v.itemKey === "LANTERN_GUANGMING");
+    assert.equal(gm.length, 3, "三位成員 → 3 筆光明燈 view");
+    assert.equal(new Set(gm.map((v) => v.memberId)).size, 3, "三筆 memberId 相異（＝三位不同成員，非重複）");
+    assert.deepEqual(gm.map((v) => v.memberName).sort(), ["陳三", "陳二", "陳大"], "view 帶三位真實 memberName（依 memberId 對應）");
+    // 不存在同 (ritualRecordId, registrationItemTypeId, memberId) 的重複 active item。
+    for (const m of [m1, m2, m3]) {
+      const c = await prisma.ritualRegistrationItem.count({
+        where: { ritualRecordId: recordId, registrationItemType: { key: "LANTERN_GUANGMING" }, memberId: m.id, deletedAt: null, status: { not: "CANCELLED" } },
+      });
+      assert.equal(c, 1, `成員 ${m.name} 的光明燈只有 1 筆 active（無重複建立）`);
+    }
+  } finally {
+    await cleanup(prisma, year, hhId);
+  }
+});
+
+// ── V15R5.1 報名者姓名（祭改）：每筆 memberName 正確、view 讀各自 PurificationEntry、item.amountDue=0、重複不增 ──
+dbTest("V15R5.1 報名者：多位成員祭改 view 帶正確 memberName＋各自 500；item.amountDue=0；重複提交不增", async () => {
+  const { prisma, templeEvents, reg, pricing } = await load();
+  const year = 989;
+  const hhId = hhIdFor(year);
+  try {
+    await cleanup(prisma, year, hhId);
+    const grp = await templeEvents.createAnnualLanternGroup({ year }, "測試");
+    assert.equal(grp.ok, true);
+    if (grp.ok) await pricing.updateAnnualLanternPrices(grp.data.landingId, { purificationUnitPrice: 500 });
+    const hh = await prisma.household.create({ data: { id: hhId, name: "測試", address: "地址1號" } });
+    const m1 = await prisma.member.create({ data: { householdId: hh.id, name: "林一", isPrimaryContact: true } });
+    const m2 = await prisma.member.create({ data: { householdId: hh.id, name: "林二" } });
+    const keys = await itemKeys(prisma);
+    await reg.registerItemsBatch(
+      [
+        { memberId: m1.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
+        { memberId: m2.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year },
+      ],
+      "測試"
+    );
+    const recordId = await recordIdOf(prisma, hhId, year);
+    let pur = (await reg.listRegisteredItems(recordId)).filter((v) => v.itemKey === "LANTERN_PURIFICATION");
+    assert.equal(pur.length, 2, "兩位成員各一筆祭改 view");
+    assert.deepEqual(pur.map((v) => v.memberName).sort(), ["林一", "林二"], "每筆 memberName 正確（依 memberId）");
+    assert.equal(pur.every((v) => v.amountDue === 500), true, "每筆 view 讀各自 PurificationEntry=500");
+    // 對應 RitualRegistrationItem.amountDue 仍為 0（DB 未寫回）。
+    const dbItems = await prisma.ritualRegistrationItem.findMany({ where: { registrationItemType: { key: "LANTERN_PURIFICATION" }, ritualRecord: { year } } });
+    assert.equal(dbItems.every((i) => Number(i.amountDue) === 0), true, "祭改 item.amountDue DB 一律 0");
+
+    // 重複提交：item 與 PurificationEntry 皆不增。
+    await reg.registerItemsBatch([{ memberId: m1.id, registrationItemTypeId: keys["LANTERN_PURIFICATION"], year }], "測試");
+    assert.equal(await prisma.ritualRegistrationItem.count({ where: { registrationItemType: { key: "LANTERN_PURIFICATION" }, ritualRecord: { year } } }), 2, "重複提交不增祭改 item");
+    assert.equal(await prisma.purificationEntry.count({ where: { templeEvent: { year } } }), 2, "重複提交不增 PurificationEntry");
+    pur = (await reg.listRegisteredItems(recordId)).filter((v) => v.itemKey === "LANTERN_PURIFICATION");
+    assert.equal(pur.find((v) => v.memberId === m1.id)?.amountDue, 500, "林一祭改仍 500（不疊加）");
+  } finally {
+    await cleanup(prisma, year, hhId);
+  }
+});

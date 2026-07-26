@@ -1276,7 +1276,9 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
   // 索引、整理重複草稿）。資料一致化改在各自「寫入 transaction」內完成（見
   // syncSponsorItemInTx／registerItemsBatch 冪等）；重複草稿整理改由寫入路徑或
   // 管理端 cleanupDuplicateDraftItems 主動執行，避免 GET／READONLY 瀏覽產生資料異動。
-  const [rows, salvationDetail, lantern] = await Promise.all([
+  // 併行讀取；祭改應收（PurificationEntry）另置一組，維持每組 ≤3 個平行查詢（不巨型扇出）。
+  const [[rows, salvationDetail, lantern], purificationEntries] = await Promise.all([
+    Promise.all([
     prisma.ritualRegistrationItem.findMany({
       where: { ritualRecordId, deletedAt: null },
       include: {
@@ -1307,7 +1309,21 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       where: { ritualRecordId },
       select: { amountDue: true, amountPaid: true, amountUnpaid: true },
     }),
+    ]),
+    // V15R5.1：祭改（PURIFICATION）的真正收費來源＝PurificationEntry（feeStatus=CHARGEABLE＋amountDue）；
+    // 其 RitualRegistrationItem.amountDue 恆為 0。此處**唯讀**取回本 record 的祭改應收，供顯示／總計
+    // 讀真正金額——不寫回 item、不動收款/財務 adapter、不造成雙重應收。
+    prisma.purificationEntry.findMany({
+      where: { ritualRecordId, deletedAt: null, status: "ACTIVE" },
+      select: { memberId: true, amountDue: true, amountPaid: true, amountUnpaid: true, feeStatus: true },
+    }),
   ]);
+
+  // 以 memberId 對應祭改應收（一位成員一筆；item 與 entry 建立時 memberId 相同）。
+  const purificationByMember = new Map<string, (typeof purificationEntries)[number]>();
+  for (const pe of purificationEntries) {
+    if (pe.memberId && !purificationByMember.has(pe.memberId)) purificationByMember.set(pe.memberId, pe);
+  }
 
   const views: RegisteredItemView[] = rows.map((r) => {
     const kind = r.registrationItemType.contentKind;
@@ -1321,6 +1337,19 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       amountDue = Number(lantern.amountDue);
       amountPaid = Number(lantern.amountPaid);
       amountUnpaid = Number(lantern.amountUnpaid);
+    } else if (kind === "PURIFICATION") {
+      // V15R5.1：祭改讀真正收費來源 PurificationEntry（item.amountDue 恆 0）。
+      // 有效收費狀態（feeStatus !== "UNSET"）才覆寫金額；查不到或未設定單價 → 0。
+      const pe = r.memberId ? purificationByMember.get(r.memberId) : undefined;
+      if (pe && pe.feeStatus !== "UNSET") {
+        amountDue = pe.amountDue != null ? Number(pe.amountDue) : 0;
+        amountPaid = Number(pe.amountPaid);
+        amountUnpaid = Number(pe.amountUnpaid);
+      } else {
+        amountDue = 0;
+        amountPaid = 0;
+        amountUnpaid = 0;
+      }
     }
 
     const key = r.registrationItemType.key;

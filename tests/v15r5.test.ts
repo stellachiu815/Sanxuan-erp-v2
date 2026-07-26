@@ -178,6 +178,29 @@ test("V15R5.1：報名計價——光明/太歲/全家燈改讀年度單價，�
   assert.equal(/光明\/太歲燈用項目 defaultUnitPrice/.test(reg), false, "移除『光明/太歲用 defaultUnitPrice』舊註解與邏輯");
 });
 
+test("V15R5.1 UI：已報名項目每列顯示報名者（it.memberName，非僅 RICE）、欄序正確、手機有姓名", () => {
+  const panel = read("src/components/registration/RegisteredItemsPanel.tsx");
+  // 桌機表頭含「報名者」欄，且欄序＝報名者→類別｜名稱→數量→應收→未收→狀態。
+  assert.equal(panel.includes("報名者"), true, "有報名者欄");
+  assert.equal(
+    /報名者[\s\S]*類別｜名稱[\s\S]*數量[\s\S]*應收[\s\S]*未收[\s\S]*狀態/.test(panel),
+    true,
+    "欄位順序：報名者｜類別/名稱｜數量｜應收｜未收｜狀態"
+  );
+  // 姓名一律用 memberName（不再只對 RICE 顯示「認購人」）。
+  assert.equal(panel.includes("it.memberName"), true, "使用 it.memberName");
+  // 白米不再以「認購人：姓名」重複顯示（姓名改由報名者欄呈現）；只檢查渲染字樣，不含註解。
+  assert.equal(/認購人：/.test(panel), false, "白米不再重複渲染『認購人：』（改由報名者欄呈現）");
+  // 手機版卡片：直接顯示「報名者：姓名」＋數量/應收/未收/狀態/取消。
+  assert.equal(panel.includes("sm:hidden"), true, "手機卡片版存在");
+  assert.equal(panel.includes("報名者："), true, "手機直接顯示報名者姓名");
+  assert.equal(panel.includes("hidden w-full") && panel.includes("sm:table"), true, "桌機表格 sm:table、手機隱藏");
+  // 不退步：仍顯示 displayLabel、陽上、牌位地址、單價，取消仍以 item.id。
+  for (const s of ["displayLabel", "陽上：", "牌位地址：", "單價", "cancelItem(it.id)"]) {
+    assert.equal(panel.includes(s), true, `保留 ${s}`);
+  }
+});
+
 test("V15R5.1：年度單價 API 與 UI 皆含四項", () => {
   const api = read("src/app/api/temple-events/[id]/annual-lantern-prices/route.ts");
   for (const f of ["brightLightUnitPrice", "taisuiLightUnitPrice", "familyLanternUnitPrice", "purificationUnitPrice"]) {

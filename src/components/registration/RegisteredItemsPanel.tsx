@@ -90,6 +90,43 @@ export default function RegisteredItemsPanel({
     }
   }
 
+  // V15R5.1：報名者姓名一律取 item.memberId 對應的 Member.name（listRegisteredItems 已回 memberName），
+  // 不依陣列順序猜測；memberName 為空才退回 subjectName（贊普本人／牌位當事人），再退「—」。
+  const registrant = (it: Item) => (it.memberName?.trim() || it.subjectName?.trim() || "—");
+  const statusLabel = (s: string) =>
+    s === "CONFIRMED" ? "已確認" : s === "CANCELLED" ? "已取消" : "草稿";
+  const qtyUnit = (it: Item) => (it.contentKind === "RICE" ? " 斤" : it.contentKind === "SPONSOR" ? " 份" : "");
+  // 名稱下方補充列（單價／陽上／地址）；白米「認購人」已由報名者欄顯示，此處不再重複，只留單價。
+  const subDetails = (it: Item) => (
+    <>
+      {it.contentKind === "RICE" && it.unitPrice !== null && (
+        <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／斤</div>
+      )}
+      {it.contentKind === "SPONSOR" && it.unitPrice !== null && (
+        <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／份</div>
+      )}
+      {it.yangshangNames.length > 0 && (
+        <div className="text-xs text-ink-faint">陽上：{it.yangshangNames.join("、")}</div>
+      )}
+      {it.tabletAddress && <div className="text-xs text-ink-faint">牌位地址：{it.tabletAddress}</div>}
+    </>
+  );
+  const cancelCell = (it: Item) =>
+    it.readOnlyLegacy ? (
+      <span className="text-xs text-ink-faint">舊資料（下次儲存自動轉正式項目）</span>
+    ) : (
+      it.status !== "CANCELLED" && (
+        <button
+          type="button"
+          onClick={() => void cancelItem(it.id)}
+          disabled={busyId === it.id}
+          className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-blossom-100 hover:text-ink disabled:opacity-50"
+        >
+          {busyId === it.id ? "處理中…" : "取消項目"}
+        </button>
+      )
+    );
+
   return (
     <section className="rounded-3xl bg-white/70 p-6 shadow-card">
       <h2 className="text-sm text-ink">已報名項目</h2>
@@ -102,11 +139,14 @@ export default function RegisteredItemsPanel({
         </p>
       ) : (
         /* V15R2：項目多時，清單改成固定最大高度、區塊內垂直捲動（表頭 sticky），
-           避免整頁被撐長導致後面項目與「取消項目」按鈕看不到。手機、平板、桌機皆可捲。 */
+           避免整頁被撐長導致後面項目與「取消項目」按鈕看不到。手機、平板、桌機皆可捲。
+           V15R5.1：桌機用表格（含「報名者」欄）；窄螢幕改用卡片，姓名等資訊直接可見、不橫向難讀。 */
         <div className="mt-3 max-h-[380px] overflow-y-auto overflow-x-hidden rounded-2xl border border-cream-200">
-        <table className="w-full text-left text-sm">
+        {/* ── 桌機／平板：表格（報名者｜類別／名稱｜數量｜應收｜未收｜狀態｜操作）── */}
+        <table className="hidden w-full text-left text-sm sm:table">
           <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur">
             <tr className="text-xs text-ink-faint">
+              <th className="px-2 py-1.5">報名者</th>
               <th className="px-2 py-1.5">類別｜名稱</th>
               <th className="px-2 py-1.5">數量</th>
               <th className="px-2 py-1.5">應收</th>
@@ -118,57 +158,43 @@ export default function RegisteredItemsPanel({
           <tbody>
             {items.map((it) => (
               <tr key={it.id} className="border-t border-cream-200 align-top">
+                <td className="whitespace-nowrap px-2 py-1.5 text-ink">{registrant(it)}</td>
                 <td className="px-2 py-1.5">
                   <div className="text-ink">{it.displayLabel}</div>
-                  {/* 白米：認購人姓名＋單價（斤數在數量欄、金額在應收欄）。 */}
-                  {it.contentKind === "RICE" && (
-                    <div className="text-xs text-ink-faint">認購人：{it.memberName ?? "本人"}</div>
-                  )}
-                  {it.contentKind === "RICE" && it.unitPrice !== null && (
-                    <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／斤</div>
-                  )}
-                  {/* 贊普／隨喜贊普：單價（份）。 */}
-                  {it.contentKind === "SPONSOR" && it.unitPrice !== null && (
-                    <div className="text-xs text-ink-faint">單價 {it.unitPrice} 元／份</div>
-                  )}
-                  {it.yangshangNames.length > 0 && (
-                    <div className="text-xs text-ink-faint">陽上：{it.yangshangNames.join("、")}</div>
-                  )}
-                  {it.tabletAddress && (
-                    <div className="text-xs text-ink-faint">牌位地址：{it.tabletAddress}</div>
-                  )}
+                  {subDetails(it)}
                 </td>
-                <td className="px-2 py-1.5 text-ink-soft">
+                <td className="whitespace-nowrap px-2 py-1.5 text-ink-soft">
                   {it.quantity}
-                  {it.contentKind === "RICE" ? " 斤" : it.contentKind === "SPONSOR" ? " 份" : ""}
+                  {qtyUnit(it)}
                 </td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountDue.toLocaleString("zh-Hant")}</td>
                 <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid.toLocaleString("zh-Hant")}</td>
-                <td className="px-2 py-1.5 text-ink-faint">
-                  {it.status === "CONFIRMED" ? "已確認" : it.status === "CANCELLED" ? "已取消" : "草稿"}
-                </td>
-                {!readOnly && (
-                  <td className="px-2 py-1.5">
-                    {it.readOnlyLegacy ? (
-                      <span className="text-xs text-ink-faint">舊資料（下次儲存自動轉正式項目）</span>
-                    ) : (
-                      it.status !== "CANCELLED" && (
-                        <button
-                          type="button"
-                          onClick={() => void cancelItem(it.id)}
-                          disabled={busyId === it.id}
-                          className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-blossom-100 hover:text-ink disabled:opacity-50"
-                        >
-                          {busyId === it.id ? "處理中…" : "取消項目"}
-                        </button>
-                      )
-                    )}
-                  </td>
-                )}
+                <td className="px-2 py-1.5 text-ink-faint">{statusLabel(it.status)}</td>
+                {!readOnly && <td className="px-2 py-1.5">{cancelCell(it)}</td>}
               </tr>
             ))}
           </tbody>
         </table>
+
+        {/* ── 手機：卡片（報名者、類別/名稱、數量、應收、未收、狀態、取消皆直接可見）── */}
+        <ul className="divide-y divide-cream-200 sm:hidden">
+          {items.map((it) => (
+            <li key={it.id} className="px-3 py-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-ink">報名者：{registrant(it)}</span>
+                <span className="whitespace-nowrap text-xs text-ink-faint">{statusLabel(it.status)}</span>
+              </div>
+              <div className="mt-0.5 text-sm text-ink-soft">{it.displayLabel}</div>
+              {subDetails(it)}
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-soft">
+                <span>數量：{it.quantity}{qtyUnit(it)}</span>
+                <span>應收：{it.amountDue.toLocaleString("zh-Hant")}</span>
+                <span className="text-blossom-500">未收：{it.amountUnpaid.toLocaleString("zh-Hant")}</span>
+              </div>
+              {!readOnly && <div className="mt-1.5">{cancelCell(it)}</div>}
+            </li>
+          ))}
+        </ul>
         </div>
       )}
 
