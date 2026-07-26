@@ -63,6 +63,9 @@ function RegistrationEditorInner({ overview }: Props) {
   const [status, setStatus] = useState(overview.status);
   const [canConfirm, setCanConfirm] = useState<boolean | null>(null);
   const [confirmReasons, setConfirmReasons] = useState<string[]>([]);
+  // V15R5.4：完整度缺項（gender／address 等）——API 早已回傳，前端過去漏讀，
+  // 造成「按鈕不能按卻沒有原因」。這裡補上顯示，不動任何資料計算。
+  const [confirmMissingFields, setConfirmMissingFields] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -76,6 +79,7 @@ function RegistrationEditorInner({ overview }: Props) {
       if (!res.ok) return;
       setCanConfirm(data.canConfirm);
       setConfirmReasons(data.reasons ?? []);
+      setConfirmMissingFields(data.missingFields ?? []);
     } catch {
       /* 預檢失敗不阻擋編輯 */
     }
@@ -254,16 +258,20 @@ function RegistrationEditorInner({ overview }: Props) {
           {/* ── 確認報名 ── */}
           {!isCancelled && (
             <section className="rounded-3xl bg-white/70 p-6 shadow-card">
-              {canConfirm === false && confirmReasons.length > 0 && (
-                <div className="mb-3 rounded-2xl bg-yolk-100 px-4 py-3 text-xs leading-relaxed text-ink">
-                  <p className="mb-1 font-medium">還不能確認報名：</p>
-                  <ul className="list-disc pl-4">
-                    {confirmReasons.map((r, i) => (
-                      <li key={i}>{r}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              {canConfirm === false &&
+                (confirmReasons.length > 0 || confirmMissingFields.length > 0) && (
+                  <div className="mb-3 rounded-2xl bg-yolk-100 px-4 py-3 text-xs leading-relaxed text-ink">
+                    <p className="mb-1 font-medium">還不能確認報名，請先補齊以下項目：</p>
+                    <ul className="list-disc pl-4">
+                      {confirmReasons.map((r, i) => (
+                        <li key={`r-${i}`}>{r}</li>
+                      ))}
+                      {confirmMissingFields.map((f, i) => (
+                        <li key={`m-${i}`}>{f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
               <div className="flex flex-wrap gap-3">
                 {!isConfirmed && (
