@@ -14,6 +14,7 @@ import {
 import { useStoredOperatorUserId } from "@/lib/operatorClient";
 import { useComposedSearch } from "@/lib/useComposedSearch";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
+import AnnualLanternPriceSettings from "@/components/activities/AnnualLanternPriceSettings";
 
 type SearchResult = { memberId: string | null; name: string; householdId: string };
 
@@ -121,7 +122,13 @@ export default function ActivityHomeScreen({ templeEventId, initialHome, initial
       </div>
 
       {tab === "OVERVIEW" && (
-        <ChecklistPanel templeEventId={templeEventId} checklist={home.checklist} onChanged={refreshHome} />
+        <div className="flex flex-col gap-4">
+          {/* V15R5：年度燈活動才顯示祭改／全家燈年度單價設定。 */}
+          {home.activityType === "ANNUAL_LANTERN" && (
+            <AnnualLanternPriceSettings templeEventId={templeEventId} />
+          )}
+          <ChecklistPanel templeEventId={templeEventId} checklist={home.checklist} onChanged={refreshHome} />
+        </div>
       )}
       {tab === "PARTICIPANTS" && (
         <ParticipantsPanel

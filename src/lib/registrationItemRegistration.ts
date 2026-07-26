@@ -16,6 +16,25 @@ import {
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { createPurificationEntryForRecordInTx } from "@/lib/purification";
+import { displayDebtCreditorName } from "@/lib/debtCreditorName";
+import { getAnnualLanternPrices } from "@/lib/annualLanternPricing";
+import {
+  listHouseholdAncestorOptions,
+  listHouseholdIndividualSoulOptions,
+  listHouseholdYangshangCandidates,
+  type WorshipOption,
+} from "@/lib/householdRegistrationOptions";
+
+/**
+ * V15R5 正式規格：普渡「命名牌位」三類——建立報名當下即建立 linked Draft（帶入既有資料），
+ * 不建獨立 placeholder、不顯示「牌位資料待確認」。冤親（US_YUANQIN）以成員為主另走既有流程。
+ */
+const AUTO_DRAFT_TABLET_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_WUYUAN"]);
+const AUTO_DRAFT_ITEM_KEY_TO_CATEGORY: Record<string, "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "UNBORN_CHILD"> = {
+  US_ANCESTOR: "ANCESTOR_LINE",
+  US_ZHENGHUN: "INDIVIDUAL_SOUL",
+  US_WUYUAN: "UNBORN_CHILD",
+};
 
 /**
  * V14：把報名項目回寫到既有明細表，並回填 linkedEntryId／linkedEntryType。
@@ -45,6 +64,13 @@ async function linkItemToExistingDetail(
   }
 ): Promise<void> {
   if (params.contentKind === "LANTERN") {
+    // V15R5：年度燈統一後，光明/太歲/全家燈同掛一筆 ANNUAL_LANTERN RitualRecord，
+    // 無法共用單一 LanternRegistration（@@unique ritualRecordId，會互相覆蓋金額）。
+    // 因此改為**項目自身計價**（RitualRegistrationItem.amountDue），由既有的
+    // registrationItem 收款 adapter 進收款中心（與贊普／龍鳳燈同一套 self-costed 機制）。
+    // 不歸零、不路由 LanternRegistration → 每筆項目各自一份應收，無雙重應收。
+    // 舊的 per-type 年度燈事件（GUANGMING/TAISUI/FAMILY_LANTERN）維持既有 LanternRegistration 金流。
+    if (params.activityType === "ANNUAL_LANTERN") return;
     const res = await upsertLanternRegistrationInTransaction(tx, {
       ritualRecordId: params.ritualRecordId,
       activityType: params.activityType,
@@ -332,6 +358,102 @@ function participantIdsFor(entry: BatchItemEntry): string[] {
   return [...new Set([entry.memberId, ...(entry.participantMemberIds ?? [])].filter((id) => !!id))];
 }
 
+/**
+ * V15R5 沿用去年：讀取某家戶「上一個有年度燈報名的年度」的**報名內容**（不含付款）。
+ * 只回傳可沿用的內容（每位成員勾了哪些燈、是否有全家燈），供 picker 預先勾選；
+ * 送出時走同一支 registerItemsBatch（以**新年度**重新計算單價、DRAFT、不帶 amountPaid／
+ * 收據／列印狀態／CONFIRMED），不建立第二套報名系統。
+ */
+export type AnnualLanternCarryOver = {
+  fromYear: number | null;
+  perMember: { memberId: string; itemKeys: string[] }[];
+  hadFamily: boolean;
+};
+
+/**
+ * V15R5 通用「沿用去年」：把某家戶上一個年度的**某活動類型**報名內容 carry-over 到新年度。
+ *
+ * 走同一套既有機制（registerItemsBatch＋普渡 createUniversalSalvationEntry），不建第二套：
+ *  - item-based（年度燈/宮慶/補庫…）：讀去年 RitualRegistrationItem（項目型別/數量/成員/自訂名），
+ *    以**新年度**送 registerItemsBatch → 依新年度單價重算、DRAFT、不帶付款/收據/列印。
+ *  - 普渡：另呼叫 carryOverUniversalSalvationEntries（每筆牌位含自己的 tabletAddress）。
+ * 一律不複製 amountPaid／收據／交易／printedAt／printCount／CONFIRMED／已完成狀態。
+ */
+export async function carryOverHouseholdRegistration(
+  householdId: string,
+  activityType: ActivityType,
+  toYear: number,
+  operatorName?: string | null
+): Promise<{ ok: true; fromYear: number | null; itemsCreated: number } | { ok: false; status: number; error: string }> {
+  const prev = await prisma.ritualRecord.findFirst({
+    where: { householdId, activityType, year: { lt: toYear }, deletedAt: null },
+    orderBy: { year: "desc" },
+    select: { year: true },
+  });
+  if (!prev) return { ok: true, fromYear: null, itemsCreated: 0 };
+
+  const items = await prisma.ritualRegistrationItem.findMany({
+    where: {
+      ritualRecord: { householdId, activityType, year: prev.year, deletedAt: null },
+      deletedAt: null,
+      status: { not: "CANCELLED" },
+      memberId: { not: null },
+    },
+    select: { memberId: true, quantity: true, customName: true, registrationItemTypeId: true },
+  });
+  const entries: BatchItemEntry[] = items.map((it) => ({
+    memberId: it.memberId as string,
+    registrationItemTypeId: it.registrationItemTypeId,
+    year: toYear,
+    quantity: it.quantity,
+    customName: it.customName,
+  }));
+  if (entries.length > 0) {
+    const res = await registerItemsBatch(entries, operatorName);
+    if (!res.ok) return res;
+  }
+  return { ok: true, fromYear: prev.year, itemsCreated: entries.length };
+}
+
+export async function getHouseholdAnnualLanternLastYear(
+  householdId: string,
+  targetYear: number
+): Promise<AnnualLanternCarryOver> {
+  const rec = await prisma.ritualRecord.findFirst({
+    where: { householdId, activityType: "ANNUAL_LANTERN", year: { lt: targetYear }, deletedAt: null },
+    orderBy: { year: "desc" },
+    select: { id: true, year: true },
+  });
+  if (!rec) return { fromYear: null, perMember: [], hadFamily: false };
+  const items = await prisma.ritualRegistrationItem.findMany({
+    where: {
+      ritualRecordId: rec.id,
+      deletedAt: null,
+      status: { not: "CANCELLED" },
+      registrationItemType: { key: { in: ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_PURIFICATION", "LANTERN_FAMILY"] } },
+    },
+    select: { memberId: true, registrationItemType: { select: { key: true } } },
+  });
+  const byMember = new Map<string, Set<string>>();
+  let hadFamily = false;
+  for (const it of items) {
+    const key = it.registrationItemType.key;
+    if (key === "LANTERN_FAMILY") {
+      hadFamily = true;
+      continue;
+    }
+    if (!it.memberId) continue;
+    const set = byMember.get(it.memberId) ?? new Set<string>();
+    set.add(key);
+    byMember.set(it.memberId, set);
+  }
+  return {
+    fromYear: rec.year,
+    perMember: [...byMember.entries()].map(([memberId, keys]) => ({ memberId, itemKeys: [...keys] })),
+    hadFamily,
+  };
+}
+
 export type BatchItemOutcome = {
   memberId: string;
   registrationItemTypeId: string;
@@ -374,6 +496,47 @@ export async function registerItemsBatch(
     ) {
       tabletPriceByYear.set(entry.year, await getUniversalSalvationTabletPrices(entry.year));
     }
+  }
+
+  // V15R5：年度燈「祭改／全家燈」的年度單價與祭改所屬 ANNUAL_LANTERN 事件——**交易外**一次撈齊
+  // （避免在互動式交易內逐項查詢造成 5000ms timeout → rollback → 資料未建立）。
+  const annualPriceByYear = new Map<number, { purificationUnitPrice: number | null; familyLanternUnitPrice: number | null }>();
+  const annualEventIdByYear = new Map<number, string | null>();
+  for (const entry of entries) {
+    const itemType = itemTypeMap.get(entry.registrationItemTypeId);
+    if (!itemType) continue;
+    const needsAnnual = itemType.key === "LANTERN_FAMILY" || itemType.contentKind === "PURIFICATION";
+    if (needsAnnual && !annualPriceByYear.has(entry.year)) {
+      annualPriceByYear.set(entry.year, await getAnnualLanternPrices(entry.year));
+      const ev = await prisma.templeEvent.findUnique({
+        where: { activityType_year: { activityType: "ANNUAL_LANTERN", year: entry.year } },
+        select: { id: true },
+      });
+      annualEventIdByYear.set(entry.year, ev?.id ?? null);
+    }
+  }
+
+  // V15R5 正式規格：命名牌位（歷代祖先／乙位正魂／無緣子女）在「建立報名」當下就要建立
+  // **完整或部分完整的 linked Draft**——直接帶入本戶既有牌位姓名、地址與陽上人，
+  // 讓使用者進畫面即看到既有內容可修改，**不留 0 元 placeholder、不顯示「牌位資料待確認」**。
+  // 本戶既有選項於交易外一次預取（穩定排序：worship_records 優先、同名合併、createdAt 由舊到新），
+  // 交易內只做建立，降低互動式交易查詢數。
+  const tabletDraftByHousehold = new Map<
+    string,
+    { ancestors: WorshipOption[]; individualSouls: WorshipOption[]; yangshang: string[]; address: string | null }
+  >();
+  for (const entry of entries) {
+    const itemType = itemTypeMap.get(entry.registrationItemTypeId);
+    if (!itemType || !AUTO_DRAFT_TABLET_KEYS.has(itemType.key)) continue;
+    const hhId = memberMap.get(entry.memberId)?.householdId;
+    if (!hhId || tabletDraftByHousehold.has(hhId)) continue;
+    const [ancestors, individualSouls, yangshang, hh] = await Promise.all([
+      listHouseholdAncestorOptions(hhId),
+      listHouseholdIndividualSoulOptions(hhId),
+      listHouseholdYangshangCandidates(hhId),
+      prisma.household.findUnique({ where: { id: hhId }, select: { address: true } }),
+    ]);
+    tabletDraftByHousehold.set(hhId, { ancestors, individualSouls, yangshang, address: hh?.address ?? null });
   }
 
   // 先驗證與預算金額（交易外，快速失敗）。
@@ -434,6 +597,85 @@ export async function registerItemsBatch(
           recordCache.set(recKey, recordId);
         }
         recordIds.add(recordId);
+
+        // ── V15R5 正式規格：命名牌位（祖先／乙位正魂／無緣）建立報名即建立 linked Draft ──
+        // 直接建立 1 筆 UniversalSalvationEntry（帶入本戶既有牌位姓名／地址／陽上人）＋
+        // 由 createUniversalSalvationEntry 內的 ensureLinkedTabletItem 連動 1 筆 linked
+        // RitualRegistrationItem（年度單價＝唯一價格來源 getUniversalSalvationTabletPrices，
+        // 不重複計算）。兩者 1:1，無獨立 placeholder、不顯示「牌位資料待確認」。
+        // 冪等：本 record 已有同類 entry（重送／重新進入編輯器）→ 不重建、不增筆。
+        if (AUTO_DRAFT_TABLET_KEYS.has(p.itemType.key)) {
+          const category = AUTO_DRAFT_ITEM_KEY_TO_CATEGORY[p.itemType.key];
+          const existingEntry = await tx.universalSalvationEntry.findFirst({
+            where: { category, deletedAt: null, universalSalvation: { ritualRecordId: recordId } },
+            select: { registrationItem: { select: { id: true } } },
+          });
+          if (existingEntry) {
+            outcomes.push({
+              memberId: p.entry.memberId,
+              registrationItemTypeId: p.itemType.id,
+              outcome: "ALREADY_EXISTS",
+              registrationItemId: existingEntry.registrationItem?.id ?? null,
+              ritualRecordId: recordId,
+              amountDue: 0,
+            });
+            continue;
+          }
+          // 確保普渡明細存在（與冤親流程一致；createUniversalSalvationEntry 需要它）。
+          await tx.universalSalvationDetail.upsert({
+            where: { ritualRecordId: recordId },
+            create: { ritualRecordId: recordId, isRegistered: true },
+            update: {},
+          });
+          const prep = tabletDraftByHousehold.get(p.householdId);
+          const primary =
+            category === "ANCESTOR_LINE"
+              ? prep?.ancestors[0]
+              : category === "INDIVIDUAL_SOUL"
+                ? prep?.individualSouls[0]
+                : undefined;
+          // 陽上人：既有牌位有就沿用，否則預設帶入家戶成員/固定陽上人。地址：既有牌位地址→家戶地址。
+          const yangshangNames =
+            primary?.yangshangNames && primary.yangshangNames.length > 0 ? primary.yangshangNames : prep?.yangshang ?? [];
+          const tabletAddress = primary?.tabletAddress ?? prep?.address ?? null;
+          // 迴避 ritual.ts ↔ registrationItemRegistration.ts 靜態循環：以動態載入取用建立函式，
+          // 沿用**同一套** createUniversalSalvationEntry（不建第二套建立邏輯）；傳入本交易 tx。
+          const { createUniversalSalvationEntry } = await import("@/lib/ritual");
+          const res = await createUniversalSalvationEntry(
+            p.householdId,
+            p.entry.year,
+            {
+              category,
+              displayName: primary?.displayName ?? "",
+              yangshangNames,
+              tabletAddress,
+              linkedItemMemberId: p.entry.memberId,
+            },
+            operatorName,
+            tx
+          );
+          if (!res.ok) return { ok: false as const, status: res.status, error: res.error };
+          await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
+          const createdItem = await tx.ritualRegistrationItem.findFirst({
+            where: {
+              ritualRecordId: recordId,
+              registrationItemTypeId: p.itemType.id,
+              deletedAt: null,
+              universalSalvationEntry: { category },
+            },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, amountDue: true },
+          });
+          outcomes.push({
+            memberId: p.entry.memberId,
+            registrationItemTypeId: p.itemType.id,
+            outcome: "CREATED",
+            registrationItemId: createdItem?.id ?? null,
+            ritualRecordId: recordId,
+            amountDue: createdItem ? Number(createdItem.amountDue) : 0,
+          });
+          continue;
+        }
 
         // V14.2 冪等：同一 (RitualRecord, RegistrationItemType, 成員) 未取消未刪除的
         // 項目**一律不重複建立**（不再只擋 allowMultiplePerMember=false 的項目）——
@@ -535,7 +777,16 @@ export async function registerItemsBatch(
           createQty = 1;
           createLocked = p.amountDue;
           createAmount = p.amountDue;
+        } else if (p.itemType.key === "LANTERN_FAMILY") {
+          // V15R5 全家燈：整戶一筆固定價（年度 familyLanternUnitPrice，交易外已預取）。項目自身計價，
+          // 未設定單價 → 0（不擋報名、可存草稿）。光明/太歲燈用項目 defaultUnitPrice×數量（既有）。
+          const unit = annualPriceByYear.get(p.entry.year)?.familyLanternUnitPrice ?? null;
+          createQty = 1;
+          createLocked = unit;
+          createAmount = unit != null && unit > 0 ? Math.round(unit * 100) / 100 : 0;
         }
+        // 註：歷代祖先／乙位正魂／無緣子女不會走到這裡——它們在迴圈上方
+        // 「建立報名即建立 linked Draft」分支已建立並連結完成（不留獨立 placeholder）。
 
         const created = await tx.ritualRegistrationItem.create({
           data: {
@@ -613,16 +864,20 @@ export async function registerItemsBatch(
         // 底下，使祭改立即進入祭改年度清單與小人頭貼紙列印中心（沿用既有編號規則與列印架構，不建第二套）。
         // 祭改事件＝這筆報名所屬的年度燈 TempleEvent（與光明燈／太歲燈同一個事件）。
         if (p.itemType.contentKind === "PURIFICATION") {
-          const annualEvent = await tx.templeEvent.findUnique({
-            where: { activityType_year: { activityType: "ANNUAL_LANTERN", year: p.entry.year } },
-            select: { id: true },
-          });
-          if (!annualEvent) {
+          // 年度燈事件 id 與祭改單價已於**交易外**預取（annualEventIdByYear／annualPriceByYear），
+          // 交易內不再查詢，降低互動式交易的查詢數與 timeout 風險。
+          const annualEventId = annualEventIdByYear.get(p.entry.year) ?? null;
+          if (!annualEventId) {
             return { ok: false as const, status: 409, error: "尚未建立本年度「年度燈」活動，無法建立祭改報名" };
           }
           const pur = await createPurificationEntryForRecordInTx(
             tx,
-            { purificationTempleEventId: annualEvent.id, ritualRecordId: recordId, memberId: p.entry.memberId },
+            {
+              purificationTempleEventId: annualEventId,
+              ritualRecordId: recordId,
+              memberId: p.entry.memberId,
+              purificationUnitPrice: annualPriceByYear.get(p.entry.year)?.purificationUnitPrice ?? null,
+            },
             operatorName
           );
           if (!pur.ok) return { ok: false as const, status: pur.status, error: pur.error };
@@ -634,12 +889,17 @@ export async function registerItemsBatch(
           outcome: "CREATED",
           registrationItemId: created.id,
           ritualRecordId: recordId,
-          amountDue: p.amountDue,
+          // 實際寫入 DB 的金額（命名牌位佔位為 0，連結後才帶入年度單價）。
+          amountDue: createAmount,
         });
       }
 
       return { ok: true as const, outcomes, ritualRecordIds: Array.from(recordIds) };
-    });
+    },
+    // V15R5：整批報名（多人多項目＋祭改 PurificationEntry）在單一互動式交易內完成；
+    // 預設 5000ms 對多筆祭改/全戶報名可能不足而 rollback（資料未建立）。已把年度單價與
+    // 祭改事件預取到交易外、降低查詢數；此處再給合理上限（20s），不是無限拉長。
+    { timeout: 20000, maxWait: 15000 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "整批報名時發生未預期錯誤";
     return { ok: false, status: 500, error: msg };
@@ -743,6 +1003,37 @@ export async function ensureLinkedTabletItem(
   const prices = await getUniversalSalvationTabletPrices(params.year, tx);
   const unit = tabletUnitPriceFor(itemKey, prices);
   const amountDue = unit !== null ? Math.round(unit * 100) / 100 : 0;
+
+  // V15R5 重複計價修正：實際牌位（entry）與計價項目一律 **1:1**。建立 entry 時，
+  // **優先連結一筆既有、尚未連結任何 entry 的同類佔位項目**（來源＝報名對話框的 0 元佔位），
+  // 只補上連結、成員與年度單價，**不新增第二筆**——避免同一牌位同時出現「實際牌位名稱」
+  // 與「牌位資料待確認」兩筆收費資料。找不到可重用佔位時才新建。
+  const placeholder = await tx.ritualRegistrationItem.findFirst({
+    where: {
+      ritualRecordId: params.ritualRecordId,
+      registrationItemTypeId: itemType.id,
+      universalSalvationEntryId: null,
+      deletedAt: null,
+      status: { not: "CANCELLED" },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, amountPaid: true },
+  });
+  if (placeholder) {
+    // 已收款的佔位不覆蓋金額（保護收款快照），只補連結；未收款才帶入年度單價。
+    const paid = Number(placeholder.amountPaid);
+    await tx.ritualRegistrationItem.update({
+      where: { id: placeholder.id },
+      data: {
+        universalSalvationEntryId: params.entryId,
+        memberId: params.memberId ?? undefined,
+        quantity: 1,
+        status: params.status,
+        ...(paid === 0 ? { amountDue, amountUnpaid: amountDue } : {}),
+      },
+    });
+    return;
+  }
 
   await tx.ritualRegistrationItem.create({
     data: {
@@ -1026,17 +1317,21 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
     let tabletAddress: string | null = null;
 
     if (key in TABLET_NAME_ITEM_CATEGORY) {
-      // 超拔祖先／乙位正魂／無緣子女：**只認正式關聯牌位名稱**（讀連結 entry），
-      // 不加「類別｜」。⚠️ 絕不用信眾姓名冒充牌位名稱：未連結（舊資料未回填、
-      // 或無法唯一配對）一律顯示「牌位資料待確認」，提醒人工補上正式關聯。
-      subjectName = linked?.displayName ?? "牌位資料待確認";
+      // 超拔祖先／乙位正魂／無緣子女：**只認正式關聯牌位名稱**（讀連結 entry），不加「類別｜」。
+      // V15R5 正式規格：建立報名即建立 linked Draft，故一律有連結 entry——
+      //   已連結且有名稱 → 顯示實際牌位名稱；
+      //   已連結但名稱留空（尚未填）→ 顯示「尚缺牌位姓名」（同一筆 Draft 的待補提示，非另一個報名項目）；
+      //   未連結（僅舊資料未回填 FK）→ 顯示「牌位資料待確認」，提醒人工補上正式關聯。
+      subjectName = linked ? (linked.displayName.trim() ? linked.displayName : "尚缺牌位姓名") : "牌位資料待確認";
       displayLabel = subjectName;
       yangshangNames = linkedYangshang;
       tabletAddress = linked?.tabletAddress ?? null;
     } else if (key === "US_YUANQIN") {
-      // 累世冤親債主：顯示「類別｜當事人姓名」（名稱讀連結 entry，退回成員姓名）。
-      subjectName = linked?.displayName ?? r.customName ?? memberName ?? categoryName;
-      displayLabel = `${categoryName}｜${subjectName}`;
+      // 累世冤親債主：顯示「累世冤親債主｜當事人姓名」（固定格式，不要「姓名之…」）。
+      // 類別名一律正名為「累世冤親債主」（種子名可能仍是「冤親債主」）；當事人姓名讀連結
+      // entry，退回成員姓名（memberId 綁定）。
+      subjectName = linked?.displayName ?? r.customName ?? memberName ?? "姓名待補";
+      displayLabel = `${displayDebtCreditorName(categoryName)}｜${subjectName}`;
     } else if (kind === "SPONSOR") {
       // 贊普／隨喜贊普：顯示「類別｜實際姓名」。舊資料存「本人」或空 → 讀時以 member 關聯補實名
       //（唯讀，不寫入）；仍找不到 → 顯示「姓名待補」，絕不顯示「本人」。

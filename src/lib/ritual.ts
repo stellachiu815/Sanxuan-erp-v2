@@ -688,6 +688,54 @@ export async function createUniversalSalvationEntry(
   return { ok: true, record: record! };
 }
 
+/**
+ * V15R5 普渡沿用去年：把某家戶「上一個有普渡牌位的年度」的每一筆牌位
+ * （歷代祖先／乙位正魂／累世冤親債主／無緣子女）**各自獨立**在新年度重新建立成 DRAFT。
+ *
+ * 沿用：category、displayName（累世冤親債主顯示仍固定「累世冤親債主｜姓名」由讀取層處理）、
+ * 陽上人、**每筆自己的 tabletAddress**、notes、數量（一筆對一筆）。
+ * 不沿用：付款／收據／交易／列印狀態／printCount／CONFIRMED（一律新建 DRAFT）。
+ * 新年度價格由 ensureLinkedTabletItem 依新年度活動設定重新計算（沿用既有計價，不帶去年價）。
+ */
+export async function carryOverUniversalSalvationEntries(
+  householdId: string,
+  toYear: number,
+  operatorName?: string | null
+): Promise<{ ok: true; copied: number; fromYear: number | null }> {
+  const prev = await prisma.ritualRecord.findFirst({
+    where: {
+      householdId,
+      activityType: "UNIVERSAL_SALVATION",
+      year: { lt: toYear },
+      deletedAt: null,
+      universalSalvation: { entries: { some: { deletedAt: null } } },
+    },
+    orderBy: { year: "desc" },
+    include: { universalSalvation: { include: { entries: { where: { deletedAt: null }, orderBy: { sortOrder: "asc" } } } } },
+  });
+  if (!prev?.universalSalvation) return { ok: true, copied: 0, fromYear: null };
+
+  let copied = 0;
+  for (const e of prev.universalSalvation.entries) {
+    const res = await createUniversalSalvationEntry(
+      householdId,
+      toYear,
+      {
+        category: e.category,
+        displayName: e.displayName,
+        yangshangNames: e.yangshangNames ?? [],
+        yangshangName: e.yangshangName,
+        // 每筆保留自己的 tabletAddress（缺則 createUniversalSalvationEntry 依家戶地址補、或留空由 completeness gate 擋）。
+        tabletAddress: e.tabletAddress ?? null,
+        notes: e.notes,
+      },
+      operatorName
+    );
+    if (res.ok) copied++;
+  }
+  return { ok: true, copied, fromYear: prev.year };
+}
+
 export type UpdateUniversalSalvationEntryInput = {
   displayName?: string;
   yangshangName?: string | null;

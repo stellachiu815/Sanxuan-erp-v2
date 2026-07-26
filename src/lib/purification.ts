@@ -18,6 +18,7 @@ import { formatTempleEventName } from "@/lib/templeEventNaming";
 import { resolveFeeStatusUpdate } from "@/lib/collectionCenterRules";
 
 import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
+import { getAnnualLanternPrices } from "@/lib/annualLanternPricing";
 /**
  * 祭改（PURIFICATION）核心業務邏輯。
  *
@@ -573,7 +574,13 @@ async function getExtraBannedNumbers(
  */
 export async function createPurificationEntryForRecordInTx(
   tx: Prisma.TransactionClient,
-  params: { purificationTempleEventId: string; ritualRecordId: string; memberId: string },
+  params: {
+    purificationTempleEventId: string;
+    ritualRecordId: string;
+    memberId: string;
+    /** V15R5：呼叫端可於**交易外**預取祭改單價傳入，交易內即不再查詢（降低 timeout 風險）。 */
+    purificationUnitPrice?: number | null;
+  },
   operatorName?: string | null
 ): Promise<{ ok: true; id: string; number: number } | { ok: true; skipped: true } | { ok: false; status: number; error: string }> {
   const event = await tx.templeEvent.findUnique({ where: { id: params.purificationTempleEventId } });
@@ -594,6 +601,16 @@ export async function createPurificationEntryForRecordInTx(
   });
   const [assignedNumber] = assignSequentialNumbers(1, currentMax._max.number ?? 0, extraBanned);
 
+  // V15R5：祭改收款一律走**既有** PurificationEntry（feeStatus=CHARGEABLE＋amountDue），
+  // 金額來自年度燈事件的 purificationUnitPrice；祭改的 RitualRegistrationItem 金額一律 0
+  // （見 registerItemsBatch），因此不會雙重應收。未設定單價 → feeStatus 維持 UNSET、應收 0。
+  // 單價：優先用呼叫端交易外預取值；未提供才於此讀取（相容其他呼叫端）。
+  const purPrice =
+    params.purificationUnitPrice !== undefined
+      ? params.purificationUnitPrice
+      : (await getAnnualLanternPrices(event.year, tx)).purificationUnitPrice;
+  const chargeable = purPrice != null && purPrice > 0;
+
   const entry = await tx.purificationEntry.create({
     data: {
       ritualRecordId: params.ritualRecordId,
@@ -602,6 +619,9 @@ export async function createPurificationEntryForRecordInTx(
       memberId: params.memberId,
       isTemporaryName: false,
       paymentStatus: "UNPAID",
+      feeStatus: chargeable ? "CHARGEABLE" : "UNSET",
+      amountDue: chargeable ? new Prisma.Decimal(purPrice) : null,
+      amountUnpaid: chargeable ? new Prisma.Decimal(purPrice) : new Prisma.Decimal(0),
       status: event.numberingLocked ? "SUPPLEMENTARY" : "ACTIVE",
     },
   });

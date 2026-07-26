@@ -108,7 +108,9 @@ test("祭改接通：報名批次遇 PURIFICATION 內容型態 → 同 tx 於年
   assert.equal(reg.includes("createPurificationEntryForRecordInTx"), true, "呼叫祭改 tx 建立器");
   assert.equal(reg.includes('p.itemType.contentKind === "PURIFICATION"'), true, "以內容型態判斷祭改");
   // 祭改事件＝年度燈事件（ANNUAL_LANTERN），非獨立 PURIFICATION 事件。
-  assert.equal(reg.includes('activityType: "ANNUAL_LANTERN", year: p.entry.year'), true, "掛在年度燈事件下");
+  // V15R5：年度燈事件 id 於交易外預取（annualEventIdByYear），祭改掛在該事件下。
+  assert.equal(reg.includes("annualEventIdByYear"), true, "祭改掛在（交易外預取的）年度燈事件下");
+  assert.equal(reg.includes('activityType: "ANNUAL_LANTERN", year: entry.year'), true, "以 ANNUAL_LANTERN 事件為祭改事件");
   const pur = read("src/lib/purification.ts");
   assert.equal(pur.includes("export async function createPurificationEntryForRecordInTx"), true);
   assert.equal(pur.includes("skipped: true"), true, "祭改建立冪等（對應 ALREADY_EXISTS）");

@@ -1266,6 +1266,13 @@ function makeRegistrationItemAdapter(
 const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION", ["US_RICE"], "白米登記");
 const celebrationTableAdapter = makeRegistrationItemAdapter("CELEBRATION_TABLE", ["CELEBRATION_TABLE"], "宮慶訂桌");
 const dragonPhoenixLanternAdapter = makeRegistrationItemAdapter("DRAGON_PHOENIX_LANTERN", ["DRAGON_PHOENIX"], "龍鳳燈");
+// V15R5：年度燈統一後的光明燈／太歲燈／全家燈——項目自身計價（self-costed），
+// 進待收款／收款中心。祭改（LANTERN_PURIFICATION）不在此，走 PURIFICATION_ENTRY。
+const annualLanternItemAdapter = makeRegistrationItemAdapter(
+  "ANNUAL_LANTERN_ITEM",
+  ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_FAMILY"],
+  "年度燈"
+);
 const storageTrousersAdapter = makeRegistrationItemAdapter("STORAGE_TROUSERS", ["STORAGE_TROUSERS"], "補庫");
 // V14.2：普渡四類牌位（超拔祖先／乙位正魂／累世冤親債主／無緣子女）年度單價收費，
 // 沿用同一套 RitualRegistrationItem adapter，讓應收進待收款／收款中心／首頁統計。
@@ -1298,6 +1305,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   riceRegistrationAdapter,
   celebrationTableAdapter,
   dragonPhoenixLanternAdapter,
+  annualLanternItemAdapter,
   storageTrousersAdapter,
   universalSalvationTabletAdapter,
   universalSalvationSponsorItemAdapter,

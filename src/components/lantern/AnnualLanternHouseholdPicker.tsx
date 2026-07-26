@@ -25,6 +25,7 @@ import { familyLanternTierLabel } from "@/lib/familyLanternTier";
 type Member = { id: string; name: string; role: string; isDeceased: boolean };
 type ItemView = { id: string; key: string; name: string };
 type OpenYear = { year: number; templeEventId: string; name: string };
+type LastYear = { fromYear: number | null; perMember: { memberId: string; itemKeys: string[] }[]; hadFamily: boolean };
 
 type PerMember = { guangming: boolean; taisui: boolean; purification: boolean };
 
@@ -42,8 +43,10 @@ export default function AnnualLanternHouseholdPicker({
   const operatorUserId = useStoredOperatorUserId();
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, ItemView>>({});
   const [openYears, setOpenYears] = useState<OpenYear[]>([]);
+  const [lastYear, setLastYear] = useState<LastYear | null>(null);
   const [year, setYear] = useState<number | "">("");
   const [perMember, setPerMember] = useState<Record<string, PerMember>>({});
   const [familyMemberIds, setFamilyMemberIds] = useState<Record<string, boolean>>({});
@@ -63,10 +66,12 @@ export default function AnnualLanternHouseholdPicker({
         return;
       }
       setMembers(data.members ?? []);
+      setHouseholdAddress(data.household?.address ?? null);
       const byKey: Record<string, ItemView> = {};
       for (const it of data.lanternGroup?.items ?? []) byKey[it.key] = it;
       setItems(byKey);
       setOpenYears(data.openYears ?? []);
+      setLastYear(data.lastYear ?? null);
       if ((data.openYears ?? []).length > 0) setYear(data.openYears[0].year);
     } catch {
       setError("網路連線問題，請稍後再試一次。");
@@ -78,6 +83,39 @@ export default function AnnualLanternHouseholdPicker({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // V15R5「沿用去年」：把去年各成員勾選的燈套用到本次（送出時以新年度重算單價，
+  // 不帶付款/收據/列印狀態/CONFIRMED）。全家燈若去年有，預先勾全戶成員（可再調整）。
+  function applyLastYear() {
+    if (!lastYear) return;
+    const keyToField: Record<string, keyof PerMember> = {
+      LANTERN_GUANGMING: "guangming",
+      LANTERN_TAISUI: "taisui",
+      LANTERN_PURIFICATION: "purification",
+    };
+    const next: Record<string, PerMember> = {};
+    for (const pm of lastYear.perMember) {
+      const cur: PerMember = { guangming: false, taisui: false, purification: false };
+      for (const k of pm.itemKeys) {
+        const f = keyToField[k];
+        if (f) cur[f] = true;
+      }
+      next[pm.memberId] = cur;
+    }
+    setPerMember(next);
+    if (lastYear.hadFamily) {
+      const fam: Record<string, boolean> = {};
+      for (const m of members) fam[m.id] = true;
+      setFamilyMemberIds(fam);
+    }
+    setMessage(`已沿用民國 ${lastYear.fromYear} 年報名內容（金額將依本年度單價重新計算，不含去年付款）。`);
+  }
+
+  function startFresh() {
+    setPerMember({});
+    setFamilyMemberIds({});
+    setMessage("已清空，改為全新建立。");
+  }
 
   function toggle(memberId: string, field: keyof PerMember) {
     setPerMember((prev) => {
@@ -177,6 +215,21 @@ export default function AnnualLanternHouseholdPicker({
             </select>
           </div>
 
+          {/* V15R5：明確提供「沿用去年 / 全新建立」。 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={applyLastYear}
+              disabled={!lastYear || lastYear.fromYear == null}
+              className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink transition hover:bg-sage-200 disabled:opacity-40"
+            >
+              {lastYear?.fromYear != null ? `↩ 沿用去年（民國 ${lastYear.fromYear} 年）` : "↩ 沿用去年（無去年資料）"}
+            </button>
+            <button type="button" onClick={startFresh} className="rounded-full bg-cream-200 px-4 py-1.5 text-sm text-ink-soft transition hover:bg-cream-300">
+              ✎ 全新建立
+            </button>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -230,6 +283,13 @@ export default function AnnualLanternHouseholdPicker({
                   {m.name}
                 </label>
               ))}
+            </div>
+            {/* V15R5：全家燈報名時明確顯示列印地址與來源供確認；缺地址可存草稿、正式確認/列印擋。 */}
+            <div className="mt-2 text-xs">
+              <span className="text-ink-faint">目前列印地址：</span>
+              {householdAddress
+                ? <>{householdAddress}<span className="ml-2 text-ink-faint">（來源：家戶地址）</span></>
+                : <span className="text-blossom-400">缺地址（可暫存草稿，正式確認／列印前需補家戶地址）</span>}
             </div>
             {!familyValid && (
               <p className="mt-1 text-xs text-blossom-400">全家燈需勾選 {FAMILY_MIN}～{FAMILY_MAX} 位成員。</p>

@@ -5,6 +5,7 @@ import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
 import { listActivityGroups } from "@/lib/registrationItems";
 import { canAcceptRegistration } from "@/lib/activityYear";
+import { getHouseholdAnnualLanternLastYear } from "@/lib/registrationItemRegistration";
 
 /**
  * V15R4 年度燈統一：全戶多人多項目報名 picker 的資料來源（家戶入口）。
@@ -68,11 +69,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (acceptable.ok) openYears.push({ year: e.year, templeEventId: e.id, name: e.name });
   }
 
+  // V15R5 沿用去年：以最近的開放年度為目標年，讀該家戶上一個有年度燈報名的年度內容
+  //（供 picker「沿用去年」預先勾選；送出時以新年度重算單價，不帶付款/收據/列印狀態）。
+  const targetYear = openYears[0]?.year ?? null;
+  const lastYear = targetYear != null ? await getHouseholdAnnualLanternLastYear(household.id, targetYear) : null;
+
   return NextResponse.json({
     ok: true,
     household: { id: household.id, name: household.name, address: household.address },
     members: household.members,
     lanternGroup,
     openYears,
+    lastYear,
   });
 }

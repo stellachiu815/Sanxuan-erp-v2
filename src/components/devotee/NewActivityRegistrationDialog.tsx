@@ -57,6 +57,7 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
   const [groups, setGroups] = useState<GroupView[] | null>(null);
   const [openYears, setOpenYears] = useState<Record<string, OpenYear[]>>({});
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMember[]>([]);
+  const [householdId, setHouseholdId] = useState<string>("");
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [selectedYear, setSelectedYear] = useState<number | "">("");
   const [selected, setSelected] = useState<Record<string, Selection>>({});
@@ -81,6 +82,7 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
       setGroups(data.groups);
       setOpenYears(data.openYearsByActivityType ?? {});
       setHouseholdMembers(Array.isArray(data.householdMembers) ? data.householdMembers : []);
+      setHouseholdId(data.household?.id ?? "");
     } catch {
       setError("網路連線問題，請稍後再試一次。");
     }
@@ -239,6 +241,34 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     }
   }
 
+  // V15R5：沿用去年——把該家戶上一年度、此主活動類型的報名內容 carry-over 到選定年度
+  //（依新年度單價重算、DRAFT、不帶付款/收據/列印；普渡另複製每筆牌位含 tabletAddress）。
+  async function carryOver() {
+    if (!group || selectedYear === "" || !householdId) return;
+    const activityType = group.items[0]?.activityType;
+    if (!activityType) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetchRegistration(`/api/registrations/carry-over`, {
+        method: "POST",
+        body: JSON.stringify({ householdId, activityType, toYear: selectedYear }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(toFriendlyError(res.status, data?.error));
+        return;
+      }
+      setMessage(data.message ?? "已沿用去年報名內容。");
+      router.refresh();
+    } catch {
+      setError("網路連線問題，請稍後再試一次。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Modal title="新增活動報名" onClose={onClose}>
       {groups === null ? (
@@ -295,6 +325,27 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
           )}
 
           {/* ③ 項目多選 */}
+          {group && selectedYear !== "" && (
+            <div className="rounded-2xl bg-cream-100 p-3">
+              <label className={labelClass}>建立方式</label>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* V15R5：沿用去年 vs 全新建立（全新＝直接在下方勾選項目送出）。 */}
+                <button
+                  type="button"
+                  onClick={carryOver}
+                  disabled={busy || !householdId}
+                  className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink transition hover:bg-sage-200 disabled:opacity-40"
+                >
+                  ↩ 沿用去年資料
+                </button>
+                <span className="text-xs text-ink-faint">或於下方直接勾選＝全新建立</span>
+              </div>
+              <p className="mt-1 text-xs text-ink-faint">
+                沿用去年：以本年度單價重算、DRAFT，不含付款／收據／列印狀態；普渡會複製每筆牌位（含各自地址）。
+              </p>
+            </div>
+          )}
+
           {group && selectedYear !== "" && (
             <div>
               <label className={labelClass}>③ 勾選報名項目（可多選）</label>

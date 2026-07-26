@@ -309,9 +309,7 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                           <span className="text-ink-faint">地址：</span>
                           {e?.address
                             ? <>{e.address}<span className="ml-2 text-ink-faint">（來源：{e.addressSource}）</span></>
-                            : matched
-                              ? "尚無地址"
-                              : "尚未配對，無法取得地址"}
+                            : <span className="text-blossom-400">缺牌位地址（可暫存草稿，正式確認／列印前需補）</span>}
                         </div>
                       </dl>
                     );
