@@ -222,6 +222,25 @@ test("V15R5.3 UI：全家燈預設全納入合格成員、全部納入/取消納
   assert.equal(/FAMILY_MIN|FAMILY_MAX/.test(p), false, "移除 6～13 硬限制（改至少一位）");
 });
 
+test("V15R5.3 Bug2：確認年度燈只依『有報名項目＋有應收』，不讀 LanternRegistration、不依賴 amountPaid", () => {
+  const src = read("src/lib/activityRegistration.ts");
+  const lanternCase = src.slice(src.indexOf('case "LANTERN":'), src.indexOf('case "GENERIC":'));
+  assert.equal(lanternCase.includes("registrationItems"), true, "改讀 registrationItems");
+  assert.equal(lanternCase.includes("purificationEntries"), true, "含祭改 PurificationEntry");
+  assert.equal(/record\.lanternRegistration/.test(lanternCase), false, "不再依賴 LanternRegistration");
+  // 執行邏輯不得讀取已收款欄位（.amountPaid）；註解提及 amountPaid 不算。
+  assert.equal(/\.amountPaid/.test(lanternCase), false, "不依賴已收款（不讀 .amountPaid）");
+  assert.equal(src.includes("尚未設定金額"), false, "移除『尚未設定金額』誤擋");
+});
+
+test("V15R5.3 Bug1：年度燈草稿（無快照）退回成員目前生日現算生肖/虛歲/太歲，不再全是「—」", () => {
+  const src = read("src/lib/lanternRegistration.ts");
+  assert.equal(src.includes("buildActivityYearPrintProfile"), true, "無快照時以活動年度＋成員現值現算");
+  assert.equal(src.includes("snapshotMissing"), true);
+  assert.equal(src.includes("lunarBirthYear"), true, "participant include 成員生日供 fallback");
+  assert.equal(src.includes("LANTERN_GUANGMING") && src.includes("purificationEntries"), true, "應收＝item＋祭改");
+});
+
 test("V15R5.1 UI：已報名項目每列顯示報名者（it.memberName，非僅 RICE）、欄序正確、手機有姓名", () => {
   const panel = read("src/components/registration/RegisteredItemsPanel.tsx");
   // 桌機表頭含「報名者」欄，且欄序＝報名者→類別｜名稱→數量→應收→未收→狀態。

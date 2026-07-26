@@ -3,7 +3,9 @@ import type { Prisma, ActivityType } from "@prisma/client";
 import { recordVersion } from "@/lib/recordVersion";
 import { isHouseholdLevelLantern } from "@/lib/registrationFormTypes";
 import { renderSnapshotTexts } from "@/lib/activityPrintProfile";
-import { printAddress } from "@/lib/printChinese";
+import { printAddress, printAge, printMinguoYear, printLunarMonthDay } from "@/lib/printChinese";
+import { adToMinguo } from "@/lib/minguoDate";
+import { buildActivityYearPrintProfile } from "@/lib/zodiacSexagenary";
 
 /**
  * V13.4：年度燈（光明燈／太歲燈／全家燈）報名與計價。
@@ -205,27 +207,87 @@ export async function buildLanternPrintBatch(
       participants: {
         where: { deletedAt: null },
         orderBy: { createdAt: "asc" },
+        // V15R5.3 修正：草稿（未確認）時 participant 快照尚未產生，需退回讀「成員目前生日」現算。
+        include: {
+          member: {
+            select: { lunarBirthYear: true, lunarBirthMonth: true, lunarBirthDay: true, lunarIsLeapMonth: true, solarBirthDate: true, gender: true },
+          },
+        },
       },
+      // V15R5.3 修正：年度燈統一後應收在 item（光明/太歲/全家）＋PurificationEntry（祭改），非 LanternRegistration。
+      registrationItems: {
+        where: { deletedAt: null, status: { not: "CANCELLED" } },
+        include: { registrationItemType: { select: { key: true } } },
+      },
+      purificationEntries: { where: { deletedAt: null } },
     },
   });
   if (!record || record.deletedAt) return null;
 
+  const referenceDate = record.templeEvent?.solarDate ?? null;
+
   const rows: LanternPrintRow[] = record.participants.map((p) => {
-    const texts = renderSnapshotTexts(p);
+    const snapshotMissing = p.printProfileSnapshotAt === null;
+    // ── 已確認（有快照）→ 用報名當下的不可變快照；未確認（無快照）→ 現算成員目前生日資料 ──
+    if (!snapshotMissing) {
+      const texts = renderSnapshotTexts(p);
+      return {
+        participantId: p.id,
+        memberId: p.memberId,
+        name: p.nameSnapshot,
+        addressText: printAddress(p.addressSnapshot),
+        lunarBirthText: texts.lunarBirthText,
+        nominalAgeText: texts.nominalAgeText,
+        zodiac: p.zodiacSnapshot,
+        taisui: p.taisuiSnapshot,
+        snapshotMissing,
+      };
+    }
+    // 未確認：依「活動年度＋成員目前生日」現算虛歲／生肖／太歲（與列印中心同一套 buildActivityYearPrintProfile）。
+    const m = p.member;
+    const profile = m
+      ? buildActivityYearPrintProfile({
+          activityMinguoYear: record.year,
+          birthLunarYearAD: m.lunarBirthYear,
+          solarBirthDate: m.solarBirthDate,
+          gender: m.gender,
+          referenceDate,
+        })
+      : null;
+    const lunarBirthText =
+      m && m.lunarBirthYear !== null && m.lunarBirthMonth !== null && m.lunarBirthDay !== null
+        ? `農曆民國${printMinguoYear(adToMinguo(m.lunarBirthYear))}年${printLunarMonthDay(m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)}`
+        : m && m.lunarBirthMonth !== null && m.lunarBirthDay !== null
+          ? `農曆${printLunarMonthDay(m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)}`
+          : "";
     return {
       participantId: p.id,
       memberId: p.memberId,
       name: p.nameSnapshot,
       addressText: printAddress(p.addressSnapshot),
-      lunarBirthText: texts.lunarBirthText,
-      nominalAgeText: texts.nominalAgeText,
-      zodiac: p.zodiacSnapshot,
-      taisui: p.taisuiSnapshot,
-      snapshotMissing: p.printProfileSnapshotAt === null,
+      lunarBirthText,
+      nominalAgeText: profile && profile.nominalAge !== null ? printAge(profile.nominalAge) : "",
+      zodiac: profile?.zodiac ?? null,
+      taisui: profile?.taisui ?? null,
+      snapshotMissing,
     };
   });
 
+  // 應收＝年度燈項目（光明/太歲/全家，自身計價）＋祭改（PurificationEntry）真正金額之和；
+  // 保留舊 LanternRegistration 相容（若存在則加總，一般為 null）。
+  const LANTERN_ITEM_KEYS = ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_FAMILY"];
+  const lanternItems = record.registrationItems.filter((i) => LANTERN_ITEM_KEYS.includes(i.registrationItemType.key));
   const reg = record.lanternRegistration;
+  const amountDue =
+    lanternItems.reduce((s, i) => s + Number(i.amountDue), 0) +
+    record.purificationEntries.reduce((s, e) => s + Number(e.amountDue ?? 0), 0) +
+    (reg ? Number(reg.amountDue) : 0);
+  const amountPaid =
+    lanternItems.reduce((s, i) => s + Number(i.amountPaid), 0) +
+    record.purificationEntries.reduce((s, e) => s + Number(e.amountPaid), 0) +
+    (reg ? Number(reg.amountPaid) : 0);
+  const amountUnpaid = Math.max(Math.round((amountDue - amountPaid) * 100) / 100, 0);
+
   return {
     ritualRecordId: record.id,
     activityType: record.activityType,
@@ -234,9 +296,9 @@ export async function buildLanternPrintBatch(
     householdId: record.householdId,
     householdName: record.household.name,
     isConfirmed: record.status === "CONFIRMED",
-    amountDue: reg ? Number(reg.amountDue) : 0,
-    amountPaid: reg ? Number(reg.amountPaid) : 0,
-    amountUnpaid: reg ? Number(reg.amountUnpaid) : 0,
+    amountDue,
+    amountPaid,
+    amountUnpaid,
     rows,
     missingSnapshotCount: rows.filter((r) => r.snapshotMissing).length,
   };

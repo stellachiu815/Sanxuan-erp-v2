@@ -236,6 +236,12 @@ export async function validateForConfirm(
       universalSalvation: { include: { entries: { where: { deletedAt: null } } } },
       purificationEntries: { where: { deletedAt: null } },
       lanternRegistration: true,
+      // V15R5.3 修正：年度燈統一後應收在 RitualRegistrationItem（光明/太歲/全家）＋PurificationEntry（祭改），
+      // 不再有 LanternRegistration。確認報名的年度燈檢查改讀這些真正的收費來源。
+      registrationItems: {
+        where: { deletedAt: null, status: { not: "CANCELLED" } },
+        include: { registrationItemType: { select: { key: true } } },
+      },
     },
   });
   if (!record) return { ok: false, reasons: ["找不到這筆活動報名"] };
@@ -275,10 +281,21 @@ export async function validateForConfirm(
       break;
     }
     case "LANTERN": {
-      if (!record.lanternRegistration) {
-        reasons.push("年度燈報名尚未設定金額");
-      } else if (Number(record.lanternRegistration.amountDue) <= 0) {
-        reasons.push("年度燈應收金額為 0，請確認金額或明確標記為免費");
+      // V15R5.3 修正：年度燈統一後**不再有 LanternRegistration**；應收在 RitualRegistrationItem
+      // （光明/太歲/全家，自身計價）＋PurificationEntry（祭改）。確認報名只依「已有報名項目＋已有應收」，
+      // **不依賴已收款（amountPaid）**——收款是後續獨立流程。
+      const LANTERN_ITEM_KEYS = ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_FAMILY"];
+      const lanternItems = record.registrationItems.filter((i) => LANTERN_ITEM_KEYS.includes(i.registrationItemType.key));
+      const purEntries = record.purificationEntries; // 祭改
+      if (lanternItems.length === 0 && purEntries.length === 0) {
+        reasons.push("年度燈報名至少需要一項燈（光明燈／太歲燈／全家燈／祭改）");
+      } else {
+        const totalDue =
+          lanternItems.reduce((s, i) => s + Number(i.amountDue), 0) +
+          purEntries.reduce((s, e) => s + Number(e.amountDue ?? 0), 0);
+        if (totalDue <= 0) {
+          reasons.push("年度燈應收金額為 0，請先於「年度燈單價設定」設定各項年度單價後再確認");
+        }
       }
       break;
     }
