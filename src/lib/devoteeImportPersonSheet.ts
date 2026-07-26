@@ -149,12 +149,15 @@ function parseLunarCell(
   if (!original) return empty;
   const leap = /[（(]\s*閏\s*[)）]/.test(original);
   const s = original.replace(/[（(]\s*閏\s*[)）]/g, "").trim().replace(/\//g, "-");
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  // V15R5：年份一律以民國理解（1～3 碼＝民國，+1911 轉西元；4 碼＝西元相容舊資料）。
+  // 例：46-4-17＝民國46年（西元1957），絕不被當成西元46 或 1946。lunarBirthYear DB 存西元。
+  const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s);
   if (!m) {
-    errors.push(`「農曆生日」格式看不懂「${original}」，請用 yyyy-MM-dd，閏月加「(閏)」`);
+    errors.push(`「農曆生日」格式看不懂「${original}」，請用民國年 yyyy-MM-dd（如 46-4-17），閏月加「(閏)」`);
     return empty;
   }
-  const y = Number(m[1]);
+  const yRaw = Number(m[1]);
+  const y = yRaw < 1000 ? yRaw + 1911 : yRaw; // 民國→西元（一次轉換）
   const mo = Number(m[2]);
   const d = Number(m[3]);
   if (mo < 1 || mo > 12 || d < 1 || d > 30) {

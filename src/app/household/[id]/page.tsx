@@ -5,6 +5,7 @@ import { worshipTypeLabel, activityTypeLabel, memberRoleLabel } from "@/lib/labe
 import HeaderSearchBar from "@/components/HeaderSearchBar";
 import QuickActionsPanel from "@/components/household/QuickActionsPanel";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
+import MemberRegisterButton from "@/components/devotee/MemberRegisterButton";
 
 export default async function HouseholdPage({
   params,
@@ -110,7 +111,9 @@ export default async function HouseholdPage({
 
                 {m.notes && <p className="mt-2 text-sm text-ink-faint">備註：{m.notes}</p>}
 
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  {/* V15R5（P0 回歸）：每位家戶成員可直接「報名活動」（沿用信眾詳情同一套流程）。 */}
+                  <MemberRegisterButton memberId={m.id} />
                   <Link
                     href={`/offering-center/member/${m.id}`}
                     className="text-xs text-ink-soft hover:underline"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 /**
  * V14.3：登入表單內容（Client Component）。
@@ -11,7 +11,6 @@ import { useRouter, useSearchParams } from "next/navigation";
  * <Suspense> 包住。不改動登入流程本身、不動 session / middleware。
  */
 export default function LoginContent() {
-  const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
   // 被 401 兜底導回來時帶 ?session=expired，顯示「登入已失效」。
@@ -34,13 +33,17 @@ export default function LoginContent() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "登入失敗，請稍後再試。");
+        setBusy(false);
         return;
       }
-      router.replace(next);
-      router.refresh();
+      // V15R5（P0）：登入成功後改用**整頁導向**，而非 router.replace 的軟導覽。
+      // 根因：登入 API 以 Set-Cookie 設定 httpOnly session cookie，但軟導覽的
+      // RSC 請求可能在瀏覽器尚未提交該 cookie 前就送出 → middleware 讀不到
+      // cookie → 又被導回 /login，造成「要登入很多次才成功」。整頁導向保證
+      // 新請求一定帶上剛設好的 cookie，一次登入即成功。不動 session/middleware 架構。
+      window.location.assign(next);
     } catch {
       setError("網路連線問題，請稍後再試。");
-    } finally {
       setBusy(false);
     }
   }

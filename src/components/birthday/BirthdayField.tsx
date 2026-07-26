@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { inputClass, labelClass, checkboxRowClass, errorTextClass } from "@/components/household/formStyles";
 // V13.4 驗收：生日預覽的國曆／農曆都用「唯一共用」的民國格式函式，
 // 與信眾詳情頁、convert API 同一套，元件內不自行拼字串、不用西元。
-import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
+// V15R5（P0）：畫面一律民國輸入/顯示，不要求也不顯示西元；西元只在儲存/換算時內部使用。
+import {
+  formatIsoDateToMinguoLong,
+  formatLunarDateToMinguoLong,
+  parseFlexibleDate,
+  toIsoDateString,
+  minguoToAD,
+  adToMinguo,
+} from "@/lib/minguoDate";
 
 export type BirthdayType = "none" | "solar" | "lunar";
 
@@ -74,6 +82,53 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
 
   function update(patch: Partial<BirthdayValue>) {
     onChange({ ...value, ...patch });
+  }
+
+  // ── V15R5（P0）畫面一律民國；西元只在內部儲存/換算 ───────────────────
+  // 國曆：文字輸入民國（如 46/4/17 → 民國46年4月17日），內部轉西元 ISO 存回 value.solarBirthDate。
+  const [solarMinguoText, setSolarMinguoText] = useState("");
+  const [solarError, setSolarError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!value.solarBirthDate) {
+      setSolarMinguoText("");
+      return;
+    }
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.solarBirthDate);
+    if (m) setSolarMinguoText(`${adToMinguo(Number(m[1]))}/${Number(m[2])}/${Number(m[3])}`);
+  }, [value.solarBirthDate]);
+
+  function handleSolarMinguoChange(text: string) {
+    setSolarMinguoText(text);
+    setSolarError(null);
+    const t = text.trim();
+    if (!t) {
+      update({ solarBirthDate: "" });
+      return;
+    }
+    // 一律以民國解讀（parseFlexibleDate：年 < 1000 視為民國，+1911）。
+    const parsed = parseFlexibleDate(t);
+    if (parsed.ok) update({ solarBirthDate: toIsoDateString(parsed.date) });
+    else setSolarError(parsed.reason); // 尚未輸入完整：保留既有值，不清空
+  }
+
+  // 農曆年：畫面輸入民國年，內部轉西元存回 value.lunarBirthYear（DB 一律西元）。
+  const [lunarMinguoYearText, setLunarMinguoYearText] = useState("");
+  useEffect(() => {
+    if (!value.lunarBirthYear) {
+      setLunarMinguoYearText("");
+      return;
+    }
+    setLunarMinguoYearText(String(adToMinguo(Number(value.lunarBirthYear))));
+  }, [value.lunarBirthYear]);
+
+  function handleLunarMinguoYearChange(text: string) {
+    setLunarMinguoYearText(text);
+    const n = Number(text.trim());
+    if (!text.trim() || !Number.isFinite(n)) {
+      update({ lunarBirthYear: "" });
+      return;
+    }
+    update({ lunarBirthYear: String(minguoToAD(n)) });
   }
 
   // 即時換算（debounce 300ms），國曆/農曆模式各自的必填欄位齊全才呼叫。
@@ -210,11 +265,16 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
       {value.birthdayType === "solar" && (
         <div className="mt-3">
           <input
-            type="date"
+            type="text"
+            inputMode="numeric"
+            placeholder="國曆生日（民國年，例：46/4/17）"
             className={inputClass}
-            value={value.solarBirthDate}
-            onChange={(e) => update({ solarBirthDate: e.target.value })}
+            value={solarMinguoText}
+            onChange={(e) => handleSolarMinguoChange(e.target.value)}
           />
+          {solarError && solarMinguoText.trim() && (
+            <p className="mt-1 text-xs text-ink-faint">請輸入完整民國日期，例如 46/4/17</p>
+          )}
         </div>
       )}
 
@@ -223,10 +283,10 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
           <div className="grid grid-cols-3 gap-3">
             <input
               type="number"
-              placeholder="年（西元）"
+              placeholder="年（民國）"
               className={inputClass}
-              value={value.lunarBirthYear}
-              onChange={(e) => update({ lunarBirthYear: e.target.value })}
+              value={lunarMinguoYearText}
+              onChange={(e) => handleLunarMinguoYearChange(e.target.value)}
             />
             <input
               type="number"
@@ -302,7 +362,7 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
                         onClick={() => handlePickCandidateYear(c.lunarYear)}
                         className="rounded-full bg-white/80 px-3 py-1 text-xs text-ink-soft transition hover:bg-mist-100"
                       >
-                        西元 {c.lunarYear} 年（虛歲 {c.nominalAge} 歲）
+                        民國 {adToMinguo(c.lunarYear)} 年（虛歲 {c.nominalAge} 歲）
                       </button>
                     ))}
                   </div>

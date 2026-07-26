@@ -36,6 +36,44 @@ type OperatorContextValue = {
 
 const OperatorContext = createContext<OperatorContextValue | null>(null);
 
+/**
+ * V15R5（P0 效能）：跨所有 OperatorProvider 實例**共用同一個 in-flight 請求**。
+ * 首頁常同時掛多個 OperatorProvider（AppProviders＋HeaderSearchBar＋各卡片），
+ * 原本每個實例各打一次 /api/auth/me 與 /api/system/users（後者查全部使用者），
+ * 造成重複請求與明顯延遲。這裡用 module 級 Promise 快取去重：同一頁面生命週期
+ * 內只實際發一次，所有實例共享結果。reload() 會清快取以取得最新資料。
+ * 不改任何權限/session 架構，只是把重複網路請求收斂為一次。
+ */
+let sharedMePromise: Promise<{ user: OperatorUser | null }> | null = null;
+let sharedUsersPromise: Promise<OperatorUser[]> | null = null;
+
+function fetchMeShared(): Promise<{ user: OperatorUser | null }> {
+  if (!sharedMePromise) {
+    sharedMePromise = fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : { user: null }))
+      .catch(() => ({ user: null }));
+  }
+  return sharedMePromise;
+}
+
+function fetchUsersShared(): Promise<OperatorUser[]> {
+  if (!sharedUsersPromise) {
+    sharedUsersPromise = fetch("/api/system/users")
+      .then((res) => {
+        if (!res.ok) throw new Error("無法載入操作人員名單");
+        return res.json();
+      })
+      .then((data) => (Array.isArray(data.users) ? (data.users as OperatorUser[]) : []));
+  }
+  return sharedUsersPromise;
+}
+
+/** reload 時清掉共用快取，讓下一次重新抓最新資料。 */
+function resetSharedOperatorCaches() {
+  sharedMePromise = null;
+  sharedUsersPromise = null;
+}
+
 export function OperatorProvider({ children }: { children: React.ReactNode }) {
   const [operatorUserId, setOperatorUserIdState] = useState<string | null>(null);
   const [me, setMe] = useState<OperatorUser | null>(null);
@@ -60,8 +98,8 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
    */
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : { user: null }))
+    // 共用 in-flight 請求（多個 Provider 只實際打一次 /api/auth/me）。
+    fetchMeShared()
       .then((data) => {
         if (cancelled) return;
         const u = data?.user ?? null;
@@ -86,14 +124,11 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/system/users")
-      .then((res) => {
-        if (!res.ok) throw new Error("無法載入操作人員名單");
-        return res.json();
-      })
-      .then((data) => {
+    // 共用 in-flight 請求（多個 Provider 只實際打一次 /api/system/users）。
+    fetchUsersShared()
+      .then((list) => {
         if (cancelled) return;
-        setUsers(Array.isArray(data.users) ? data.users : []);
+        setUsers(list);
         setError(null);
       })
       .catch(() => {
@@ -117,7 +152,10 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
+  const reload = useCallback(() => {
+    resetSharedOperatorCaches();
+    setReloadTick((t) => t + 1);
+  }, []);
 
   // V14.3：目前操作人優先用登入的 session 使用者（me）；退回名單比對（相容）。
   const operatorUser = me ?? users.find((u) => u.id === operatorUserId) ?? null;
