@@ -107,12 +107,42 @@ function readRow(r: Row) {
   };
 }
 
-/** V15R7：DB 去重狀態中文。 */
-const EXISTING_LABEL: Record<string, string> = {
-  EXISTS: "已存在",
-  SAME_NAME_DIFF_ADDR: "同名不同址（視為不同牌位）",
-  NONE: "",
-};
+/** 底部統計小卡。 */
+function Stat({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs text-ink-faint">{label}</span>
+      <span className={`text-sm ${tone}`}>{value}</span>
+    </div>
+  );
+}
+
+/** 這一列是否已配對到既有家戶／信眾，或已明確確認建立新信眾。 */
+function rowMatched(r: Row): boolean {
+  return !!(r.matchedDevoteeId || r.matchedHouseholdId || (r.matchingStatus === "NEW" && r.createNewDevoteeConfirmed));
+}
+
+/**
+ * V15R7.1：依「目前使用者選擇」即時判斷這一列確認後的處理方式（供統計、徽章、摘要共用一份）：
+ *   CREATE 可建立 / UPDATE 將更新 / SKIP 將略過 / FIX 尚需處理（配對未解決）。
+ * 與後端 confirm 的決策一致：已存在(EXISTS) 依 resolutionAction（UPDATE 才更新，否則略過）；
+ * 其餘可建立列 → 建立；不可建立（待確認/衝突/無效/重複）→ 尚需處理。
+ */
+type PlannedAction = "CREATE" | "UPDATE" | "SKIP" | "FIX";
+function plannedAction(r: Row): PlannedAction {
+  if (r.existingMatchStatus === "EXISTS") return (r.resolutionAction ?? "SKIP") === "UPDATE" ? "UPDATE" : "SKIP";
+  return isBuildable(r) ? "CREATE" : "FIX";
+}
+
+/** 主要狀態徽章（流程：已配對 → 待建立 → 已建立）。未確認前不得顯示「已建立」。 */
+function rowStage(r: Row): { label: string; tone: string } | null {
+  if (r.confirmationStatus === "CONFIRMED") return { label: "已建立", tone: "bg-sage-200 text-ink" };
+  if (r.confirmationStatus === "FAILED") return { label: "失敗", tone: "bg-blossom-200 text-ink" };
+  const p = plannedAction(r);
+  if (p === "FIX") return { label: "尚需處理", tone: "bg-cream-200 text-ink-soft" };
+  if (p === "SKIP") return null; // 只顯示「已存在」徽章即可，不另標待建立
+  return { label: "待建立", tone: "bg-butter-100 text-ink" }; // CREATE / UPDATE
+}
 
 export default function PurificationImportScreen({ year }: { year: number }) {
   const { role, loading } = useCurrentUser();
@@ -187,6 +217,11 @@ export default function PurificationImportScreen({ year }: { year: number }) {
 
   async function confirm() {
     if (!batch) return;
+    // V15R7.1：確認前先依「目前選擇」記下本次將建立／更新／略過筆數，完成後據以提示（非只顯示成功）。
+    const active = batch.rows.filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED");
+    const planCreate = active.filter((r) => plannedAction(r) === "CREATE").length;
+    const planUpdate = active.filter((r) => plannedAction(r) === "UPDATE").length;
+    const planSkip = active.filter((r) => plannedAction(r) === "SKIP").length;
     setConfirming(true); setError(null); setMsg(null);
     const confirmationKey = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${batch.id}-${Date.now()}`;
     try {
@@ -195,9 +230,13 @@ export default function PurificationImportScreen({ year }: { year: number }) {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? "確認失敗");
-      const ok = (data.results ?? []).filter((r: { ok: boolean }) => r.ok).length;
-      const fail = (data.results ?? []).length - ok;
-      setMsg(data.deduplicated ? "此批次先前已確認（重送已忽略）。" : `確認完成：成功 ${ok} 列、失敗 ${fail} 列。`);
+      const fail = (data.results ?? []).filter((r: { ok: boolean }) => !r.ok).length;
+      if (data.deduplicated) {
+        setMsg("此批次先前已確認（重送已忽略）。");
+      } else {
+        const parts = [`已成功建立 ${planCreate} 筆`, `更新 ${planUpdate} 筆`, `略過 ${planSkip} 筆`];
+        setMsg(parts.join("、") + (fail > 0 ? `（另有 ${fail} 筆失敗，請檢視錯誤）` : "。"));
+      }
       await reload(batch.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "確認失敗");
@@ -210,12 +249,14 @@ export default function PurificationImportScreen({ year }: { year: number }) {
   const rows = batch?.rows ?? [];
   const shown = rows.filter((r) => filter === "ALL" ? true : filter === "EXCLUDED" ? r.excluded : r.matchingStatus === filter && !r.excluded);
 
-  // 確認統計：目前已選＝未排除、未建立的列；確認後建立＝真正可建立（對齊後端）的列。
-  const selectedCount = rows.filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
-  const willCreateCount = rows.filter((r) => isBuildable(r)).length;
+  // V15R7.1：底部統計依「目前使用者選擇」即時分類——已存在／略過不算入建立數。
+  const activeRows = rows.filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED");
+  const createCount = activeRows.filter((r) => plannedAction(r) === "CREATE").length;
+  const updateCount = activeRows.filter((r) => plannedAction(r) === "UPDATE").length;
+  const skipCount = activeRows.filter((r) => plannedAction(r) === "SKIP").length;
+  const errorCount = activeRows.filter((r) => plannedAction(r) === "FIX").length;
+  const actionableCount = createCount + updateCount + skipCount; // 有可處理的列才允許確認
   const newSelectableCount = rows.filter((r) => r.matchingStatus === "NEW" && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
-  // V15R7：DB 已存在且處理方式為略過的列數（預設 SKIP）。
-  const skipCount = rows.filter((r) => r.existingMatchStatus === "EXISTS" && (r.resolutionAction ?? "SKIP") === "SKIP" && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -301,13 +342,18 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                 <div key={r.id} className={`rounded-2xl p-3 shadow-soft ${r.excluded ? "bg-cream-200/50" : "bg-white/70"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium text-ink">#{r.rowNumber}｜{d.tabletName || d.devoteeName || "（未填牌位姓名）"}</span>
+                    {/* V15R7.1：徽章精簡——已配對／待建立／已建立／已存在；重複等原因改放下方說明。 */}
                     <span className="flex flex-wrap items-center gap-1">
-                      {r.existingMatchStatus && r.existingMatchStatus !== "NONE" && (
-                        <span className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">{EXISTING_LABEL[r.existingMatchStatus] ?? r.existingMatchStatus}</span>
+                      {rowMatched(r) && r.confirmationStatus !== "CONFIRMED" && (
+                        <span className="rounded-full bg-mist-100 px-2 py-0.5 text-xs text-ink-soft">已配對</span>
                       )}
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${r.confirmationStatus === "CONFIRMED" ? "bg-sage-200" : r.confirmationStatus === "FAILED" ? "bg-blossom-200" : "bg-mist-100"} text-ink-soft`}>
-                        {zh(r.matchingStatus)}{r.confirmationStatus !== "PENDING" ? `／${zh(r.confirmationStatus)}` : ""}
-                      </span>
+                      {r.existingMatchStatus === "EXISTS" && (
+                        <span className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">已存在</span>
+                      )}
+                      {(() => {
+                        const s = rowStage(r);
+                        return s ? <span className={`rounded-full px-2 py-0.5 text-xs ${s.tone}`}>{s.label}</span> : null;
+                      })()}
                     </span>
                   </div>
 
@@ -345,7 +391,15 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                     );
                   })()}
 
-                  {r.issueMessages && r.issueMessages.length > 0 && <p className="mt-1 text-xs text-ink-faint">依據/問題：{r.issueMessages.join("；")}</p>}
+                  {/* V15R7.1：重複／同名不同址／待處理原因改以說明文字呈現（不再擠成徽章）。 */}
+                  {(() => {
+                    const notes: string[] = [];
+                    if (r.matchingStatus === "DUPLICATE") notes.push("同批重複列（內容完全一致）");
+                    if (r.existingMatchStatus === "SAME_NAME_DIFF_ADDR") notes.push("同名不同址，視為不同牌位");
+                    if (r.confirmationStatus !== "CONFIRMED" && plannedAction(r) === "FIX" && !["MATCHED", "NEW", "DUPLICATE"].includes(r.matchingStatus)) notes.push(`${zh(r.matchingStatus)}：請先指定正確信眾／家戶`);
+                    if (r.issueMessages && r.issueMessages.length > 0) notes.push(...r.issueMessages);
+                    return notes.length > 0 ? <p className="mt-1 text-xs text-ink-faint">說明：{notes.join("；")}</p> : null;
+                  })()}
                   {r.errorMessage && <p className="mt-1 text-xs text-blossom-500">錯誤：{r.errorMessage}</p>}
                   {canWrite && r.confirmationStatus !== "CONFIRMED" && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -369,21 +423,21 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                       <button onClick={() => patchRow(r.id, { excluded: !r.excluded })} className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft min-h-[40px]">
                         {r.excluded ? "恢復此列" : "排除此列"}
                       </button>
-                      {/* V15R7：祖先/正魂——是否同步家戶永久名單（預設勾）。 */}
+                      {/* V15R7.1：同步永久名單——只在歷代祖先／乙位正魂顯示（冤親／白米／贊普不顯示）。 */}
                       {(d.tabletCategory === "ANCESTOR_LINE" || d.tabletCategory === "INDIVIDUAL_SOUL") && (
-                        <label className="flex items-center gap-1 text-xs text-ink-soft">
+                        <label className="flex items-center gap-1.5 rounded-full bg-sage-50 px-2.5 py-1 text-xs text-ink">
                           <input type="checkbox" className="h-5 w-5" checked={r.syncToHousehold !== false} onChange={(e) => patchRow(r.id, { syncToHousehold: e.target.checked })} />
-                          同步永久名單
+                          同步加入家戶永久名單
                         </label>
                       )}
-                      {/* V15R7：DB 已存在同一牌位——預設略過，僅使用者明確選擇才更新（不默默覆蓋）。 */}
+                      {/* V15R7.1：已存在同一牌位——預設略過，僅明確選擇才更新既有（不默默覆蓋）。文字簡單明確。 */}
                       {r.existingMatchStatus === "EXISTS" && (
                         <label className="flex items-center gap-1 text-xs text-ink-soft">
                           處理方式
                           <select value={r.resolutionAction ?? "SKIP"} onChange={(e) => patchRow(r.id, { resolutionAction: e.target.value })}
                             className="rounded-lg border border-cream-200 px-2 py-1 text-xs min-h-[40px]">
-                            <option value="SKIP">已存在，略過</option>
-                            <option value="UPDATE">更新既有牌位</option>
+                            <option value="SKIP">略過</option>
+                            <option value="UPDATE">更新既有資料</option>
                           </select>
                         </label>
                       )}
@@ -396,30 +450,29 @@ export default function PurificationImportScreen({ year }: { year: number }) {
             {shown.length === 0 && <p className="p-4 text-center text-sm text-ink-faint">沒有符合條件的列。</p>}
           </div>
 
-          {/* 確認區塊：目前已選 / 確認後建立（confirmationKey 防連點） */}
+          {/* 確認區塊：即時統計＋送出前摘要（confirmationKey 防連點） */}
           {canWrite && (
-            <div className="sticky bottom-0 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-3xl bg-white/90 p-4 shadow-card backdrop-blur">
-              <div className="flex flex-col">
-                <span className="text-xs text-ink-faint">目前已選</span>
-                <span className="text-lg text-ink">{selectedCount} 筆</span>
+            <div className="sticky bottom-0 flex flex-col gap-3 rounded-3xl bg-white/90 p-4 shadow-card backdrop-blur">
+              {/* V15R7.1：依目前選擇即時統計。已存在／略過不算入建立數。 */}
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-center">
+                <Stat label="可建立" value={`${createCount} 筆`} tone="text-sage-500" />
+                <Stat label="將更新" value={`${updateCount} 筆`} tone="text-mist-300" />
+                <Stat label="將略過" value={`${skipCount} 筆`} tone="text-ink-soft" />
+                <Stat label="錯誤" value={`${errorCount} 筆`} tone={errorCount > 0 ? "text-blossom-500" : "text-ink-soft"} />
+                <Stat label="預估應收" value="依正式單價，確認後計算" tone="text-ink-soft" />
+                <Stat label="已收" value="固定 0 元" tone="text-ink-soft" />
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs text-ink-faint">確認後建立</span>
-                <span className="text-lg text-ink">{willCreateCount} 筆</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-xs leading-relaxed text-ink-soft">
+                  本次將：建立 <b className="text-ink">{createCount}</b> 筆、更新 <b className="text-ink">{updateCount}</b> 筆、略過 <b className="text-ink">{skipCount}</b> 筆
+                  {errorCount > 0 && <span className="text-blossom-500">（尚有 {errorCount} 筆需先處理）</span>}
+                </div>
+                <button onClick={confirm} disabled={confirming || actionableCount === 0} className={`${btn} bg-blossom-200 text-ink`}>
+                  {confirming ? "確認中…" : "確認並正式建立"}
+                </button>
+                {actionableCount === 0 && batch.status === "CONFIRMED" && <span className="text-xs text-sage-500">此批次已全部確認完成。</span>}
+                {actionableCount === 0 && batch.status !== "CONFIRMED" && <span className="text-xs text-ink-faint">目前沒有可處理的列（請先配對或勾選建立新信眾）。</span>}
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs text-ink-faint">將略過（已存在）</span>
-                <span className="text-lg text-ink">{skipCount} 筆</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs text-ink-faint">已收</span>
-                <span className="text-lg text-ink">固定 0 元</span>
-              </div>
-              <button onClick={confirm} disabled={confirming || willCreateCount === 0} className={`${btn} bg-blossom-200 text-ink`}>
-                {confirming ? "確認中…" : "確認並正式建立"}
-              </button>
-              {willCreateCount === 0 && batch.status === "CONFIRMED" && <span className="text-xs text-sage-500">此批次已全部確認完成。</span>}
-              {willCreateCount === 0 && batch.status !== "CONFIRMED" && <span className="text-xs text-ink-faint">目前沒有可建立的列（請先配對或勾選建立新信眾）。</span>}
             </div>
           )}
         </>

@@ -61,13 +61,21 @@ test("範本下載 route 存在；rows route 接受 syncToHousehold/resolutionAc
   assert.ok(rows.includes("syncToHousehold") && rows.includes("resolutionAction"), "rows route 接受新旗標");
 });
 
-test("預檢 UI：範本下載、同步勾選、既有徽章、處理方式選擇、已收固定 0", () => {
+test("預檢 UI（V15R7.1）：範本下載、同步勾選、狀態流程、統計、處理方式、送出摘要", () => {
   const ui = read("src/components/universal-salvation/PurificationImportScreen.tsx");
   assert.ok(ui.includes("下載範本"), "有下載範本");
-  assert.ok(ui.includes("同步永久名單"), "祖先/正魂同步勾選");
-  assert.ok(ui.includes("EXISTING_LABEL"), "既有牌位徽章");
-  assert.ok(ui.includes("更新既有牌位") && ui.includes("已存在，略過"), "處理方式選擇");
+  assert.ok(ui.includes("同步加入家戶永久名單"), "祖先/正魂同步勾選（文字明確）");
+  // 狀態流程：已配對 → 待建立 → 已建立；未確認前不得顯示已建立（僅 CONFIRMED 才回傳已建立徽章）。
+  assert.ok(ui.includes('"待建立"') && ui.includes('"已配對"') && ui.includes('"已建立"'), "狀態流程徽章");
+  assert.ok(/confirmationStatus === "CONFIRMED"\) return \{ label: "已建立"/.test(ui), "未確認前不顯示已建立");
+  // 處理方式：略過／更新既有資料。
+  assert.ok(ui.includes("更新既有資料"), "處理方式：更新既有資料");
+  // 底部統計：可建立／將更新／將略過／錯誤／已收固定 0；已存在不算入建立數。
+  assert.ok(ui.includes("可建立") && ui.includes("將更新") && ui.includes("將略過") && ui.includes("錯誤"), "底部統計分類");
   assert.ok(ui.includes("固定 0 元"), "已收固定 0");
+  // 送出前摘要 + 完成提示（建立/更新/略過）。
+  assert.ok(ui.includes("本次將：建立"), "送出前摘要");
+  assert.ok(ui.includes("已成功建立"), "完成提示含建立/更新/略過");
 });
 
 test("效能：唯讀與決策移出交易、SKIP 不開交易、record 預建；交易內只留寫入", () => {
