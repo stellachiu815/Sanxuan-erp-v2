@@ -16,6 +16,9 @@ export function middleware(request: NextRequest) {
   // 不能被導向 /login 的 HTML）、Next 靜態資源。
   if (
     pathname === "/login" ||
+    // 公開法務頁（隱私權政策／使用條款）：Google OAuth 驗證要求免登入即可存取。
+    pathname === "/privacy" ||
+    pathname === "/terms" ||
     pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico"
