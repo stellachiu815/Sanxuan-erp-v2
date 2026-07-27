@@ -13,8 +13,22 @@ import { consumePendingOAuthState } from "@/lib/oauthStateStore";
  * 導頁行為，不是給前端 fetch() 呼叫的 API）。
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = request.nextUrl;
-  const redirectBase = `${origin}/system-center/google-drive`;
+  const { searchParams } = request.nextUrl;
+
+  // 導回網址一律以「公開站台 origin」為基底，由 GOOGLE_OAUTH_REDIRECT_URI 推導；
+  // 不使用 request.nextUrl.origin（Render 內部埠會得到 http://localhost:10000）。
+  // 若環境變數缺失或格式錯誤，回傳明確伺服器錯誤，絕不 fallback 到 localhost。
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  let redirectBase: string;
+  try {
+    if (!redirectUri) throw new Error("GOOGLE_OAUTH_REDIRECT_URI 未設定");
+    redirectBase = `${new URL(redirectUri).origin}/system-center/google-drive`;
+  } catch {
+    return NextResponse.json(
+      { error: "伺服器設定錯誤：GOOGLE_OAUTH_REDIRECT_URI 未設定或格式不正確，無法決定授權完成後的導回網址，請聯絡系統管理員。" },
+      { status: 500 }
+    );
+  }
 
   const error = searchParams.get("error");
   if (error) {
