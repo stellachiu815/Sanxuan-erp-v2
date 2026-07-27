@@ -87,8 +87,12 @@ test("20/21. 所有寫入路由 session operator＋權限（analyze/patch/confir
 });
 
 test("UI 入口實際可到達：活動頁有 Excel 匯入連結；import 頁 render 匯入畫面", () => {
+  // V18：匯入連結移入活動管理頁所渲染的 ActivityFlowHub（活動整合導覽）元件，
+  // 活動頁仍會 render 該 hub，入口依舊可到達。
   const act = read("src/app/activities/[id]/page.tsx");
-  assert.equal(/universal-salvation\/\$\{eventPricing\.year\}\/import/.test(act), true, "活動頁有匯入入口連結");
+  assert.equal(act.includes("<ActivityFlowHub"), true, "活動頁 render 活動整合導覽（含匯入入口）");
+  const hub = read("src/components/activities/ActivityFlowHub.tsx");
+  assert.equal(/universal-salvation\/\$\{year\}\/import/.test(hub), true, "整合導覽含普渡匯入入口連結");
   const page = read("src/app/universal-salvation/[year]/import/page.tsx");
   assert.equal(page.includes("<PurificationImportScreen"), true, "import 頁實際 render 匯入畫面");
 });

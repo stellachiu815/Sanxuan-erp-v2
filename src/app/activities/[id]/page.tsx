@@ -3,11 +3,13 @@ import Link from "next/link";
 import { getTempleEventHome } from "@/lib/templeEvents";
 import { listGenericParticipants, listTempleEventExpenses } from "@/lib/templeEvents";
 import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
+import ActivityFlowHub from "@/components/activities/ActivityFlowHub";
 import PocketPriceCard from "@/components/activities/PocketPriceCard";
 import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
 import TabletPriceCard from "@/components/activities/TabletPriceCard";
 import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
+import { REGISTRATION_ITEM_SEED } from "@/lib/registrationItems";
 import { prisma } from "@/lib/prisma";
 
 export default async function ActivityHomePage({
@@ -38,6 +40,10 @@ export default async function ActivityHomePage({
     select: {
       activityType: true,
       year: true,
+      name: true,
+      status: true,
+      isArchived: true,
+      isCompleted: true,
       pocketUnitPrice: true,
       sponsorUnitPrice: true,
       ancestorUnitPrice: true,
@@ -46,6 +52,13 @@ export default async function ActivityHomePage({
       wuyuanUnitPrice: true,
     },
   });
+
+  // V18：這個活動底下的報名項目（總名單逐項連結用）。以 REGISTRATION_ITEM_SEED 的
+  // activityGroup 對應主活動類型（UNIVERSAL_SALVATION／ANNUAL_LANTERN／TEMPLE_CELEBRATION／
+  // STORAGE_REPAYMENT），不靠活動名稱硬寫死；靜態種子，不需查資料庫。
+  const flowItems = eventPricing
+    ? REGISTRATION_ITEM_SEED.filter((s) => s.activityGroup === eventPricing.activityType).map((s) => ({ key: s.key, name: s.name }))
+    : [];
   const rawPocketPrice = eventPricing?.pocketUnitPrice
     ? Number(eventPricing.pocketUnitPrice)
     : null;
@@ -71,6 +84,21 @@ export default async function ActivityHomePage({
       </header>
 
       <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
+        {/* V18：活動整合導覽——所有活動類型都串接報名／收款／列印／總名單（含匯入，普渡），
+            取代原本只有普渡才有的硬寫死列印／匯入連結。封存／完成活動仍顯示（查詢用途）。 */}
+        {eventPricing && (
+          <ActivityFlowHub
+            templeEventId={id}
+            year={eventPricing.year}
+            activityType={eventPricing.activityType}
+            activityName={eventPricing.name}
+            status={eventPricing.status}
+            isArchived={eventPricing.isArchived}
+            isCompleted={eventPricing.isCompleted}
+            items={flowItems}
+          />
+        )}
+
         {eventPricing?.activityType === "UNIVERSAL_SALVATION" && (
           <>
             <PocketPriceCard
@@ -91,20 +119,6 @@ export default async function ActivityHomePage({
             />
             {/* V14.4：白米年度配額設定＋即時摘要（沿用同一年度活動設定頁，不另建設定中心）。 */}
             <WhiteRicePanel templeEventId={id} year={eventPricing.year} />
-            {/* V14.4：普渡列印中心入口（牌位／寶袋列印物件；沿用既有跨家戶列印中心）。 */}
-            <Link
-              href={`/universal-salvation/${eventPricing.year}/print-center`}
-              className="rounded-3xl bg-white/70 p-4 text-sm text-ink-soft shadow-card hover:bg-white"
-            >
-              🖨 普渡列印中心（牌位／寶袋，確認完成列印）→
-            </Link>
-            {/* V14.4 Part 6B：普渡 Excel 匯入入口（沿用普渡年度，不建第二個活動中心）。 */}
-            <Link
-              href={`/universal-salvation/${eventPricing.year}/import`}
-              className="rounded-3xl bg-white/70 p-4 text-sm text-ink-soft shadow-card hover:bg-white"
-            >
-              📥 從 Excel 匯入普渡報名（上傳→預檢→草稿→確認）→
-            </Link>
           </>
         )}
 
