@@ -31,8 +31,30 @@ import { registerRice } from "@/lib/whiteRiceService";
 import { createHousehold } from "@/lib/householdManagement";
 import { createMemberForHousehold } from "@/lib/memberCreate";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
+import { tabletIdentityKey, normalizeTabletText } from "@/lib/tabletIdentity";
+import { syncEntryToHouseholdWorshipRecord, isSyncableWorshipCategory } from "@/lib/householdWorshipSync";
 import type { Role } from "@/lib/whiteRice";
 import type { UniversalSalvationEntryCategory } from "@prisma/client";
+
+/** V15R7：需要建立 UniversalSalvationEntry（牌位）並納入 DB 去重的類別。 */
+const TABLET_CATEGORIES = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"]);
+/** V15R7：預設會同步家戶永久名單的類別（只有祖先／正魂）。 */
+const SYNCABLE_CATEGORIES = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL"]);
+
+/** V15R7：匯入列新增的每列旗標／DB 去重欄位（Prisma 生成型別更新前，以此型別讀寫）。 */
+type ImportRowExtra = {
+  syncToHousehold: boolean;
+  existingMatchStatus: string | null;
+  existingRecordId: string | null;
+  resolutionAction: string | null;
+};
+
+/** 這一列的牌位顯示名稱／類別（與 confirm 物化一致）。 */
+function rowTabletIdentity(n: NormalizedRow): { category: string; displayName: string } {
+  const category = n.tabletCategory ?? "ANCESTOR_LINE";
+  const displayName = n.tabletName ?? n.devoteeName ?? "牌位";
+  return { category, displayName };
+}
 
 type NormalizedRow = {
   householdCode: string | null;
@@ -156,8 +178,36 @@ export async function analyzePurificationImport(input: {
     : [];
   const householdCandidates = households.map((h) => ({ id: h.id, name: h.name, phone: h.phone ?? h.mobile ?? null, address: h.address ?? null }));
 
+  // V15R7：預取本批可能命中的家戶「本年度既有普渡牌位」，供 DB 去重（已存在略過／可更新；同名不同址不合併）。
+  const possibleHhIds = [...new Set<string>([...householdCodes, ...members.map((m) => m.householdId)])];
+  const existingEntries = possibleHhIds.length
+    ? await prisma.universalSalvationEntry.findMany({
+        where: { deletedAt: null, universalSalvation: { ritualRecord: { year: input.year, householdId: { in: possibleHhIds } } } },
+        select: { id: true, category: true, displayName: true, tabletAddress: true, universalSalvation: { select: { ritualRecord: { select: { householdId: true } } } } },
+      })
+    : [];
+  const existingByHh = new Map<string, { byKey: Map<string, string>; byCatName: Set<string> }>();
+  for (const e of existingEntries) {
+    const hh = e.universalSalvation?.ritualRecord?.householdId;
+    if (!hh) continue;
+    let bucket = existingByHh.get(hh);
+    if (!bucket) { bucket = { byKey: new Map(), byCatName: new Set() }; existingByHh.set(hh, bucket); }
+    bucket.byKey.set(tabletIdentityKey({ category: e.category, displayName: e.displayName, tabletAddress: e.tabletAddress }), e.id);
+    bucket.byCatName.add(`${e.category}::${normalizeTabletText(e.displayName)}`);
+  }
+  function existingMatchFor(hhId: string | null, n: NormalizedRow): { status: string; recordId: string | null } {
+    const { category, displayName } = rowTabletIdentity(n);
+    if (!hhId || !TABLET_CATEGORIES.has(category)) return { status: "NONE", recordId: null };
+    const bucket = existingByHh.get(hhId);
+    if (!bucket) return { status: "NONE", recordId: null };
+    const hit = bucket.byKey.get(tabletIdentityKey({ category, displayName, tabletAddress: n.tabletAddress }));
+    if (hit) return { status: "EXISTS", recordId: hit };
+    if (bucket.byCatName.has(`${category}::${normalizeTabletText(displayName)}`)) return { status: "SAME_NAME_DIFF_ADDR", recordId: null };
+    return { status: "NONE", recordId: null };
+  }
+
   const seen = new Set<string>();
-  const summary: Record<string, number> = { totalRows: rows.length, matchedCount: 0, newCount: 0, ambiguousCount: 0, conflictCount: 0, invalidCount: 0, duplicateCount: 0, confirmableCount: 0 };
+  const summary: Record<string, number> = { totalRows: rows.length, matchedCount: 0, newCount: 0, ambiguousCount: 0, conflictCount: 0, invalidCount: 0, duplicateCount: 0, confirmableCount: 0, existsCount: 0 };
 
   const created = await prisma.$transaction(async (tx) => {
     const batch = await tx.purificationImportBatch.create({
@@ -188,8 +238,20 @@ export async function analyzePurificationImport(input: {
 
       // matchedHouseholdId 由 classifyMatch 直接回傳（家戶編號一致或信眾所屬家戶）。
       const matchedHouseholdId = m.matchedHouseholdId ?? (m.matchedDevoteeId ? members.find((x) => x.id === m.matchedDevoteeId)?.householdId ?? null : null);
+
+      // V15R7：DB 去重＋每列旗標。已存在 → 預設 SKIP；否則 CREATE。祖先／正魂預設同步永久名單。
+      const ex = existingMatchFor(matchedHouseholdId, n);
+      if (ex.status === "EXISTS") summary.existsCount++;
+      const category = n.tabletCategory ?? "ANCESTOR_LINE";
+      const extra: ImportRowExtra = {
+        syncToHousehold: SYNCABLE_CATEGORIES.has(category),
+        existingMatchStatus: ex.status,
+        existingRecordId: ex.recordId,
+        resolutionAction: ex.status === "EXISTS" ? "SKIP" : "CREATE",
+      };
+
       await tx.purificationImportRow.create({
-        data: {
+        data: ({
           batchId: batch.id,
           rowNumber: i + 1,
           rawData: rows[i] as Prisma.InputJsonValue,
@@ -201,7 +263,8 @@ export async function analyzePurificationImport(input: {
           issueCodes: m.basis as Prisma.InputJsonValue,
           issueMessages: m.issues as Prisma.InputJsonValue,
           resolved: m.status === "MATCHED",
-        },
+          ...extra,
+        } as unknown as Prisma.PurificationImportRowUncheckedCreateInput),
       });
     }
 
@@ -247,6 +310,21 @@ export async function confirmPurificationImportBatch(input: {
     return { ok: false, status: 409, error: "此匯入批次已完成，請重新整理查看結果" };
   }
 
+  // ── V15R7 效能：批次層一次預建（逐列交易外），避免每列重做 ──
+  // 已明確配對到既有家戶且待確認的列，其今年普渡 RitualRecord 先在**逐列交易外**建立（冪等）。
+  // 讓每列 interactive transaction 不必再跑 createBlankUniversalSalvationRecord（省 3～4 個查詢／列，
+  // 遠端 DB 每個 round-trip 都昂貴，是 5000ms timeout 的主因）。新家戶的 record 於交易內才建。
+  const preResolvedHhIds = [
+    ...new Set(
+      batch.rows
+        .filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED" && r.matchedHouseholdId)
+        .map((r) => r.matchedHouseholdId as string)
+    ),
+  ];
+  for (const hhId of preResolvedHhIds) {
+    await createBlankUniversalSalvationRecord(hhId, batch.year).catch(() => null);
+  }
+
   const results: { rowNumber: number; ok: boolean; recordId?: string; error?: string }[] = [];
   for (const row of batch.rows) {
     if (row.excluded || row.confirmationStatus === "CONFIRMED") {
@@ -256,88 +334,140 @@ export async function confirmPurificationImportBatch(input: {
     const edited = (row.editedData ?? row.normalizedData) as unknown as NormalizedRow;
     const status = row.matchingStatus as MatchStatus;
     const resolvedDevoteeId = row.matchedDevoteeId;
-    if (!isRowConfirmable(status, resolvedDevoteeId, row.createNewDevoteeConfirmed)) {
-      results.push({ rowNumber: row.rowNumber, ok: false, error: "尚未解決匹配（AMBIGUOUS/CONFLICT/INVALID 或未確認建新）" });
+    // V15R7：牌位（祖先／正魂／無緣）通常只有牌位資料、沒有信眾——只要已明確配對到既有家戶
+    // （matchedHouseholdId）或已明確確認建立新家戶，即可確認建草稿（不需信眾）。
+    // 仍不放寬「未確認就自動建家戶／信眾」——沒有家戶且未確認建新，交易內會擋下並整列 rollback。
+    const rowConfirmable =
+      isRowConfirmable(status, resolvedDevoteeId, row.createNewDevoteeConfirmed) ||
+      !!row.matchedHouseholdId ||
+      row.createNewHouseholdConfirmed;
+    if (!rowConfirmable) {
+      results.push({ rowNumber: row.rowNumber, ok: false, error: "尚未解決匹配（請先指定既有家戶／信眾，或明確確認建立新家戶／新信眾）" });
       continue;
     }
+
+    const ext = row as unknown as ImportRowExtra;
+    const category = (edited.tabletCategory ?? "ANCESTOR_LINE") as UniversalSalvationEntryCategory;
+    const displayName = edited.tabletName ?? edited.devoteeName ?? "牌位";
+    const doSync = ext.syncToHousehold && isSyncableWorshipCategory(category);
+    const existingHouseholdId = row.matchedHouseholdId ?? null;
+
     try {
-      // ── 單列一個 transaction：任一步失敗整列 rollback，不留半套正式資料。
-      //    所有寫入 service 都傳同一個 tx（tx-aware）——新家戶/信眾/牌位/linked item/
-      //    TABLET・POCKET/白米/額外寶袋/贊普/應收/帳本/row 更新全在同一交易。
-      const recordId = await prisma.$transaction(async (tx) => {
-        // 交易內防重：重新讀 row，已 CONFIRMED 直接回既有結果、不重做。
-        const fresh = await tx.purificationImportRow.findUnique({ where: { id: row.id }, select: { confirmationStatus: true, confirmedRecordId: true } });
-        if (fresh?.confirmationStatus === "CONFIRMED") return fresh.confirmedRecordId ?? "";
-
-        // 1) 家戶：既有優先；否則明確確認才建（共用 createHousehold，同一 tx）。
-        let householdId = row.matchedHouseholdId ?? null;
-        let memberId = resolvedDevoteeId ?? null;
-        if (!householdId) {
-          if (!row.createNewHouseholdConfirmed) throw new Error("尚未指定家戶，且未明確確認建立新家戶");
-          const hh = await createHousehold(
-            { name: edited.householdName ?? edited.devoteeName ?? "匯入家戶", contactName: edited.primaryContact ?? null, address: edited.address ?? null, phone: edited.phone ?? null, companyName: edited.companyName ?? null },
-            input.actor.name, tx
-          );
-          householdId = hh.household.id;
-        }
-        // 信眾：既有優先；否則明確確認才建（共用 createMemberForHousehold，同一 tx）。
-        if (!memberId && row.createNewDevoteeConfirmed && edited.devoteeName) {
-          const mem = await createMemberForHousehold(householdId, { name: edited.devoteeName }, input.actor.name, "Excel 匯入：新增信眾", tx);
-          memberId = mem.member.id;
-        }
-
-        // 2) 今年 record（DRAFT）＋牌位（共用核心，同一 tx）。
-        await createBlankUniversalSalvationRecord(householdId, batch.year, tx).catch(() => null);
-        const displayName = edited.tabletName ?? edited.devoteeName ?? "牌位";
-        // 牌位地址：套用 preview／commit 同一套優先序（Excel該筆→配對信眾/家戶地址），
-        // 把解析結果「寫入」正式資料（不再只顯示於 preview）。缺地址→null，保留草稿其餘欄位，
-        // 由 completeness gate 於正式確認/列印時擋；每一筆牌位各自保存自己的 tabletAddress。
-        const hhForAddr = await tx.household.findUnique({ where: { id: householdId }, select: { address: true } });
-        const resolvedTabletAddress = resolveImportAddress({
+      // ══ Phase A（interactive transaction 外，純唯讀）：地址解析＋DB 去重決策 ══
+      // 只在家戶已知（既有配對）時可先算；需建新家戶的列，家戶於交易內才建立、其既有牌位必為空（→ CREATE）。
+      let precomputedAddress: string | null = null;
+      let decisionHit: { id: string; ritualRecordId: string } | null = null;
+      if (existingHouseholdId) {
+        const hhAddr = (await prisma.household.findUnique({ where: { id: existingHouseholdId }, select: { address: true } }))?.address ?? null;
+        precomputedAddress = resolveImportAddress({
           rowTabletAddress: edited.tabletAddress ?? null,
           rowAddress: edited.address ?? null,
-          matchedHouseholdAddress: hhForAddr?.address ?? null,
-          devoteeHouseholdAddress: hhForAddr?.address ?? null,
+          matchedHouseholdAddress: hhAddr,
+          devoteeHouseholdAddress: hhAddr,
         }).address;
-        const entryRes = await createUniversalSalvationEntry(
-          householdId, batch.year,
-          {
-            category: (edited.tabletCategory ?? "ANCESTOR_LINE") as UniversalSalvationEntryCategory,
-            displayName, yangshangNames: edited.yangshangNames ?? [], tabletAddress: resolvedTabletAddress,
-            notes: edited.note ?? null, linkedItemMemberId: memberId ?? null,
-          },
-          input.actor.name, tx
-        );
-        if (!entryRes.ok) throw new Error(entryRes.error);
-        const ritualRecordId = entryRes.record.id;
-        const newEntry = await tx.universalSalvationEntry.findFirst({
-          where: { universalSalvation: { ritualRecordId }, displayName, deletedAt: null },
-          orderBy: { createdAt: "desc" }, select: { id: true },
-        });
-
-        // 3) 白米（只用草稿斤數；價/配額/超額由 registerRice 依今年重算，同一 tx）。
-        if (edited.riceKg && edited.riceKg > 0) {
-          const rice = await registerRice({ ritualRecordId, memberId: memberId ?? null, kg: edited.riceKg, overageReason: null }, input.actor, tx);
-          if (!rice.ok) throw new Error(`白米：${rice.error}`);
+        if (TABLET_CATEGORIES.has(category)) {
+          const sameCat = await prisma.universalSalvationEntry.findMany({
+            where: { deletedAt: null, category, universalSalvation: { ritualRecord: { householdId: existingHouseholdId, year: batch.year } } },
+            select: { id: true, displayName: true, tabletAddress: true, universalSalvation: { select: { ritualRecordId: true } } },
+          });
+          const wantKey = tabletIdentityKey({ category, displayName, tabletAddress: precomputedAddress });
+          const e = sameCat.find((x) => tabletIdentityKey({ category, displayName: x.displayName, tabletAddress: x.tabletAddress }) === wantKey);
+          if (e) decisionHit = { id: e.id, ritualRecordId: e.universalSalvation?.ritualRecordId ?? "" };
         }
+      }
+      // V15R7：處理語意明確分開（不用「預設 SKIP 再猜」）：
+      //   無既有同一牌位（NONE／同名不同址）→ CREATE；有既有 → 預設 SKIP，僅明確 UPDATE 才更新。
+      const action: "CREATE" | "UPDATE" | "SKIP" = !decisionHit ? "CREATE" : ext.resolutionAction === "UPDATE" ? "UPDATE" : "SKIP";
 
-        // 4) 額外寶袋（isExtra=true，共用 createAdditionalPrintItem，同一 tx）。
-        if (edited.extraPocketCount > 0 && newEntry) {
-          const p = await createAdditionalPrintItem(
-            householdId, batch.year, newEntry.id,
-            { itemType: "POCKET", usesSourceName: true, quantity: edited.extraPocketCount, isExtra: true, isChargeable: true },
+      // ══ SKIP：已存在且未選更新 → 不需 interactive transaction，只更新草稿列（單一寫入）══
+      if (action === "SKIP") {
+        await prisma.purificationImportRow.update({
+          where: { id: row.id },
+          data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, resolved: true, errorMessage: null, existingMatchStatus: "EXISTS", existingRecordId: decisionHit!.id, resolutionAction: "SKIP" } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),
+        });
+        results.push({ rowNumber: row.rowNumber, ok: true, recordId: decisionHit!.ritualRecordId });
+        continue;
+      }
+
+      // ══ Phase B（interactive transaction，只保留真正需要 ACID 的寫入）══
+      const recordId = await prisma.$transaction(
+        async (tx) => {
+          // 交易內防重：已 CONFIRMED 直接回既有結果、不重做（與批次鎖定雙重保護，避免重入重複物化）。
+          const fresh = await tx.purificationImportRow.findUnique({ where: { id: row.id }, select: { confirmationStatus: true, confirmedRecordId: true } });
+          if (fresh?.confirmationStatus === "CONFIRMED") return fresh.confirmedRecordId ?? "";
+
+          // 家戶：既有優先；否則明確確認才建（同一 tx）。
+          let householdId = existingHouseholdId;
+          let memberId = resolvedDevoteeId ?? null;
+          let resolvedTabletAddress = precomputedAddress;
+          if (!householdId) {
+            if (!row.createNewHouseholdConfirmed) throw new Error("尚未指定家戶，且未明確確認建立新家戶");
+            const hh = await createHousehold(
+              { name: edited.householdName ?? edited.devoteeName ?? "匯入家戶", contactName: edited.primaryContact ?? null, address: edited.address ?? null, phone: edited.phone ?? null, companyName: edited.companyName ?? null },
+              input.actor.name, tx
+            );
+            householdId = hh.household.id;
+            // 新家戶：其今年 record 交易外未預建，於交易內建立；地址＝Excel 該列地址。
+            await createBlankUniversalSalvationRecord(householdId, batch.year, tx).catch(() => null);
+            resolvedTabletAddress = resolveImportAddress({ rowTabletAddress: edited.tabletAddress ?? null, rowAddress: edited.address ?? null, matchedHouseholdAddress: edited.address ?? null, devoteeHouseholdAddress: edited.address ?? null }).address;
+          }
+          // 信眾：既有優先；否則明確確認才建（同一 tx）。
+          if (!memberId && row.createNewDevoteeConfirmed && edited.devoteeName) {
+            const mem = await createMemberForHousehold(householdId, { name: edited.devoteeName }, input.actor.name, "Excel 匯入：新增信眾", tx);
+            memberId = mem.member.id;
+          }
+
+          if (action === "UPDATE") {
+            // 使用者明確更新既有牌位：只更新牌位欄位，不重建寶袋/白米/贊普以免重複。
+            await tx.universalSalvationEntry.update({
+              where: { id: decisionHit!.id },
+              data: { displayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], yangshangName: edited.yangshangNames?.[0] ?? null, notes: edited.note ?? null },
+            });
+            if (doSync) await syncEntryToHouseholdWorshipRecord(tx, { householdId, category, displayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], operatorName: input.actor.name });
+            await tx.purificationImportRow.update({
+              where: { id: row.id },
+              data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, matchedHouseholdId: householdId, matchedDevoteeId: memberId, resolved: true, errorMessage: null } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),
+            });
+            return decisionHit!.ritualRecordId;
+          }
+
+          // CREATE：共用核心（祖先/正魂依 syncToHousehold 於同一交易同步永久名單並回填 worshipRecordId）。
+          const entryRes = await createUniversalSalvationEntry(
+            householdId, batch.year,
+            { category, displayName, yangshangNames: edited.yangshangNames ?? [], tabletAddress: resolvedTabletAddress, notes: edited.note ?? null, linkedItemMemberId: memberId ?? null, syncToHousehold: doSync },
             input.actor.name, tx
           );
-          if (!p.ok) throw new Error(`額外寶袋：${p.error}`);
-        }
+          if (!entryRes.ok) throw new Error(entryRes.error);
+          const ritualRecordId = entryRes.record.id;
+          // 額外寶袋需要 entry id；僅有額外寶袋時才查（一般祖先/正魂列 extraPocketCount=0，不查）。
+          const newEntry = edited.extraPocketCount > 0
+            ? await tx.universalSalvationEntry.findFirst({ where: { universalSalvation: { ritualRecordId }, displayName, deletedAt: null }, orderBy: { createdAt: "desc" }, select: { id: true } })
+            : null;
 
-        // 5) 贊普／隨喜贊普（共用 RitualRegistrationItem＋receivableAdapters，同一 tx）。
-        await materializeSponsors(ritualRecordId, memberId, batch.templeEventId, edited, input.actor.name, tx);
+          // 白米（只用草稿斤數；價/配額由 registerRice 依今年重算）。
+          if (edited.riceKg && edited.riceKg > 0) {
+            const rice = await registerRice({ ritualRecordId, memberId: memberId ?? null, kg: edited.riceKg, overageReason: null }, input.actor, tx);
+            if (!rice.ok) throw new Error(`白米：${rice.error}`);
+          }
+          // 額外寶袋（isExtra=true，共用 createAdditionalPrintItem）。
+          if (edited.extraPocketCount > 0 && newEntry) {
+            const p = await createAdditionalPrintItem(
+              householdId, batch.year, newEntry.id,
+              { itemType: "POCKET", usesSourceName: true, quantity: edited.extraPocketCount, isExtra: true, isChargeable: true },
+              input.actor.name, tx
+            );
+            if (!p.ok) throw new Error(`額外寶袋：${p.error}`);
+          }
+          // 贊普／隨喜贊普（共用 RitualRegistrationItem；一律 DRAFT、amountPaid=0）。
+          await materializeSponsors(ritualRecordId, memberId, batch.templeEventId, edited, input.actor.name, tx);
 
-        // 6) row 標成功（同一 tx；失敗會連同上面全部 rollback，不會留半套）。
-        await tx.purificationImportRow.update({ where: { id: row.id }, data: { confirmationStatus: "CONFIRMED", confirmedRecordId: ritualRecordId, matchedHouseholdId: householdId, matchedDevoteeId: memberId, resolved: true, errorMessage: null } });
-        return ritualRecordId;
-      });
+          await tx.purificationImportRow.update({ where: { id: row.id }, data: { confirmationStatus: "CONFIRMED", confirmedRecordId: ritualRecordId, matchedHouseholdId: householdId, matchedDevoteeId: memberId, resolved: true, errorMessage: null } });
+          return ritualRecordId;
+        },
+        // 已把唯讀（地址/去重/決策）與 record 預建移出交易；交易內只剩必要寫入。仍給合理上限
+        // 以容忍遠端 DB 高延遲下的多筆寫入（與本專案其他多筆寫入交易相同上限），非以 timeout 掩蓋。
+        { timeout: 20000, maxWait: 15000 }
+      );
       results.push({ rowNumber: row.rowNumber, ok: true, recordId });
     } catch (e) {
       // transaction 已整列 rollback（無正式殘留）；transaction 外把 row 標 FAILED 供修正後重試。
@@ -386,9 +516,11 @@ async function materializeSponsors(
       data: {
         ritualRecordId, registrationItemTypeId: sponsorType.id, memberId: memberId ?? null,
         quantity: qty, feeChoice: "FIXED",
+        // V15R7：匯入一律建**草稿**、amountPaid=0（Prisma 預設）、不建收款交易、不進已收；
+        // 由操作人員之後手動確認報名／收費才進帳本。
         amountDue: new Prisma.Decimal(amount), amountUnpaid: new Prisma.Decimal(amount),
         lockedUnitPrice: sponsorUnit !== null ? new Prisma.Decimal(sponsorUnit) : null,
-        customName, status: "CONFIRMED",
+        customName, status: "DRAFT",
       },
     });
     await recordVersion({ entityType: "RitualRegistrationItem", entityId: item.id, action: "CREATE", afterData: item, operatorName, changeNote: "Excel 匯入：贊普" }, db);
@@ -399,8 +531,9 @@ async function materializeSponsors(
       data: {
         ritualRecordId, registrationItemTypeId: donationType.id, memberId: memberId ?? null,
         quantity: 1, feeChoice: "CUSTOM",
+        // V15R7：隨喜贊普可讀 Excel 隨喜金額，但一律建**草稿**、amountPaid=0、不進已收。
         amountDue: new Prisma.Decimal(amount), amountUnpaid: new Prisma.Decimal(amount),
-        customName, status: "CONFIRMED",
+        customName, status: "DRAFT",
       },
     });
     await recordVersion({ entityType: "RitualRegistrationItem", entityId: item.id, action: "CREATE", afterData: item, operatorName, changeNote: "Excel 匯入：隨喜贊普" }, db);

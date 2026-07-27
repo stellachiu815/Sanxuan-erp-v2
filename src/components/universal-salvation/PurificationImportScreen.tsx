@@ -46,6 +46,11 @@ type Row = {
   editedData: Record<string, unknown> | null;
   /** V15R2：讀時從信眾／家戶管理補齊的顯示資料。 */
   enrichment?: Enrichment;
+  /** V15R7：每列旗標與 DB 去重結果。 */
+  syncToHousehold?: boolean;
+  existingMatchStatus?: string | null;
+  existingRecordId?: string | null;
+  resolutionAction?: string | null;
 };
 
 /** 一列是否可正式建立（前端判斷，對齊後端 isRowConfirmable，避免顯示與按鈕不一致）。 */
@@ -98,8 +103,16 @@ function readRow(r: Row) {
     householdCode: nd.householdCode != null ? String(nd.householdCode) : "",
     householdName: nd.householdName != null ? String(nd.householdName) : "",
     phone: nd.phone != null ? String(nd.phone) : "",
+    tabletCategory: nd.tabletCategory != null ? String(nd.tabletCategory) : "",
   };
 }
+
+/** V15R7：DB 去重狀態中文。 */
+const EXISTING_LABEL: Record<string, string> = {
+  EXISTS: "已存在",
+  SAME_NAME_DIFF_ADDR: "同名不同址（視為不同牌位）",
+  NONE: "",
+};
 
 export default function PurificationImportScreen({ year }: { year: number }) {
   const { role, loading } = useCurrentUser();
@@ -201,13 +214,25 @@ export default function PurificationImportScreen({ year }: { year: number }) {
   const selectedCount = rows.filter((r) => !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
   const willCreateCount = rows.filter((r) => isBuildable(r)).length;
   const newSelectableCount = rows.filter((r) => r.matchingStatus === "NEW" && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
+  // V15R7：DB 已存在且處理方式為略過的列數（預設 SKIP）。
+  const skipCount = rows.filter((r) => r.existingMatchStatus === "EXISTS" && (r.resolutionAction ?? "SKIP") === "SKIP" && !r.excluded && r.confirmationStatus !== "CONFIRMED").length;
 
   return (
     <div className="flex flex-col gap-4">
       {/* 1. 上傳 */}
       <div className="rounded-3xl bg-white/70 p-4 shadow-card">
-        <h3 className="text-sm font-medium text-ink">從 Excel 匯入普渡報名</h3>
-        <p className="mt-1 text-xs text-ink-faint">上傳後只建立可編輯草稿，不會直接寫入正式報名；逐列確認後才正式建立。</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-ink">從 Excel 匯入普渡報名</h3>
+          <a
+            href={`/api/universal-salvation/${year}/import/template`}
+            className="rounded-full bg-cream-100 px-3 py-1.5 text-xs text-ink-soft hover:bg-cream-200"
+          >
+            ⬇ 下載範本
+          </a>
+        </div>
+        <p className="mt-1 text-xs text-ink-faint">
+          可直接沿用既有 Excel（表頭自動辨識）；上傳後只建立可編輯草稿、amountPaid 一律 0、不進已收，逐列確認後才正式建立。
+        </p>
         {canWrite ? (
           <>
             <label className="mt-3 block text-xs text-ink-soft">
@@ -276,8 +301,13 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                 <div key={r.id} className={`rounded-2xl p-3 shadow-soft ${r.excluded ? "bg-cream-200/50" : "bg-white/70"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium text-ink">#{r.rowNumber}｜{d.tabletName || d.devoteeName || "（未填牌位姓名）"}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${r.confirmationStatus === "CONFIRMED" ? "bg-sage-200" : r.confirmationStatus === "FAILED" ? "bg-blossom-200" : "bg-mist-100"} text-ink-soft`}>
-                      {zh(r.matchingStatus)}{r.confirmationStatus !== "PENDING" ? `／${zh(r.confirmationStatus)}` : ""}
+                    <span className="flex flex-wrap items-center gap-1">
+                      {r.existingMatchStatus && r.existingMatchStatus !== "NONE" && (
+                        <span className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">{EXISTING_LABEL[r.existingMatchStatus] ?? r.existingMatchStatus}</span>
+                      )}
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${r.confirmationStatus === "CONFIRMED" ? "bg-sage-200" : r.confirmationStatus === "FAILED" ? "bg-blossom-200" : "bg-mist-100"} text-ink-soft`}>
+                        {zh(r.matchingStatus)}{r.confirmationStatus !== "PENDING" ? `／${zh(r.confirmationStatus)}` : ""}
+                      </span>
                     </span>
                   </div>
 
@@ -339,6 +369,24 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                       <button onClick={() => patchRow(r.id, { excluded: !r.excluded })} className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft min-h-[40px]">
                         {r.excluded ? "恢復此列" : "排除此列"}
                       </button>
+                      {/* V15R7：祖先/正魂——是否同步家戶永久名單（預設勾）。 */}
+                      {(d.tabletCategory === "ANCESTOR_LINE" || d.tabletCategory === "INDIVIDUAL_SOUL") && (
+                        <label className="flex items-center gap-1 text-xs text-ink-soft">
+                          <input type="checkbox" className="h-5 w-5" checked={r.syncToHousehold !== false} onChange={(e) => patchRow(r.id, { syncToHousehold: e.target.checked })} />
+                          同步永久名單
+                        </label>
+                      )}
+                      {/* V15R7：DB 已存在同一牌位——預設略過，僅使用者明確選擇才更新（不默默覆蓋）。 */}
+                      {r.existingMatchStatus === "EXISTS" && (
+                        <label className="flex items-center gap-1 text-xs text-ink-soft">
+                          處理方式
+                          <select value={r.resolutionAction ?? "SKIP"} onChange={(e) => patchRow(r.id, { resolutionAction: e.target.value })}
+                            className="rounded-lg border border-cream-200 px-2 py-1 text-xs min-h-[40px]">
+                            <option value="SKIP">已存在，略過</option>
+                            <option value="UPDATE">更新既有牌位</option>
+                          </select>
+                        </label>
+                      )}
                       {r.resolved && !r.excluded && <span className="text-xs text-sage-500">✓ 可確認</span>}
                     </div>
                   )}
@@ -358,6 +406,14 @@ export default function PurificationImportScreen({ year }: { year: number }) {
               <div className="flex flex-col">
                 <span className="text-xs text-ink-faint">確認後建立</span>
                 <span className="text-lg text-ink">{willCreateCount} 筆</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs text-ink-faint">將略過（已存在）</span>
+                <span className="text-lg text-ink">{skipCount} 筆</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs text-ink-faint">已收</span>
+                <span className="text-lg text-ink">固定 0 元</span>
               </div>
               <button onClick={confirm} disabled={confirming || willCreateCount === 0} className={`${btn} bg-blossom-200 text-ink`}>
                 {confirming ? "確認中…" : "確認並正式建立"}

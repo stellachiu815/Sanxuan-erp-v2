@@ -28,6 +28,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (typeof body?.createNewHouseholdConfirmed === "boolean") data.createNewHouseholdConfirmed = body.createNewHouseholdConfirmed;
   if (typeof body?.excluded === "boolean") data.excluded = body.excluded;
   if (body?.editedData && typeof body.editedData === "object") data.editedData = body.editedData as Prisma.InputJsonValue;
+  // V15R7：每列旗標——是否同步家戶永久名單（祖先/正魂）、DB 去重的處理方式（CREATE/SKIP/UPDATE）。
+  const extra: Record<string, unknown> = {};
+  if (typeof body?.syncToHousehold === "boolean") extra.syncToHousehold = body.syncToHousehold;
+  if (body?.resolutionAction === "CREATE" || body?.resolutionAction === "SKIP" || body?.resolutionAction === "UPDATE") extra.resolutionAction = body.resolutionAction;
+  Object.assign(data, extra as unknown as Prisma.PurificationImportRowUpdateInput);
 
   // 若指定了正確信眾，狀態視為已解決（但「只有姓名相同」不會因此自動 MATCHED——
   // 這裡是「人工指定」而非自動比對，符合指令：不得因編輯其他欄位為空就自動 MATCHED）。

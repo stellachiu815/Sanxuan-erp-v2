@@ -3299,6 +3299,14 @@ model PurificationImportRow {
   /// 物化後可追溯的正式資料 id（ritualRecordId 或 entryId）。
   confirmedRecordId           String?
   errorMessage                String?                 @db.Text
+  /// V15R7：祖先／正魂匯入時是否同步家戶永久名單（WorshipRecord）。預設同步。
+  syncToHousehold             Boolean                 @default(true)
+  /// V15R7：與 DB 既有牌位的比對結果：NONE（無）/ EXISTS（已存在同一牌位）/ SAME_NAME_DIFF_ADDR（同名不同址，視為不同牌位）。
+  existingMatchStatus         String?
+  /// V15R7：EXISTS 時對應的既有 UniversalSalvationEntry id（供略過或更新）。
+  existingRecordId            String?
+  /// V15R7：處理方式：CREATE（建新）/ SKIP（已存在略過，預設）/ UPDATE（明確更新既有）。
+  resolutionAction            String?
   createdAt                   DateTime                @default(now())
   updatedAt                   DateTime                @updatedAt
 
