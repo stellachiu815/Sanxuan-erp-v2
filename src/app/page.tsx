@@ -35,6 +35,11 @@ import { canSystem, canFinance } from "@/lib/permissions";
  */
 export const dynamic = "force-dynamic";
 
+/** 首頁資訊卡串流時的過場骨架（不查資料，僅視覺占位）。 */
+function HomeCardSkeleton() {
+  return <section className="h-40 w-full max-w-5xl animate-pulse rounded-3xl bg-cream-100" />;
+}
+
 export default async function HomePage() {
   // V14.3：首頁受限入口依登入者角色顯示。一般模組（信眾／收款／活動／普渡／
   // 供品／模板／收據）維持所有已登入者可見（view 級）；「匯入」「系統管理」
@@ -117,10 +122,22 @@ export default async function HomePage() {
         沒有新增或修改這兩個模組本身，只是把既有卡片排序；如果這個對應
         不是你要的意思，請告訴我，我再依你的指示調整順序或對應關係。
       */}
+      {/*
+        V24 效能：Collection／Receipt／Offering 是會查資料庫的 async Server Component。
+        原本直接渲染會「阻塞」首頁 HTML（回首頁要等這三個摘要查完才顯示），是「回首頁很慢」
+        的主因。改為各自包 Suspense 串流：首頁外殼與快捷入口先出現，三張卡稍後補上，
+        不改任何查詢邏輯與資料正確性（沿用既有元件，不建第二套）。
+      */}
       <DevoteeCenterHomeCard />
-      <CollectionHomeCard />
-      <ReceiptHomeCard />
-      <OfferingHomeCard />
+      <Suspense fallback={<HomeCardSkeleton />}>
+        <CollectionHomeCard />
+      </Suspense>
+      <Suspense fallback={<HomeCardSkeleton />}>
+        <ReceiptHomeCard />
+      </Suspense>
+      <Suspense fallback={<HomeCardSkeleton />}>
+        <OfferingHomeCard />
+      </Suspense>
       <SystemCenterHomeCard />
       <div className="flex flex-wrap items-center justify-center gap-4">
         {showImport && (
