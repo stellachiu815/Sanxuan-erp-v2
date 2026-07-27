@@ -226,6 +226,23 @@ export default function EntryRow({
               </p>
             );
           })()}
+          {/* V15R6：逐筆清楚提示尚缺的必要欄位（草稿可先存，正式確認前補齊即可）。
+              祖先／乙位正魂需：牌位姓名＋陽上人＋牌位地址；冤親只需牌位姓名（不要求地址）。 */}
+          {(() => {
+            const names = initialNames(entry);
+            const missing: string[] = [];
+            if (!entry.displayName || !entry.displayName.trim()) missing.push("牌位姓名");
+            if (supportsYangshang) {
+              if (names.length === 0) missing.push("陽上人");
+              if (!entry.tabletAddress || !entry.tabletAddress.trim()) missing.push("牌位地址");
+            }
+            if (missing.length === 0) return null;
+            return (
+              <p className="mt-1 inline-block rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">
+                尚缺：{missing.join("、")}（草稿可先儲存，確認報名前補齊）
+              </p>
+            );
+          })()}
           {error && <p className={`mt-1 ${errorTextClass}`}>{error}</p>}
         </div>
         <div className="flex shrink-0 gap-1">

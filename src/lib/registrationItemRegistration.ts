@@ -30,6 +30,7 @@ import {
   listHouseholdYangshangCandidates,
   type WorshipOption,
 } from "@/lib/householdRegistrationOptions";
+import { tabletIdentityKey } from "@/lib/tabletIdentity";
 
 /**
  * V15R5 正式規格：普渡「命名牌位」三類——建立報名當下即建立 linked Draft（帶入既有資料），
@@ -688,81 +689,91 @@ export async function registerItemsBatch(
           continue;
         }
 
-        // ── V15R5 正式規格：命名牌位（祖先／乙位正魂／無緣）建立報名即建立 linked Draft ──
-        // 直接建立 1 筆 UniversalSalvationEntry（帶入本戶既有牌位姓名／地址／陽上人）＋
-        // 由 createUniversalSalvationEntry 內的 ensureLinkedTabletItem 連動 1 筆 linked
-        // RitualRegistrationItem（年度單價＝唯一價格來源 getUniversalSalvationTabletPrices，
-        // 不重複計算）。兩者 1:1，無獨立 placeholder、不顯示「牌位資料待確認」。
-        // 冪等：本 record 已有同類 entry（重送／重新進入編輯器）→ 不重建、不增筆。
+        // ── V15R6 正式規格：命名牌位（祖先／乙位正魂／無緣）建立報名即**逐既有牌位各建一筆** linked Draft ──
+        // 祖先／正魂：把本戶所有既有牌位（每筆各自的姓名／地址／陽上人）各建一筆草稿，不只帶第一筆。
+        // 無緣：本戶無既有來源，建一筆空白草稿供填寫。
+        // 由 createUniversalSalvationEntry 內的 ensureLinkedTabletItem 連動 linked RitualRegistrationItem
+        //（年度單價＝唯一價格來源，不重複計算）。每筆 entry 1:1 一筆項目，無獨立 placeholder。
+        // 冪等（規格三/五）：以 tabletIdentityKey（category＋標準化 displayName＋標準化 tabletAddress）比對，
+        // 本 record 已有相同牌位（含手動新增的）→ 不重建、不增筆；返回重進不再增加相同牌位。
+        // 同名不同址＝不同牌位，各自保留；auto-draft 與手動新增共用同一把冪等鍵。
         if (AUTO_DRAFT_TABLET_KEYS.has(p.itemType.key)) {
           const category = AUTO_DRAFT_ITEM_KEY_TO_CATEGORY[p.itemType.key];
-          const existingEntry = await tx.universalSalvationEntry.findFirst({
-            where: { category, deletedAt: null, universalSalvation: { ritualRecordId: recordId } },
-            select: { registrationItem: { select: { id: true } } },
-          });
-          if (existingEntry) {
-            outcomes.push({
-              memberId: p.entry.memberId,
-              registrationItemTypeId: p.itemType.id,
-              outcome: "ALREADY_EXISTS",
-              registrationItemId: existingEntry.registrationItem?.id ?? null,
-              ritualRecordId: recordId,
-              amountDue: 0,
-            });
-            continue;
-          }
           // 確保普渡明細存在（與冤親流程一致；createUniversalSalvationEntry 需要它）。
           await tx.universalSalvationDetail.upsert({
             where: { ritualRecordId: recordId },
             create: { ritualRecordId: recordId, isRegistered: true },
             update: {},
           });
-          const prep = tabletDraftByHousehold.get(p.householdId);
-          const primary =
-            category === "ANCESTOR_LINE"
-              ? prep?.ancestors[0]
-              : category === "INDIVIDUAL_SOUL"
-                ? prep?.individualSouls[0]
-                : undefined;
-          // 陽上人：既有牌位有就沿用，否則預設帶入家戶成員/固定陽上人。地址：既有牌位地址→家戶地址。
-          const yangshangNames =
-            primary?.yangshangNames && primary.yangshangNames.length > 0 ? primary.yangshangNames : prep?.yangshang ?? [];
-          const tabletAddress = primary?.tabletAddress ?? prep?.address ?? null;
-          // 迴避 ritual.ts ↔ registrationItemRegistration.ts 靜態循環：以動態載入取用建立函式，
-          // 沿用**同一套** createUniversalSalvationEntry（不建第二套建立邏輯）；傳入本交易 tx。
-          const { createUniversalSalvationEntry } = await import("@/lib/ritual");
-          const res = await createUniversalSalvationEntry(
-            p.householdId,
-            p.entry.year,
-            {
-              category,
-              displayName: primary?.displayName ?? "",
-              yangshangNames,
-              tabletAddress,
-              linkedItemMemberId: p.entry.memberId,
-            },
-            operatorName,
-            tx
-          );
-          if (!res.ok) return { ok: false as const, status: res.status, error: res.error };
-          await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
-          const createdItem = await tx.ritualRegistrationItem.findFirst({
-            where: {
-              ritualRecordId: recordId,
-              registrationItemTypeId: p.itemType.id,
-              deletedAt: null,
-              universalSalvationEntry: { category },
-            },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, amountDue: true },
+          // 本 record 此類別「已存在」的牌位（含先前 auto-draft 與編輯頁手動新增）→ 算出冪等鍵集合。
+          const existingEntries = await tx.universalSalvationEntry.findMany({
+            where: { category, deletedAt: null, universalSalvation: { ritualRecordId: recordId } },
+            select: { displayName: true, tabletAddress: true, registrationItem: { select: { id: true } } },
           });
+          const existingKeys = new Set(
+            existingEntries.map((e) => tabletIdentityKey({ category, displayName: e.displayName, tabletAddress: e.tabletAddress }))
+          );
+
+          const prep = tabletDraftByHousehold.get(p.householdId);
+          const sources: WorshipOption[] =
+            category === "ANCESTOR_LINE"
+              ? prep?.ancestors ?? []
+              : category === "INDIVIDUAL_SOUL"
+                ? prep?.individualSouls ?? []
+                : []; // 無緣：無既有來源
+
+          // 要建立的牌位清單：有既有來源→逐筆；沒有來源（或無緣）→一筆空白草稿供填寫。
+          const targets: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null }[] =
+            sources.length > 0
+              ? sources.map((o) => ({
+                  displayName: o.displayName,
+                  // 陽上人：既有牌位有就沿用，否則預設帶入家戶固定陽上人。
+                  yangshangNames: o.yangshangNames.length > 0 ? o.yangshangNames : prep?.yangshang ?? [],
+                  // 地址：既有牌位地址→家戶地址。
+                  tabletAddress: o.tabletAddress ?? prep?.address ?? null,
+                  sourceId: o.sourceId,
+                }))
+              : [{ displayName: "", yangshangNames: prep?.yangshang ?? [], tabletAddress: prep?.address ?? null, sourceId: null }];
+
+          const { createUniversalSalvationEntry } = await import("@/lib/ritual");
+          let createdCount = 0;
+          let firstItemId: string | null = existingEntries[0]?.registrationItem?.id ?? null;
+          for (const t of targets) {
+            const key = tabletIdentityKey({ category, displayName: t.displayName, tabletAddress: t.tabletAddress });
+            if (existingKeys.has(key)) continue; // 已存在相同牌位 → 跳過（冪等）
+            existingKeys.add(key);
+            const res = await createUniversalSalvationEntry(
+              p.householdId,
+              p.entry.year,
+              {
+                category,
+                displayName: t.displayName,
+                yangshangNames: t.yangshangNames,
+                tabletAddress: t.tabletAddress,
+                linkedItemMemberId: p.entry.memberId,
+              },
+              operatorName,
+              tx
+            );
+            if (!res.ok) return { ok: false as const, status: res.status, error: res.error };
+            createdCount += 1;
+          }
+          await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
+          if (createdCount > 0) {
+            const newest = await tx.ritualRegistrationItem.findFirst({
+              where: { ritualRecordId: recordId, registrationItemTypeId: p.itemType.id, deletedAt: null, universalSalvationEntry: { category } },
+              orderBy: { createdAt: "desc" },
+              select: { id: true },
+            });
+            firstItemId = newest?.id ?? firstItemId;
+          }
           outcomes.push({
             memberId: p.entry.memberId,
             registrationItemTypeId: p.itemType.id,
-            outcome: "CREATED",
-            registrationItemId: createdItem?.id ?? null,
+            outcome: createdCount > 0 ? "CREATED" : "ALREADY_EXISTS",
+            registrationItemId: firstItemId,
             ritualRecordId: recordId,
-            amountDue: createdItem ? Number(createdItem.amountDue) : 0,
+            amountDue: 0,
           });
           continue;
         }

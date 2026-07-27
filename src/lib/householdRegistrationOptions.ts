@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { listHouseholdYangshang } from "@/lib/householdYangshang";
 import { getRegistrationItemTypeByKey } from "@/lib/registrationItems";
 import { resolveYangshangNames } from "@/lib/yangshang";
+import { normalizeTabletText } from "@/lib/tabletIdentity";
 
 /**
  * V14.2：中元普渡報名的「本戶固定選項」來源。
@@ -25,28 +26,42 @@ export type WorshipOption = {
   displayName: string;
   yangshangNames: string[];
   tabletAddress: string | null;
+  /**
+   * V15R6：此牌位的既有來源 ID（worship_records 或既有 entry）。供 per-tablet
+   * 冪等時「有來源 ID 優先使用」；同名不同牌位（不同來源／不同地址）不被合併。
+   */
+  sourceId: string | null;
 };
 
-/** 合併同名牌位：以 displayName 去重，陽上人／地址取「第一個非空」的既有值。 */
-function mergeByDisplayName(
-  rows: { displayName: string; yangshangNames: string[]; tabletAddress: string | null }[]
+/**
+ * V15R6：以「單一牌位」為單位合併。
+ *
+ * 合併鍵＝正規化 displayName ＋ 正規化 tabletAddress（**不是只看姓名**）——
+ * 同名但地址不同 = 不同牌位，各自保留一項（規格六）。陽上人／地址／來源 ID
+ * 取「第一個非空」的既有值，維持既有穩定排序（worship_records 先、createdAt 舊到新）。
+ */
+function mergeByTablet(
+  rows: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null }[]
 ): WorshipOption[] {
   const map = new Map<string, WorshipOption>();
   for (const r of rows) {
     const name = (r.displayName ?? "").trim();
     if (!name) continue;
-    const existing = map.get(name);
+    const key = `${normalizeTabletText(name)}::${normalizeTabletText(r.tabletAddress)}`;
+    const existing = map.get(key);
     if (!existing) {
-      map.set(name, {
+      map.set(key, {
         displayName: name,
         yangshangNames: r.yangshangNames,
         tabletAddress: r.tabletAddress,
+        sourceId: r.sourceId,
       });
     } else {
       if (existing.yangshangNames.length === 0 && r.yangshangNames.length > 0) {
         existing.yangshangNames = r.yangshangNames;
       }
       if (!existing.tabletAddress && r.tabletAddress) existing.tabletAddress = r.tabletAddress;
+      if (!existing.sourceId && r.sourceId) existing.sourceId = r.sourceId;
     }
   }
   return Array.from(map.values());
@@ -63,9 +78,9 @@ async function loadWorshipOptions(
       ? prisma.worshipRecord.findMany({
           where: { householdId, type: worshipType },
           orderBy: { createdAt: "asc" },
-          select: { displayName: true, yangshangName: true, location: true },
+          select: { id: true, displayName: true, yangshangName: true, location: true },
         })
-      : Promise.resolve([] as { displayName: string; yangshangName: string | null; location: string | null }[]),
+      : Promise.resolve([] as { id: string; displayName: string; yangshangName: string | null; location: string | null }[]),
     prisma.universalSalvationEntry.findMany({
       where: {
         category: entryCategory,
@@ -73,20 +88,22 @@ async function loadWorshipOptions(
         universalSalvation: { ritualRecord: { householdId } },
       },
       orderBy: { createdAt: "asc" },
-      select: { displayName: true, yangshangName: true, yangshangNames: true, tabletAddress: true },
+      select: { id: true, displayName: true, yangshangName: true, yangshangNames: true, tabletAddress: true },
     }),
   ]);
 
-  return mergeByDisplayName([
+  return mergeByTablet([
     ...worship.map((w) => ({
       displayName: w.displayName,
       yangshangNames: resolveYangshangNames(null, w.yangshangName),
       tabletAddress: w.location ?? null,
+      sourceId: w.id,
     })),
     ...entries.map((e) => ({
       displayName: e.displayName,
       yangshangNames: resolveYangshangNames(e.yangshangNames, e.yangshangName),
       tabletAddress: e.tabletAddress ?? null,
+      sourceId: e.id,
     })),
   ]);
 }
