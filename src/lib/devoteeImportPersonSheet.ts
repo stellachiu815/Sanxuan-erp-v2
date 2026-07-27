@@ -2,6 +2,7 @@ import { normalizeName, toNullableText, toHalfWidthDigits, toSafeCalendarDate } 
 import { normalizeNationalId } from "@/lib/nationalId";
 import { parseFlexibleDate } from "@/lib/minguoDate";
 import { normalizeGenderInput } from "@/lib/genderNormalize";
+import { normalizeMemberRole, type MemberRoleValue } from "@/lib/memberRoleNormalize";
 
 /**
  * V12.6「Excel 匯入中心正式版」指令四：個人資料 Excel。
@@ -27,10 +28,20 @@ export const PERSON_SHEET_COLUMNS = [
   "手機",
   "電話",
   "市話",
+  // V24 正式信眾檔：聯絡電話（＝電話別名）、通訊地址（＝地址別名）、身份（＝Member.role）。
+  "聯絡電話",
   "Email",
   "國曆生日",
   "農曆生日",
   "地址",
+  "通訊地址",
+  "身份",
+  "身分",
+  "稱謂",
+  // 年齡／生肖為來源參考欄，可讀但不作為權威值（年齡改由生日＋活動年度計算；
+  // 生肖由生日換算）。列在這裡只為讓正式信眾檔的標題列能被辨識為個人資料工作表。
+  "年齡",
+  "生肖",
   "備註",
   // V13.1 指令一：身分證字號
   "身分證字號",
@@ -56,6 +67,8 @@ export type PersonSheetRow = {
    * 不從身分證字號推導（V13.2 明令）。
    */
   gender: string | null;
+  /** V24 正式信眾檔「身份」→ Member.role（MemberRole）。對不上或空白為 null（不猜測）。 */
+  role: MemberRoleValue | null;
   mobile: string | null;
   phone: string | null;
   email: string | null;
@@ -187,15 +200,19 @@ export function parsePersonSheet(rawRows: Record<string, unknown>[]): PersonShee
       // V13.2：一律經過共用正規化（男性/女性/M/F… → 男/女）。
       // 無法辨識時回 null 並在 formatErrors 留下說明，交人工確認。
       gender: normalizeGenderCell(cell(raw, "性別"), formatErrors),
+      // V24：身份→Member.role（對不上/空白為 null，不猜測、不覆蓋既有）。
+      role: normalizeMemberRole(cell(raw, "身份", "身分", "稱謂")),
       mobile: toNullableText(cell(raw, "手機")),
-      phone: toNullableText(cell(raw, "市話", "電話")),
+      // V24：正式信眾檔的「聯絡電話」＝電話。
+      phone: toNullableText(cell(raw, "市話", "電話", "聯絡電話")),
       email: toNullableText(cell(raw, "Email", "email", "E-mail")),
       solarBirthDate: parseDateCell(cell(raw, "國曆生日"), "國曆生日", formatErrors),
       lunarBirthYear: lunar.y,
       lunarBirthMonth: lunar.m,
       lunarBirthDay: lunar.d,
       lunarIsLeapMonth: lunar.leap,
-      address: toNullableText(cell(raw, "地址")),
+      // V24：正式信眾檔的「通訊地址」＝地址。
+      address: toNullableText(cell(raw, "地址", "通訊地址")),
       notes: toNullableText(cell(raw, "備註")),
       // V13.1：身分證一律正規化（去空白、轉大寫），空白為 null
       nationalId: normalizeNationalId(cell(raw, "身分證字號", "身分證")),

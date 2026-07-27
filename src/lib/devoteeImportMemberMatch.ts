@@ -43,6 +43,8 @@ export type IncomingMember = {
    * 家戶端沒有性別**不代表要清空**（V13.2 第三節之 4）。
    */
   gender: string | null;
+  /** V24：身份 → Member.role（MemberRole 字串；對不上/空白為 null，不覆蓋既有）。 */
+  role: string | null;
   /** V13.1 指令一：身分證字號（已正規化，空白為 null） */
   nationalId: string | null;
   /**

@@ -554,6 +554,8 @@ export async function analyzeDevoteeImport(
          * 下游的更新邏輯會據此保留資料庫既有值（見 commit 階段）。
          */
         gender: person?.gender ?? null,
+        // V24：身份→Member.role。個人檔沒有時 null，下游更新一律保留既有值、不覆蓋。
+        role: person?.role ?? null,
         // V13.1 指令一：身分證。空白保持 null，不由家戶或其他列推測。
         nationalId: person?.nationalId ?? null,
         // 一般家戶成員沒有牌位地址；牌位地址只在歷代祖先／乙位正魂使用
@@ -1284,6 +1286,8 @@ export async function commitDevoteeImport(
                    * 絕不從身分證推導。
                    */
                   ...(pm.personData?.gender ? { gender: pm.personData.gender } : {}),
+                  // V24：身份→Member.role。個人檔有對到才寫入（其餘維持 schema 預設 OTHER）。
+                  ...(pm.personData?.role ? { role: pm.personData.role as Prisma.MemberCreateInput["role"] } : {}),
                   // V13.1 指令一：身分證。空白時整個欄位不寫入（維持 null），
                   // 不會塞入空字串。
                   ...(pm.personData?.nationalId ? { nationalId: pm.personData.nationalId } : {}),
@@ -1365,6 +1369,14 @@ export async function commitDevoteeImport(
              */
             if (!existing.gender && pm.personData.gender) {
               patch.gender = pm.personData.gender;
+            }
+            /**
+             * V24：身份→Member.role。比照性別「空白不覆蓋」原則——只有在既有為
+             * 預設值 OTHER（等同尚未指定）且個人檔提供了明確身份時才補入；
+             * 既有已是特定身份時一律保留，不靜默覆蓋。
+             */
+            if (existing.role === "OTHER" && pm.personData.role && pm.personData.role !== "OTHER") {
+              patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
             }
             if (Object.keys(patch).length > 0) {
               const after = await tx.member.update({ where: { id: targetId }, data: patch });

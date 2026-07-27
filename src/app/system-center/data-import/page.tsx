@@ -24,13 +24,27 @@ export default function DevoteeDataImportPage() {
 
       <main className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-10">
         <div className="flex flex-col gap-2">
-          <h2 className="text-2xl font-medium text-ink">信眾資料匯入預檢中心</h2>
-          <p className="text-sm text-ink-faint">
-            上傳正式家戶 Excel（固定七欄：家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜
-            家戶成員，一列代表一戶），先做欄位對照與格式檢查，確認無誤後再匯入（單次最多處理 10 戶
-            或 30 位家戶成員）。家戶編號已存在時會更新戶名／主要聯絡人／地址；家戶成員／歷代祖先／
-            乙位正魂則依姓名比對，已存在的保留、不覆蓋、不刪除，只新增找不到的資料。
-          </p>
+          <h2 className="text-2xl font-medium text-ink">正式資料匯入預檢中心</h2>
+          <div className="flex flex-col gap-2 text-sm text-ink-faint">
+            <p>
+              <span className="font-medium text-ink-soft">正式家戶檔（一列一戶，固定七欄）：</span>
+              家戶編號｜戶名｜主要聯絡人｜地址｜歷代祖先｜乙位正魂｜家戶成員。其中「家戶成員／
+              歷代祖先／乙位正魂」同一格內可有多筆，逗號（半形 , 全形 ，）、頓號（、）或換行皆可，
+              空白代表沒有資料。家戶成員→建立／更新信眾（Member）；歷代祖先／乙位正魂→建立永久牌位
+              （WorshipRecord），不會被誤建成在世信眾。
+            </p>
+            <p>
+              <span className="font-medium text-ink-soft">正式信眾檔（一列一人，可與家戶檔一起上傳）：</span>
+              姓名｜性別｜國曆生日｜農曆生日｜年齡｜生肖｜身份｜聯絡電話｜通訊地址。依「家戶編號＋姓名／
+              姓名＋地址／姓名＋生日」等既有保守規則比對，補足家戶成員的詳細欄位（含身份→成員角色）。
+              年齡僅供參考，系統仍以生日與活動年度計算實際年齡／虛歲。
+            </p>
+            <p>
+              家戶編號已存在時更新戶名／主要聯絡人／地址；成員依姓名比對，已存在者只補空白欄位、
+              不覆蓋、不刪除、不重複建立；無法確定者列「待確認」。正式檔可直接上傳預檢，全程單一交易，
+              任何失敗整批取消、不會半成功。
+            </p>
+          </div>
         </div>
 
         <OperatorProvider>

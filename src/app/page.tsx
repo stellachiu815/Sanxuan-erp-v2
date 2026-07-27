@@ -141,8 +141,8 @@ export default async function HomePage() {
       <SystemCenterHomeCard />
       <div className="flex flex-wrap items-center justify-center gap-4">
         {showImport && (
-          <Link href="/import" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-            家戶資料 Excel 批次匯入 →
+          <Link href="/system-center/data-import" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+            家戶／信眾 Excel 正式匯入 →
           </Link>
         )}
         <Link href="/tools/birthday" className="text-sm text-ink-faint underline-offset-4 hover:underline">
