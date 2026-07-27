@@ -322,7 +322,8 @@ export async function confirmPurificationImportBatch(input: {
     ),
   ];
   for (const hhId of preResolvedHhIds) {
-    await createBlankUniversalSalvationRecord(hhId, batch.year).catch(() => null);
+    // V15R8：標記來源＝EXCEL_IMPORT（供列印中心「資料來源」篩選；不影響計價/交易/防重/同步/財務）。
+    await createBlankUniversalSalvationRecord(hhId, batch.year, undefined, "EXCEL_IMPORT").catch(() => null);
   }
 
   const results: { rowNumber: number; ok: boolean; recordId?: string; error?: string }[] = [];
@@ -407,8 +408,8 @@ export async function confirmPurificationImportBatch(input: {
               input.actor.name, tx
             );
             householdId = hh.household.id;
-            // 新家戶：其今年 record 交易外未預建，於交易內建立；地址＝Excel 該列地址。
-            await createBlankUniversalSalvationRecord(householdId, batch.year, tx).catch(() => null);
+            // 新家戶：其今年 record 交易外未預建，於交易內建立；來源＝EXCEL_IMPORT；地址＝Excel 該列地址。
+            await createBlankUniversalSalvationRecord(householdId, batch.year, tx, "EXCEL_IMPORT").catch(() => null);
             resolvedTabletAddress = resolveImportAddress({ rowTabletAddress: edited.tabletAddress ?? null, rowAddress: edited.address ?? null, matchedHouseholdAddress: edited.address ?? null, devoteeHouseholdAddress: edited.address ?? null }).address;
           }
           // 信眾：既有優先；否則明確確認才建（同一 tx）。

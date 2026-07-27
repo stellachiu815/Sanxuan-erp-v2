@@ -669,6 +669,13 @@ model RitualRegistrationItem {
   /// 補印只增加 printCount，不改變任何收款金額或狀態（指令七/八）。
   printedAt  DateTime?
   printCount Int       @default(0)
+  /// V15R8 列印管理：最後一次列印／補印時間（每次都更新；首印時與 printedAt 相同）。
+  /// printedAt 首次設定後永不覆蓋＝首次列印時間；lastPrintedAt 每次列印/補印都更新＝最後列印時間。
+  /// 舊資料：lastPrintedAt 為 null（不回填猜測），顯示端以 printedAt 作為最後列印時間的後備。
+  lastPrintedAt   DateTime?
+  /// V15R8：最後一次執行列印／補印的操作人（快照姓名＋使用者 id；舊資料為 null，不回填）。
+  printedByUserId String?
+  printedByName   String?
 
   deletedAt     DateTime?
   deletedByName String?

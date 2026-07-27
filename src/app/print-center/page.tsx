@@ -5,6 +5,7 @@ import Link from "next/link";
 import { OperatorProvider } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
+import PrintManagementCenter from "@/components/ritual/PrintManagementCenter";
 
 /**
  * V14：列印管理首頁「活動報名項目」區塊（指令五）。
@@ -83,6 +84,13 @@ function PrintCenterInner() {
         </label>
       </div>
 
+      {/* V15R8：普渡列印管理唯一入口——所有來源共用的報名名單（搜尋／篩選／狀態／單筆＋批次＋全部列印）。 */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-base text-ink">普渡列印名單（全部來源）</h2>
+        <PrintManagementCenter />
+      </section>
+
+      <h2 className="mb-3 text-base text-ink">依項目快速彙總</h2>
       {error && <p className="text-sm text-blossom-500">{error}</p>}
       {rows === null ? (
         <p className="text-sm text-ink-faint">讀取中…</p>

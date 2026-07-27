@@ -173,7 +173,8 @@ test("tx-aware. Excel confirm 單列在同一 prisma.\$transaction 內，把 tx 
   // 家戶/信眾/record/牌位/白米/寶袋/贊普/row 更新都在同一 tx（傳 tx）——以子字串驗證 tx 已傳入。
   assert.equal(loop.includes("input.actor.name, tx"), true, "createHousehold/entry/寶袋 傳 tx");
   assert.equal(loop.includes('"Excel 匯入：新增信眾", tx'), true, "createMemberForHousehold 傳 tx");
-  assert.equal(loop.includes("createBlankUniversalSalvationRecord(householdId, batch.year, tx)"), true, "record 傳 tx");
+  // V15R8：createBlank 現多帶來源參數（…tx, "EXCEL_IMPORT"）；此處只驗證仍把 tx 傳入同一交易。
+  assert.equal(/createBlankUniversalSalvationRecord\(householdId, batch\.year, tx\b/.test(loop), true, "record 傳 tx");
   assert.equal(loop.includes("input.actor, tx)"), true, "白米 registerRice 傳 tx");
   assert.equal(loop.includes("materializeSponsors(ritualRecordId, memberId, batch.templeEventId, edited, input.actor.name, tx)"), true, "贊普 傳 tx");
   assert.equal(loop.includes('tx.purificationImportRow.update({ where: { id: row.id }, data: { confirmationStatus: "CONFIRMED"'), true, "row 更新在 tx 內");

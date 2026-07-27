@@ -325,7 +325,9 @@ export type CreateBlankUniversalSalvationResult =
 export async function createBlankUniversalSalvationRecord(
   householdId: string,
   year: number,
-  db?: DbClient
+  db?: DbClient,
+  /** V15R8：來源標記（供列印中心「資料來源」篩選）。預設家戶頁；Excel 匯入傳 "EXCEL_IMPORT"。 */
+  registrationSource: string = "HOUSEHOLD_PAGE"
 ): Promise<CreateBlankUniversalSalvationResult> {
   const client = db ?? prisma;
   const household = await client.household.findFirst({
@@ -367,7 +369,7 @@ export async function createBlankUniversalSalvationRecord(
         year,
         activityType: "UNIVERSAL_SALVATION",
         status: "DRAFT",
-        registrationSource: "HOUSEHOLD_PAGE",
+        registrationSource,
         universalSalvation: {
           create: {
             isRegistered: false,
