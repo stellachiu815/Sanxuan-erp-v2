@@ -12,7 +12,7 @@ import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
 import SystemCenterHomeCard from "@/components/system-center/SystemCenterHomeCard";
 import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
 import { getSessionUser } from "@/lib/auth";
-import { canSystem } from "@/lib/permissions";
+import { canSystem, canFinance } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -41,6 +41,8 @@ export default async function HomePage() {
   // 「回收區」屬管理層級，用共用 canSystem 判斷，不散落 role 字面值。
   const me = await getSessionUser();
   const role = me?.role ?? null;
+  // V23.1：財務中心入口只對可查看財務者（SUPER_ADMIN／ADMIN）顯示。
+  const showFinance = role ? canFinance(role, "view") : false;
   const showImport = role ? canSystem(role, "manageDataImport") : false;
   const showRecycleBin = role ? canSystem(role, "manageRecycleBin") : false;
   const showSystemCenter = role
@@ -150,9 +152,11 @@ export default async function HomePage() {
         <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           🧾 全宮共用收據中心 →
         </Link>
-        <Link href="/finance-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          📒 財務中心 →
-        </Link>
+        {showFinance && (
+          <Link href="/finance-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+            📒 財務中心 →
+          </Link>
+        )}
         {showSystemCenter && (
           <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
             🛠️ 系統管理 →

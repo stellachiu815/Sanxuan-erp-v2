@@ -52,15 +52,17 @@ export type FinanceAction =
  *   不能修改已確認資料、不能作廢、不能看完整報表、不能匯出。
  */
 const FINANCE_PERMISSIONS: Record<Role, FinanceAction[]> = {
-  // V22 財務中心正式啟用：期初餘額（manageOpening）僅 SUPER_ADMIN；作廢/更正屬 ADMIN 以上。
+  // V23.1 財務權限收斂：財務中心（查看/報表/匯出/收支/轉移/盤點/作廢/更正/期初）
+  // 一律只開放給前兩種正式角色。期初餘額（manageOpening）僅 SUPER_ADMIN。
   SUPER_ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct", "manageOpening"],
+  // ADMIN 保留全部日常財務權限，但不得設定/修改期初餘額（manageOpening）。
   ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct"],
-  // STAFF（日常行政人員）：比照收款中心的日常操作定位，可查看/新增收支/轉移/盤點/匯出，
-  // 但不可作廢/更正/期初（敏感操作）。財務中心是每日使用工具，故開放日常記帳。
-  STAFF: ["view", "viewFullReport", "create", "export", "createEntry", "transfer", "reconcile"],
-  READONLY: ["view", "viewFullReport", "export"],
-  // FINANCE_CLERK（財務人員）：只能新增（草稿）與查看/匯出，不可轉移/盤點/作廢/更正。
-  FINANCE_CLERK: ["view", "create", "createEntry", "export"],
+  // V23.1：STAFF 完全不可查看/操作/匯出財務中心（收款中心的收款權限不受影響，見 COLLECTION_PERMISSIONS）。
+  STAFF: [],
+  // V23.1：READONLY 完全不可查看/匯出財務中心。
+  READONLY: [],
+  // FINANCE_CLERK 為不可指派的預留角色；財務中心一律僅限前兩種正式角色。
+  FINANCE_CLERK: [],
 };
 
 /** 檢查某個角色是否能做某個財務操作。 */

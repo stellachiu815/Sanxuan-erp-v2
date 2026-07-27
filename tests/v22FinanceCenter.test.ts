@@ -54,20 +54,21 @@ test("收款方式→帳戶映射：現金進現金，其餘進銀行", () => {
   assert.equal(accountForPaymentMethod("CHECK"), "BANK");
 });
 
-test("權限矩陣：期初僅 SUPER_ADMIN；作廢/更正 ADMIN 以上；FINANCE_CLERK 只能建立/查看/匯出", () => {
+test("權限矩陣（V23.1 收斂）：財務僅 SUPER_ADMIN/ADMIN；期初僅 SUPER_ADMIN；STAFF/READONLY/FINANCE_CLERK 全部 false", () => {
   assert.ok(canFinance("SUPER_ADMIN", "manageOpening"));
   assert.ok(!canFinance("ADMIN", "manageOpening"));
-  assert.ok(canFinance("ADMIN", "void") && canFinance("ADMIN", "correct"));
-  assert.ok(!canFinance("STAFF", "void") && !canFinance("STAFF", "correct"));
-  assert.ok(canFinance("STAFF", "createEntry") && canFinance("STAFF", "transfer"));
-  assert.ok(canFinance("FINANCE_CLERK", "createEntry") && canFinance("FINANCE_CLERK", "export"));
-  assert.ok(!canFinance("FINANCE_CLERK", "transfer") && !canFinance("FINANCE_CLERK", "void"));
-  assert.ok(!canFinance("READONLY", "createEntry") && canFinance("READONLY", "export"));
+  assert.ok(canFinance("ADMIN", "void") && canFinance("ADMIN", "correct") && canFinance("ADMIN", "createEntry") && canFinance("ADMIN", "transfer"));
+  // V23.1：STAFF/READONLY/FINANCE_CLERK 對財務一律無權限（含 view/export）。
+  for (const r of ["STAFF", "READONLY", "FINANCE_CLERK"] as const) {
+    for (const a of ["view", "export", "createEntry", "transfer", "reconcile", "void", "correct", "manageOpening"] as const) {
+      assert.ok(!canFinance(r, a), `${r} 不可 ${a}`);
+    }
+  }
 });
 
 test("匯出（Excel）與報表共用同一 getFinanceReport 查詢來源；PDF 走列印頁", () => {
   const exp = read("src/app/api/finance-center/export/route.ts");
-  assert.ok(exp.includes("getFinanceReport") && exp.includes("resolveRange"), "Excel 匯出共用報表查詢來源");
+  assert.ok(exp.includes("getFinanceReport") && exp.includes("resolveReportRange"), "Excel 匯出共用報表查詢來源");
   const reportsPage = read("src/app/finance-center/reports/page.tsx");
   assert.ok(reportsPage.includes("/finance-center/reports/print") && reportsPage.includes("/api/finance-center/export"), "報表頁提供 PDF 列印與 Excel 匯出");
 });
