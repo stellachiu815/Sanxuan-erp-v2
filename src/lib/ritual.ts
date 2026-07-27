@@ -8,6 +8,7 @@ import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } f
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
+import { syncEntryToHouseholdWorshipRecord, isSyncableWorshipCategory } from "@/lib/householdWorshipSync";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -578,6 +579,17 @@ export type CreateUniversalSalvationEntryInput = {
   notes?: string | null;
   /** V14.2：連動建立之計價項目要掛哪位成員（全戶冤親每位帶入該成員；一般牌位為 null）。 */
   linkedItemMemberId?: string | null;
+  /**
+   * V15R6.1：此牌位由家戶永久名單（WorshipRecord）帶入時的來源 ID——直接連結，不新增永久名單。
+   * （auto-draft fan-out 帶入既有牌位時使用。）
+   */
+  worshipRecordId?: string | null;
+  /**
+   * V15R6.1：手動新增時是否「同時加入家戶永久名單」（預設由呼叫端決定）。
+   * 只對祖先／正魂有效；true 時於同一交易建立或更新 WorshipRecord 並回填 entry.worshipRecordId。
+   * 與 worshipRecordId 互斥（已有來源 ID → 只連結、不重複新增）。
+   */
+  syncToHousehold?: boolean;
 };
 
 /** 在指定分類（歷代祖先／個人乙位正魂／冤親債主／無緣子女）新增一筆登記項目。 */
@@ -654,6 +666,27 @@ export async function createUniversalSalvationEntry(
       },
       tx
     );
+
+    // V15R6.1：連結／同步家戶永久名單（同一交易；只對祖先／正魂）。
+    //   - 由永久名單帶入（有 worshipRecordId）→ 直接連結，不新增永久名單。
+    //   - 手動新增且勾選同步（syncToHousehold）→ 建立/更新 WorshipRecord 並回填連結。
+    let linkedWorshipRecordId: string | null = input.worshipRecordId ?? null;
+    if (!linkedWorshipRecordId && input.syncToHousehold && isSyncableWorshipCategory(input.category)) {
+      linkedWorshipRecordId = await syncEntryToHouseholdWorshipRecord(tx, {
+        householdId,
+        category: input.category,
+        displayName: input.displayName,
+        tabletAddress: resolvedTabletAddress,
+        yangshangNames: input.yangshangNames ?? (input.yangshangName ? [input.yangshangName] : []),
+        operatorName,
+      });
+    }
+    if (linkedWorshipRecordId) {
+      await tx.universalSalvationEntry.update({
+        where: { id: created.id },
+        data: { worshipRecordId: linkedWorshipRecordId },
+      });
+    }
 
     // V14.2：牌位與其計價項目正式 1:1 關聯——建立牌位時連動建立已計價的
     // RitualRegistrationItem 並連結，讓收款／統計／查詢都認得這筆牌位。
@@ -744,6 +777,11 @@ export type UpdateUniversalSalvationEntryInput = {
   /** V14.1：此筆牌位地址（null 可清空）。 */
   tabletAddress?: string | null;
   notes?: string | null;
+  /**
+   * V15R6.1：是否同步更新家戶永久名單（只對祖先／正魂有效）。true 時於同一交易
+   * 建立或更新對應 WorshipRecord（優先用 entry.worshipRecordId），並回填連結。
+   */
+  syncToHousehold?: boolean;
 };
 
 /** 修改單一筆登記項目（名稱／陽上姓名／備註）。entryId 不屬於這筆年度資料時回傳 404。 */
@@ -801,6 +839,27 @@ export async function updateUniversalSalvationEntry(
       },
       tx
     );
+
+    // V15R6.1：勾選「同步更新家戶永久名單」時，於**同一交易**更新對應 WorshipRecord
+    //（優先用既有 entry.worshipRecordId；否則以 type＋標準化姓名＋地址匹配或新建），
+    // 並回填 entry.worshipRecordId。只對祖先／正魂；任一失敗整筆回滾。
+    if (input.syncToHousehold && isSyncableWorshipCategory(after.category)) {
+      const worshipRecordId = await syncEntryToHouseholdWorshipRecord(tx, {
+        householdId,
+        category: after.category,
+        displayName: after.displayName,
+        tabletAddress: after.tabletAddress,
+        yangshangNames: after.yangshangNames ?? [],
+        existingWorshipRecordId: after.worshipRecordId ?? null,
+        operatorName,
+      });
+      if (worshipRecordId && worshipRecordId !== after.worshipRecordId) {
+        await tx.universalSalvationEntry.update({
+          where: { id: entryId },
+          data: { worshipRecordId },
+        });
+      }
+    }
   });
 
   const record = await getUniversalSalvationRecord(householdId, year);

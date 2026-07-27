@@ -64,6 +64,9 @@ export async function POST(
   // 清理（去空白/空字串/重複、保留順序）；非陣列或空陣列都不會 500。
   const yangshangNames = "yangshangNames" in body ? normalizeYangshangNames(body.yangshangNames) : undefined;
 
+  // V15R6.1：手動新增祖先／正魂時，預設「同時加入家戶永久名單」（前端可取消勾選 → 傳 false）。
+  const syncToHousehold = body.syncToHousehold === undefined ? true : body.syncToHousehold === true;
+
   const result = await createUniversalSalvationEntry(
     householdId,
     year,
@@ -74,6 +77,7 @@ export async function POST(
       yangshangNames,
       tabletAddress: "tabletAddress" in body ? toNullableString(body.tabletAddress) : undefined,
       notes: toNullableString(body.notes),
+      syncToHousehold,
     },
     check.operator.name
   );

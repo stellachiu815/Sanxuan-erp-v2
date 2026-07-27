@@ -31,6 +31,11 @@ export type WorshipOption = {
    * 冪等時「有來源 ID 優先使用」；同名不同牌位（不同來源／不同地址）不被合併。
    */
   sourceId: string | null;
+  /**
+   * V15R6.1：若此選項來源是家戶永久名單（WorshipRecord），帶其 id；供 auto-draft
+   * 建立草稿時連結 entry.worshipRecordId（僅來自既有 entry 的選項為 null）。
+   */
+  worshipRecordId: string | null;
 };
 
 /**
@@ -41,7 +46,7 @@ export type WorshipOption = {
  * 取「第一個非空」的既有值，維持既有穩定排序（worship_records 先、createdAt 舊到新）。
  */
 function mergeByTablet(
-  rows: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null }[]
+  rows: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null; worshipRecordId: string | null }[]
 ): WorshipOption[] {
   const map = new Map<string, WorshipOption>();
   for (const r of rows) {
@@ -55,6 +60,7 @@ function mergeByTablet(
         yangshangNames: r.yangshangNames,
         tabletAddress: r.tabletAddress,
         sourceId: r.sourceId,
+        worshipRecordId: r.worshipRecordId,
       });
     } else {
       if (existing.yangshangNames.length === 0 && r.yangshangNames.length > 0) {
@@ -62,6 +68,8 @@ function mergeByTablet(
       }
       if (!existing.tabletAddress && r.tabletAddress) existing.tabletAddress = r.tabletAddress;
       if (!existing.sourceId && r.sourceId) existing.sourceId = r.sourceId;
+      // 永久名單來源 ID 優先保留（worship_records 先於既有 entry）。
+      if (!existing.worshipRecordId && r.worshipRecordId) existing.worshipRecordId = r.worshipRecordId;
     }
   }
   return Array.from(map.values());
@@ -98,12 +106,14 @@ async function loadWorshipOptions(
       yangshangNames: resolveYangshangNames(null, w.yangshangName),
       tabletAddress: w.location ?? null,
       sourceId: w.id,
+      worshipRecordId: w.id, // 永久名單來源
     })),
     ...entries.map((e) => ({
       displayName: e.displayName,
       yangshangNames: resolveYangshangNames(e.yangshangNames, e.yangshangName),
       tabletAddress: e.tabletAddress ?? null,
       sourceId: e.id,
+      worshipRecordId: null, // 既有 entry 非永久名單
     })),
   ]);
 }

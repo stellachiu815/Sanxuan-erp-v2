@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 
 /**
@@ -36,6 +36,18 @@ type Item = {
   /** V15R2：舊 Detail 贊普唯讀相容列（非真實 item，不可從此取消）。 */
   readOnlyLegacy?: boolean;
 };
+
+/** V15R6.1：依報名者姓名分組，保留首次出現順序。 */
+function groupByRegistrant(items: Item[], registrant: (it: Item) => string): [string, Item[]][] {
+  const map = new Map<string, Item[]>();
+  for (const it of items) {
+    const key = registrant(it);
+    const arr = map.get(key);
+    if (arr) arr.push(it);
+    else map.set(key, [it]);
+  }
+  return Array.from(map.entries());
+}
 
 export default function RegisteredItemsPanel({
   ritualRecordId,
@@ -156,45 +168,61 @@ export default function RegisteredItemsPanel({
             </tr>
           </thead>
           <tbody>
-            {items.map((it) => (
-              <tr key={it.id} className="border-t border-cream-200 align-top">
-                <td className="whitespace-nowrap px-2 py-1.5 text-ink">{registrant(it)}</td>
-                <td className="px-2 py-1.5">
-                  <div className="text-ink">{it.displayLabel}</div>
-                  {subDetails(it)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-1.5 text-ink-soft">
-                  {it.quantity}
-                  {qtyUnit(it)}
-                </td>
-                <td className="px-2 py-1.5 text-ink-soft">{it.amountDue.toLocaleString("zh-Hant")}</td>
-                <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid.toLocaleString("zh-Hant")}</td>
-                <td className="px-2 py-1.5 text-ink-faint">{statusLabel(it.status)}</td>
-                {!readOnly && <td className="px-2 py-1.5">{cancelCell(it)}</td>}
-              </tr>
+            {/* V15R6.1（UI 小修）：已報名項目依「報名者」分組，每組一列小標。 */}
+            {groupByRegistrant(items, registrant).map(([member, its]) => (
+              <Fragment key={member}>
+                <tr className="bg-cream-50">
+                  <td colSpan={readOnly ? 6 : 7} className="px-2 py-1 text-xs text-ink-soft">
+                    報名者：{member}（{its.length} 項）
+                  </td>
+                </tr>
+                {its.map((it) => (
+                  <tr key={it.id} className="border-t border-cream-200 align-top">
+                    <td className="whitespace-nowrap px-2 py-1.5 text-ink-faint">{registrant(it)}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="text-ink">{it.displayLabel}</div>
+                      {subDetails(it)}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-ink-soft">
+                      {it.quantity}
+                      {qtyUnit(it)}
+                    </td>
+                    <td className="px-2 py-1.5 text-ink-soft">{it.amountDue.toLocaleString("zh-Hant")}</td>
+                    <td className="px-2 py-1.5 text-ink-soft">{it.amountUnpaid.toLocaleString("zh-Hant")}</td>
+                    <td className="px-2 py-1.5 text-ink-faint">{statusLabel(it.status)}</td>
+                    {!readOnly && <td className="px-2 py-1.5">{cancelCell(it)}</td>}
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
 
-        {/* ── 手機：卡片（報名者、類別/名稱、數量、應收、未收、狀態、取消皆直接可見）── */}
-        <ul className="divide-y divide-cream-200 sm:hidden">
-          {items.map((it) => (
-            <li key={it.id} className="px-3 py-2.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-ink">報名者：{registrant(it)}</span>
-                <span className="whitespace-nowrap text-xs text-ink-faint">{statusLabel(it.status)}</span>
-              </div>
-              <div className="mt-0.5 text-sm text-ink-soft">{it.displayLabel}</div>
-              {subDetails(it)}
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-soft">
-                <span>數量：{it.quantity}{qtyUnit(it)}</span>
-                <span>應收：{it.amountDue.toLocaleString("zh-Hant")}</span>
-                <span className="text-blossom-500">未收：{it.amountUnpaid.toLocaleString("zh-Hant")}</span>
-              </div>
-              {!readOnly && <div className="mt-1.5">{cancelCell(it)}</div>}
-            </li>
+        {/* ── 手機：依報名者分組的卡片 ── */}
+        <div className="sm:hidden">
+          {groupByRegistrant(items, registrant).map(([member, its]) => (
+            <div key={member} className="border-t border-cream-200 first:border-t-0">
+              <p className="bg-cream-50 px-3 py-1 text-xs text-ink-soft">報名者：{member}（{its.length} 項）</p>
+              <ul className="divide-y divide-cream-200">
+                {its.map((it) => (
+                  <li key={it.id} className="px-3 py-2.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm text-ink-soft">{it.displayLabel}</span>
+                      <span className="whitespace-nowrap text-xs text-ink-faint">{statusLabel(it.status)}</span>
+                    </div>
+                    {subDetails(it)}
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-soft">
+                      <span>數量：{it.quantity}{qtyUnit(it)}</span>
+                      <span>應收：{it.amountDue.toLocaleString("zh-Hant")}</span>
+                      <span className="text-blossom-500">未收：{it.amountUnpaid.toLocaleString("zh-Hant")}</span>
+                    </div>
+                    {!readOnly && <div className="mt-1.5">{cancelCell(it)}</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
         </div>
       )}
 

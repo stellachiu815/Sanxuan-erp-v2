@@ -52,6 +52,8 @@ export default function EntryRow({
   const [yangshangNames, setYangshangNames] = useState<string[]>(initialNames(entry));
   const [tabletAddress, setTabletAddress] = useState(entry.tabletAddress ?? "");
   const [notes, setNotes] = useState(entry.notes ?? "");
+  // V15R6.1：祖先／正魂編輯時，是否同步更新家戶永久名單（預設勾選，但不偷偷覆蓋）。
+  const [syncToHousehold, setSyncToHousehold] = useState(true);
   const [submitting, setSubmitting] = useState<"save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPrintItems, setShowPrintItems] = useState(false);
@@ -84,6 +86,8 @@ export default function EntryRow({
             yangshangNames,
             tabletAddress: tabletAddress.trim() || null,
             notes: notes.trim() || null,
+            // V15R6.1：只有祖先／正魂需要、且依使用者勾選決定是否同步永久名單。
+            ...(supportsYangshang ? { syncToHousehold } : {}),
           }),
         }
       );
@@ -178,6 +182,19 @@ export default function EntryRow({
                 )}
               </div>
             </div>
+            {/* V15R6.1：同步更新家戶永久名單（預設勾選；不勾則只改本次活動草稿，不動永久名單）。 */}
+            <label className="flex items-start gap-2 rounded-xl bg-sage-50 px-3 py-2 text-xs text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4"
+                checked={syncToHousehold}
+                onChange={(e) => setSyncToHousehold(e.target.checked)}
+              />
+              <span>
+                同步更新家戶永久名單
+                <span className="ml-1 text-ink-faint">（下次活動可自動帶入；不勾選則只修改本次活動草稿）</span>
+              </span>
+            </label>
           </>
         )}
         <div>
@@ -238,9 +255,14 @@ export default function EntryRow({
             }
             if (missing.length === 0) return null;
             return (
-              <p className="mt-1 inline-block rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink">
-                尚缺：{missing.join("、")}（草稿可先儲存，確認報名前補齊）
-              </p>
+              <div className="mt-1 rounded-lg bg-yolk-50 px-3 py-2 text-xs text-ink">
+                <p className="mb-0.5 text-ink-soft">尚缺欄位（草稿可先儲存，確認報名前補齊）：</p>
+                <ul className="list-disc pl-4">
+                  {missing.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              </div>
             );
           })()}
           {error && <p className={`mt-1 ${errorTextClass}`}>{error}</p>}

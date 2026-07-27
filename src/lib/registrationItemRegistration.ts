@@ -723,7 +723,7 @@ export async function registerItemsBatch(
                 : []; // 無緣：無既有來源
 
           // 要建立的牌位清單：有既有來源→逐筆；沒有來源（或無緣）→一筆空白草稿供填寫。
-          const targets: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null }[] =
+          const targets: { displayName: string; yangshangNames: string[]; tabletAddress: string | null; sourceId: string | null; worshipRecordId: string | null }[] =
             sources.length > 0
               ? sources.map((o) => ({
                   displayName: o.displayName,
@@ -732,8 +732,9 @@ export async function registerItemsBatch(
                   // 地址：既有牌位地址→家戶地址。
                   tabletAddress: o.tabletAddress ?? prep?.address ?? null,
                   sourceId: o.sourceId,
+                  worshipRecordId: o.worshipRecordId,
                 }))
-              : [{ displayName: "", yangshangNames: prep?.yangshang ?? [], tabletAddress: prep?.address ?? null, sourceId: null }];
+              : [{ displayName: "", yangshangNames: prep?.yangshang ?? [], tabletAddress: prep?.address ?? null, sourceId: null, worshipRecordId: null }];
 
           const { createUniversalSalvationEntry } = await import("@/lib/ritual");
           let createdCount = 0;
@@ -751,6 +752,8 @@ export async function registerItemsBatch(
                 yangshangNames: t.yangshangNames,
                 tabletAddress: t.tabletAddress,
                 linkedItemMemberId: p.entry.memberId,
+                // V15R6.1：由永久名單帶入者直接連結該 WorshipRecord（不新增永久名單）。
+                worshipRecordId: t.worshipRecordId,
               },
               operatorName,
               tx

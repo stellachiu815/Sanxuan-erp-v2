@@ -60,6 +60,8 @@ export async function PATCH(
   if ("yangshangNames" in body) input.yangshangNames = normalizeYangshangNames(body.yangshangNames);
   if ("tabletAddress" in body) input.tabletAddress = toNullableString(body.tabletAddress);
   if ("notes" in body) input.notes = toNullableString(body.notes);
+  // V15R6.1：勾選「同步更新家戶永久名單」時一併更新對應 WorshipRecord（只對祖先／正魂）。
+  if ("syncToHousehold" in body) input.syncToHousehold = body.syncToHousehold === true;
 
   const result = await updateUniversalSalvationEntry(
     householdId,

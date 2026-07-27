@@ -36,6 +36,13 @@ export default function YangshangEditor({
 }) {
   const [manual, setManual] = useState("");
   const [savingToHousehold, setSavingToHousehold] = useState(false);
+  // V15R6.1（UI 小修）：本戶固定陽上人可能很多——支援搜尋過濾＋收合，避免佔滿畫面。
+  const [query, setQuery] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
+  const showSearch = householdYangshangNames.length > 6;
+  const filteredHouseholdYangshang = query.trim()
+    ? householdYangshangNames.filter((n) => n.includes(query.trim()))
+    : householdYangshangNames;
 
   function addName(raw: string) {
     const name = raw.trim();
@@ -70,28 +77,53 @@ export default function YangshangEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* A. 本戶固定陽上人（V14.2；預設顯示、一鍵加入） */}
+      {/* A. 本戶固定陽上人（V14.2；預設顯示、一鍵加入。V15R6.1：多筆時可搜尋／收合） */}
       {householdYangshangNames.length > 0 && (
         <div>
-          <p className="mb-1 text-xs text-ink-faint">本戶固定陽上人（一鍵加入）</p>
-          <div className="flex flex-wrap gap-1.5">
-            {householdYangshangNames.map((name) => {
-              const on = value.includes(name);
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => toggleMember(name)}
-                  className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
-                    on ? "bg-sage-200 text-ink" : "bg-yolk-100 text-ink-soft hover:bg-butter-200"
-                  }`}
-                >
-                  {on ? "✓ " : "＋ "}
-                  {name}
-                </button>
-              );
-            })}
+          <div className="mb-1 flex items-center gap-2">
+            <p className="text-xs text-ink-faint">本戶固定陽上人（一鍵加入）</p>
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              className="rounded-full px-2 py-0.5 text-xs text-ink-faint hover:bg-cream-200 hover:text-ink"
+            >
+              {collapsed ? "展開" : "收合"}
+            </button>
           </div>
+          {!collapsed && (
+            <>
+              {showSearch && (
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜尋陽上人姓名"
+                  className="mb-1.5 min-h-9 w-full rounded-xl border border-cream-300 px-3 py-1.5 text-xs"
+                />
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {filteredHouseholdYangshang.map((name) => {
+                  const on = value.includes(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleMember(name)}
+                      className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition ${
+                        on ? "bg-sage-200 text-ink" : "bg-yolk-100 text-ink-soft hover:bg-butter-200"
+                      }`}
+                    >
+                      {on ? "✓ " : "＋ "}
+                      {name}
+                    </button>
+                  );
+                })}
+                {filteredHouseholdYangshang.length === 0 && (
+                  <span className="text-xs text-ink-faint">查無符合的陽上人。</span>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 

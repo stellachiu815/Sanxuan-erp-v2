@@ -75,6 +75,8 @@ export default function EntryCategorySection({
     yangshangNames?: string[];
     tabletAddress?: string | null;
     notes?: string | null;
+    /** V15R6.1：手動新增祖先／正魂時是否同時加入家戶永久名單（預設 true，可取消）。 */
+    syncToHousehold?: boolean;
   }) {
     const res = await fetchUniversalSalvation(
       `/api/households/${householdId}/rituals/universal-salvation/${year}/entries`,
@@ -177,6 +179,7 @@ function SurnameAddForm({
     yangshangNames?: string[];
     tabletAddress?: string | null;
     notes?: string | null;
+    syncToHousehold?: boolean;
   }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
   ancestorOptions: WorshipOptionJSON[];
@@ -189,6 +192,8 @@ function SurnameAddForm({
   const [addYangshang, setAddYangshang] = useState<string[]>([]);
   // V14.2：牌位地址（預設帶入家戶主要地址，可改；存 UniversalSalvationEntry.tabletAddress）。
   const [tabletAddr, setTabletAddr] = useState(householdAddress ?? "");
+  // V15R6.1：新增時預設「同時加入家戶永久名單」（供下次活動沿用；可取消）。
+  const [syncToHousehold, setSyncToHousehold] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
@@ -208,6 +213,7 @@ function SurnameAddForm({
         yangshangNames: yn,
         tabletAddress: addr,
         notes: notes.trim() || null,
+        syncToHousehold,
       });
       onRecordUpdated(record);
       setSurname("");
@@ -340,13 +346,21 @@ function SurnameAddForm({
           disabled={submitting}
         />
       </div>
+      {/* V15R6.1：明確顯示是否同步家戶永久名單。 */}
+      <label className="flex items-start gap-2 rounded-xl bg-sage-50 px-3 py-2 text-xs text-ink">
+        <input type="checkbox" className="mt-0.5 h-4 w-4" checked={syncToHousehold} onChange={(e) => setSyncToHousehold(e.target.checked)} />
+        <span>
+          此牌位將同時加入家戶永久名單，供下次活動沿用
+          <span className="ml-1 text-ink-faint">（取消勾選則只建立本次活動牌位，不寫入家戶主檔）</span>
+        </span>
+      </label>
       {error && <p className={errorTextClass}>{error}</p>}
       <div className="flex justify-end">
         <button
           type="button"
           className={primaryButtonClass}
           onClick={handleAddClick}
-          disabled={submitting}
+          disabled={submitting || !surname.trim()}
         >
           {submitting ? "新增中…" : "新增（Enter）"}
         </button>
@@ -387,6 +401,7 @@ function NameAddForm({
     yangshangNames?: string[];
     tabletAddress?: string | null;
     notes?: string | null;
+    syncToHousehold?: boolean;
   }) => Promise<RecordJSON>;
   onRecordUpdated: (record: RecordJSON) => void;
   individualSoulOptions: WorshipOptionJSON[];
@@ -399,6 +414,8 @@ function NameAddForm({
   // V14.2：牌位地址（預設帶入家戶主要地址，可改；存 UniversalSalvationEntry.tabletAddress）。
   const [tabletAddr, setTabletAddr] = useState(householdAddress ?? "");
   const [notes, setNotes] = useState("");
+  // V15R6.1：新增時預設「同時加入家戶永久名單」。
+  const [syncToHousehold, setSyncToHousehold] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<string | null>(null);
@@ -418,6 +435,7 @@ function NameAddForm({
         yangshangNames: yn,
         tabletAddress: addr,
         notes: notes.trim() || null,
+        syncToHousehold,
       });
       onRecordUpdated(record);
       setName("");
@@ -545,13 +563,21 @@ function NameAddForm({
           onKeyDown={handleKeyDown}
         />
       </div>
+      {/* V15R6.1：明確顯示是否同步家戶永久名單。 */}
+      <label className="flex items-start gap-2 rounded-xl bg-sage-50 px-3 py-2 text-xs text-ink">
+        <input type="checkbox" className="mt-0.5 h-4 w-4" checked={syncToHousehold} onChange={(e) => setSyncToHousehold(e.target.checked)} />
+        <span>
+          此牌位將同時加入家戶永久名單，供下次活動沿用
+          <span className="ml-1 text-ink-faint">（取消勾選則只建立本次活動牌位，不寫入家戶主檔）</span>
+        </span>
+      </label>
       {error && <p className={errorTextClass}>{error}</p>}
       <div className="flex justify-end">
         <button
           type="button"
           className={primaryButtonClass}
           onClick={handleAddClick}
-          disabled={submitting}
+          disabled={submitting || !name.trim()}
         >
           {submitting ? "新增中…" : "新增（Enter）"}
         </button>
