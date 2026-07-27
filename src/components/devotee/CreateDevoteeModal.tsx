@@ -53,6 +53,11 @@ type Props = {
   onClose: () => void;
   /** 建立成功後通知外層重新整理列表（首頁不需要時可不傳）。 */
   onCreated?: () => void;
+  /**
+   * V17.3：建立成功後導向新信眾詳情時附加的 query（例如 ?registerActivityType=UNIVERSAL_SALVATION…），
+   * 讓「新增信眾」流程也能建立後直接進入該活動報名，不再要求重新選活動。
+   */
+  registerQuerySuffix?: string;
 };
 
 // 觸控友善的共用尺寸（指令「八」）。
@@ -60,7 +65,7 @@ const touchInputClass = `${inputClass} min-h-11`;
 const touchPrimaryClass = `${primaryButtonClass} min-h-11 w-full sm:w-auto`;
 const touchSecondaryClass = `${secondaryButtonClass} min-h-11 w-full sm:w-auto`;
 
-export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
+export default function CreateDevoteeModal({ onClose, onCreated, registerQuerySuffix = "" }: Props) {
   const router = useRouter();
   const { operatorUserId } = useOperator();
 
@@ -329,9 +334,9 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
         return;
       }
 
-      // 預設：直接進入新信眾的詳細頁（指令「一」）。
+      // 預設：直接進入新信眾的詳細頁（指令「一」）；V17.3 帶上活動上下文（若有）→ 落地即開報名。
       const memberId = json.data?.member?.id;
-      if (memberId) router.push(`/devotee-center/${memberId}`);
+      if (memberId) router.push(`/devotee-center/${memberId}${registerQuerySuffix}`);
       onClose();
     } catch {
       setError("網路錯誤，請稍後再試一次。");
@@ -362,7 +367,7 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
         onViewExisting={(memberId) => {
           duplicatesAcknowledgedRef.current = false;
           onClose();
-          router.push(`/devotee-center/${memberId}`);
+          router.push(`/devotee-center/${memberId}${registerQuerySuffix}`);
         }}
         onConfirm={() => {
           // 這是唯一一個會把「已確認」旗標設成 true 的地方。
@@ -517,7 +522,7 @@ export default function CreateDevoteeModal({ onClose, onCreated }: Props) {
                     type="button"
                     onClick={() => {
                       onClose();
-                      router.push(`/devotee-center/${d.memberId}`);
+                      router.push(`/devotee-center/${d.memberId}${registerQuerySuffix}`);
                     }}
                     className="min-h-11 w-full rounded-xl bg-white/80 px-3 py-2 text-left text-xs
                                text-ink-soft shadow-soft transition hover:bg-white"

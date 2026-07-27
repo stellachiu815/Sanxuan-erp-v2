@@ -1390,10 +1390,13 @@ model TempleEvent {
   /// 全部 nullable / 預設關閉：既有活動一律未設定；未設定時白米認購一律擋住
   /// （顯示「尚未設定白米年度配額」），程式不給任何預設金額或斤數（不寫死）。
   /// 剩餘斤數一律由有效正式報名即時彙總（見 src/lib/whiteRice.ts），不快取增減。
-  riceTotalKg   Decimal? @db.Decimal(12, 2)
-  riceUnitPrice Decimal? @db.Decimal(12, 2)
-  riceOpen      Boolean  @default(false)
-  riceNote      String?  @db.Text
+  riceTotalKg       Decimal? @db.Decimal(12, 2)
+  riceUnitPrice     Decimal? @db.Decimal(12, 2)
+  riceOpen          Boolean  @default(false)
+  riceNote          String?  @db.Text
+  /// V16：是否允許超量認購（預設 false）。false＝所有角色（含 ADMIN/SUPER_ADMIN）皆不得
+  /// 超過剩餘可認購量；true＝可超量、剩餘量可為負、頁面顯示超量警告。純新增、不改既有年度語意。
+  riceAllowOverbook Boolean  @default(false)
 
   records                  RitualRecord[]
   bannedNumbers            TempleEventBannedNumber[] // 本活動年度額外禁用的號碼（目前只有祭改會用到，見下方模型註解）

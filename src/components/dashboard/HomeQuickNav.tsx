@@ -17,6 +17,7 @@ const ENTRIES: Entry[] = [
   { href: "/devotee-center/list", icon: "➕", label: "新增信眾", tone: "bg-yolk-50 hover:bg-yolk-100" },
   { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-50 hover:bg-blossom-100" },
   { href: "/print-center", icon: "🖨️", label: "列印管理", tone: "bg-mist-50 hover:bg-mist-100" },
+  { href: "/registration", icon: "📝", label: "活動報名", tone: "bg-yolk-50 hover:bg-yolk-100" },
   { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-cream-200 hover:bg-cream-300" },
   { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-50 hover:bg-sage-100" },
 ];

@@ -50,9 +50,18 @@ type Selection = {
 
 type HouseholdMember = { id: string; name: string; role: string; isDeceased: boolean };
 
-type Props = { memberId: string; onClose: () => void };
+type Props = {
+  memberId: string;
+  onClose: () => void;
+  /**
+   * V17.3：從「活動報名」流程帶進來的活動上下文——直接預選對應主活動（例如中元普渡），
+   * 不再要求使用者重新選活動。以 activityType（enum 值）比對，找到含該項目的主活動群組。
+   */
+  initialActivityType?: string | null;
+  initialYear?: number | null;
+};
 
-export default function NewActivityRegistrationDialog({ memberId, onClose }: Props) {
+export default function NewActivityRegistrationDialog({ memberId, onClose, initialActivityType, initialYear }: Props) {
   const router = useRouter();
   const [groups, setGroups] = useState<GroupView[] | null>(null);
   const [openYears, setOpenYears] = useState<Record<string, OpenYear[]>>({});
@@ -137,6 +146,17 @@ export default function NewActivityRegistrationDialog({ memberId, onClose }: Pro
     const sorted = Array.from(years).sort((a, b) => b - a);
     setSelectedYear(sorted.length > 0 ? sorted[0] : currentRocYear);
   }, [selectedGroup, group, openYears, selectedYear, currentRocYear]);
+
+  // V17.3：帶入活動上下文時，直接預選對應主活動（例如中元普渡），跳過「選活動」步驟。
+  // 以 activityType 找出包含該項目的主活動群組；年度由上方 effect 自動帶入（或用 initialYear）。
+  useEffect(() => {
+    if (!initialActivityType || !groups || selectedGroup) return;
+    const g = groups.find((gr) => gr.items.some((it) => it.activityType === initialActivityType));
+    if (g) {
+      setSelectedGroup(g.activityGroup);
+      if (initialYear) setSelectedYear(initialYear);
+    }
+  }, [initialActivityType, initialYear, groups, selectedGroup]);
 
   function yearOpenForItem(it: ItemView, year: number): boolean {
     // 這個主活動完全沒有開放中的年度時，一律視為可勾選（用本年度建立草稿報名，

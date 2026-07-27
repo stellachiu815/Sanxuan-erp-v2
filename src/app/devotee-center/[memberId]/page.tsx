@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState, use as usePromise } from "react";
+import { Suspense, useEffect, useRef, useState, use as usePromise } from "react";
 import { useSearchParams } from "next/navigation";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee, type Role } from "@/lib/permissions";
@@ -293,6 +293,11 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
             memberId={memberId}
             operatorUserId={operatorUserId}
             onChanged={() => setReloadTick((t) => t + 1)}
+            initialRegisterActivityType={urlParams.get("registerActivityType")}
+            initialRegisterYear={(() => {
+              const y = Number(urlParams.get("registerYear"));
+              return Number.isFinite(y) && y > 0 ? y : null;
+            })()}
           />
         )}
         {tab === "時間軸" && <TimelineTab items={overview.timeline} />}
@@ -443,12 +448,17 @@ function OverviewTab({
   memberId,
   operatorUserId,
   onChanged,
+  initialRegisterActivityType,
+  initialRegisterYear,
 }: {
   overview: Overview;
   operatorRole?: Role;
   memberId: string;
   operatorUserId: string | null;
   onChanged: () => void;
+  /** V17.3：從「活動報名」流程帶進來的活動上下文——落地即自動開啟對應報名，不再要求重新選活動。 */
+  initialRegisterActivityType?: string | null;
+  initialRegisterYear?: number | null;
 }) {
   // V14.3：改用共用 permissions.ts 的 canDevotee，不再散落 role === 硬編碼。
   // 完整財務統計沿用 viewFullFinancialStats（SUPER_ADMIN／ADMIN），與後端
@@ -458,6 +468,17 @@ function OverviewTab({
   const canEdit = operatorRole ? canDevotee(operatorRole, "transferMember") : false;
   const canRegister = operatorRole ? canDevotee(operatorRole, "updateProfile") : false;
   const [showNewRegistration, setShowNewRegistration] = useState(false);
+  // V17.3：帶著活動上下文（例如中元普渡）進入信眾詳情時，落地即自動開啟對應活動報名，
+  // 直接建立 Draft／開啟報名內容，不再要求「新增活動報名」或重新選活動。只自動開一次
+  //（autoOpenedRef），使用者關閉後不會又被彈開。既有信眾與新增信眾流程共用同一行為。
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (initialRegisterActivityType && canRegister) {
+      autoOpenedRef.current = true;
+      setShowNewRegistration(true);
+    }
+  }, [initialRegisterActivityType, canRegister]);
   const ds = overview.donationStats;
   return (
     <div className="flex flex-col gap-4">
@@ -501,6 +522,8 @@ function OverviewTab({
       {showNewRegistration && canRegister && (
         <NewActivityRegistrationDialog
           memberId={memberId}
+          initialActivityType={initialRegisterActivityType}
+          initialYear={initialRegisterYear}
           onClose={() => {
             setShowNewRegistration(false);
             onChanged();

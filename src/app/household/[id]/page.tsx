@@ -13,10 +13,25 @@ export default async function HouseholdPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ member?: string }>;
+  searchParams: Promise<{
+    member?: string;
+    // V17.4：由「活動報名」流程一路帶進來的活動上下文（點家戶成員報名時直接預選此活動與年度）。
+    registerActivityType?: string;
+    registerYear?: string;
+    registerName?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { member: memberParam } = await searchParams;
+  const {
+    member: memberParam,
+    registerActivityType,
+    registerYear,
+    registerName,
+  } = await searchParams;
+  const registerYearNum = (() => {
+    const y = Number(registerYear);
+    return Number.isFinite(y) && y > 0 ? y : null;
+  })();
   const household = await getHouseholdDetail(id);
 
   if (!household) {
@@ -44,6 +59,15 @@ export default async function HouseholdPage({
       </header>
 
       <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-10">
+        {/* V17.4：活動報名流程進入家戶頁時顯示「報名中」提示。不自動猜測報名人——
+            由使用者點選某位成員的「報名活動」時，報名視窗才會直接預選此活動與年度。 */}
+        {registerActivityType && (
+          <div className="rounded-3xl bg-yolk-50 p-4 text-sm text-ink shadow-card">
+            🎯 報名中：<span className="font-medium">{registerName ?? activityTypeLabel[registerActivityType] ?? registerActivityType}</span>
+            {registerYearNum ? `（民國 ${registerYearNum} 年）` : ""}
+            — 請點選要報名的家戶成員「📝 報名活動」，報名視窗會直接帶入此活動。
+          </div>
+        )}
         {/* ① 家戶資訊 */}
         <section className="rounded-3xl bg-white/70 p-8 shadow-card">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -113,8 +137,9 @@ export default async function HouseholdPage({
                 {m.notes && <p className="mt-2 text-sm text-ink-faint">備註：{m.notes}</p>}
 
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  {/* V15R5（P0 回歸）：每位家戶成員可直接「報名活動」（沿用信眾詳情同一套流程）。 */}
-                  <MemberRegisterButton memberId={m.id} />
+                  {/* V15R5（P0 回歸）：每位家戶成員可直接「報名活動」（沿用信眾詳情同一套流程）。
+                      V17.4：帶入活動上下文時，點此成員報名即直接預選對應活動與年度。 */}
+                  <MemberRegisterButton memberId={m.id} initialActivityType={registerActivityType ?? null} initialYear={registerYearNum} />
                   <Link
                     href={`/offering-center/member/${m.id}`}
                     className="text-xs text-ink-soft hover:underline"

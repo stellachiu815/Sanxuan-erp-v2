@@ -27,7 +27,7 @@ import {
   createUniversalSalvationEntry,
   createBlankUniversalSalvationRecord,
 } from "@/lib/ritual";
-import { registerRice } from "@/lib/whiteRiceService";
+import { registerRice, getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import { createHousehold } from "@/lib/householdManagement";
 import { createMemberForHousehold } from "@/lib/memberCreate";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
@@ -271,6 +271,24 @@ export async function analyzePurificationImport(input: {
     await tx.purificationImportBatch.update({ where: { id: batch.id }, data: { summary: summary as Prisma.InputJsonValue } });
     return batch.id;
   });
+
+  // V16：白米匯入預覽——顯示本批總斤數、年度單價、預計應收與「預估剩餘」（預覽階段不寫入，
+  // 僅供人工判斷；正式配額檢查於確認匯入時、在同一 transaction 內重新彙總把關）。
+  const riceRequestedKg = normalized.reduce((sum, n) => sum + (n.riceKg && n.riceKg > 0 ? Math.round(n.riceKg) : 0), 0);
+  if (riceRequestedKg > 0) {
+    const riceTempleEventId =
+      input.templeEventId ??
+      (await prisma.templeEvent.findUnique({ where: { activityType_year: { activityType: "UNIVERSAL_SALVATION", year: input.year } }, select: { id: true } }))?.id ??
+      null;
+    if (riceTempleEventId) {
+      const riceSummary = await getRiceQuotaSummary(riceTempleEventId);
+      const unitPrice = riceSummary?.unitPrice ?? null;
+      summary.riceRequestedKg = riceRequestedKg;
+      summary.riceUnitPrice = unitPrice ?? 0;
+      summary.riceEstimatedAmountDue = unitPrice != null ? Math.round(riceRequestedKg * unitPrice * 100) / 100 : 0;
+      summary.riceProjectedRemainingKg = riceSummary ? Math.round((riceSummary.remainingKg - riceRequestedKg) * 100) / 100 : 0;
+    }
+  }
 
   return { ok: true, batchId: created, summary, detectedColumns: map as Record<string, string> };
 }

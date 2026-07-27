@@ -77,6 +77,56 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
   if (error) return <p className="p-6 text-sm text-blossom-500">{error}</p>;
   if (!roster) return <p className="p-6 text-sm text-ink-faint">讀取中…</p>;
 
+  // V16：白米列印只需「姓名＋斤數」（沿用 US_RICE_ROSTER + 同一列印中心，不建第二套列印）。
+  const isRice = itemKey === "US_RICE";
+  if (isRice) {
+    return (
+      <main className="mx-auto max-w-2xl px-6 py-8">
+        <div className="mb-4 flex items-center justify-between print:hidden">
+          <h1 className="text-lg text-ink">白米認購名單（民國 {roster.year} 年）</h1>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await fetchRegistration(`/api/print-center/rosters/${itemKey}/${year}/mark-printed`, { method: "POST", body: "{}" });
+              } catch { /* 記錄失敗不阻擋列印 */ }
+              window.print();
+            }}
+            className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink hover:bg-yolk-300"
+          >
+            列印／補印
+          </button>
+        </div>
+        <h1 className="mb-2 hidden text-center text-lg print:block">白米認購名單（民國 {roster.year} 年）</h1>
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-ink/20 text-xs text-ink-faint">
+              <th className="px-2 py-1.5">#</th>
+              <th className="px-2 py-1.5">姓名</th>
+              <th className="px-2 py-1.5">斤數</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roster.rows.map((r, i) => (
+              <tr key={r.registrationItemId} className="border-b border-ink/10">
+                <td className="px-2 py-1.5 text-ink-faint">{i + 1}</td>
+                <td className="px-2 py-1.5 text-ink">{r.memberName ?? r.householdName}</td>
+                <td className="px-2 py-1.5 text-ink-soft">{r.quantity} 斤</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-ink/20 text-sm text-ink">
+              <td className="px-2 py-1.5" colSpan={2}>合計</td>
+              <td className="px-2 py-1.5">{roster.totalQuantity} 斤</td>
+            </tr>
+          </tfoot>
+        </table>
+        {roster.rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">目前沒有已確認的白米認購。</p>}
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-4 flex items-center justify-between print:hidden">

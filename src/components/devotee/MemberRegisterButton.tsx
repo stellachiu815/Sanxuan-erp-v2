@@ -12,7 +12,16 @@ import NewActivityRegistrationDialog from "./NewActivityRegistrationDialog";
  * memberId 傳進去——不建立第二套流程。支援年度燈（光明燈／太歲燈／全家燈／
  * 祭改）、普渡、宮慶等所有以 RegistrationItemType 定義的活動項目。
  */
-export default function MemberRegisterButton({ memberId }: { memberId: string }) {
+export default function MemberRegisterButton({
+  memberId,
+  initialActivityType,
+  initialYear,
+}: {
+  memberId: string;
+  /** V17.4：由「活動報名」流程帶進家戶頁的活動上下文——點此成員報名時直接預選對應活動與年度。 */
+  initialActivityType?: string | null;
+  initialYear?: number | null;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   return (
@@ -27,6 +36,8 @@ export default function MemberRegisterButton({ memberId }: { memberId: string })
       {open && (
         <NewActivityRegistrationDialog
           memberId={memberId}
+          initialActivityType={initialActivityType}
+          initialYear={initialYear}
           onClose={() => {
             setOpen(false);
             router.refresh();

@@ -6,6 +6,7 @@ import {
   getRegistrationItemTypeById,
   computeItemAmountDue,
 } from "@/lib/registrationItems";
+import { computeRiceItemData } from "@/lib/whiteRice";
 import {
   getUniversalSalvationTabletPrices,
   getUniversalSalvationSponsorPrice,
@@ -506,6 +507,24 @@ export async function registerItemsBatch(
     }
   }
 
+  // V16：白米（US_RICE，contentKind=RICE）年度單價／開放狀態——交易外一次撈齊（避免交易內 N+1）。
+  // 白米屬 UNIVERSAL_SALVATION 年度事件；批次入口只建 DRAFT，年度配額於「確認報名」時於同一 tx 檢查
+  //（DRAFT 不佔配額）。此處只需年度單價與是否開放；不得走 feeMode NONE 產生 0 元。
+  const riceConfigByYear = new Map<number, { unitPrice: number | null; open: boolean }>();
+  for (const entry of entries) {
+    const itemType = itemTypeMap.get(entry.registrationItemTypeId);
+    if (itemType && itemType.contentKind === "RICE" && !riceConfigByYear.has(entry.year)) {
+      const ev = await prisma.templeEvent.findUnique({
+        where: { activityType_year: { activityType: "UNIVERSAL_SALVATION", year: entry.year } },
+        select: { riceUnitPrice: true, riceOpen: true },
+      });
+      riceConfigByYear.set(entry.year, {
+        unitPrice: ev?.riceUnitPrice != null ? Number(ev.riceUnitPrice) : null,
+        open: ev?.riceOpen ?? false,
+      });
+    }
+  }
+
   // V15R5：年度燈「祭改／全家燈」的年度單價與祭改所屬 ANNUAL_LANTERN 事件——**交易外**一次撈齊
   // （避免在互動式交易內逐項查詢造成 5000ms timeout → rollback → 資料未建立）。
   const annualPriceByYear = new Map<number, AnnualLanternPrices>();
@@ -570,6 +589,16 @@ export async function registerItemsBatch(
         return { ok: false, status: 400, error: `${itemType.name}：數量必須是 1 以上的整數` };
       }
       amountDue = unit !== null ? Math.round(unit * quantity * 100) / 100 : 0;
+    } else if (itemType.contentKind === "RICE") {
+      // V16 白米：斤數（quantity）必須正整數、年度單價須已設定且開放；amountDue=斤數×年度單價。
+      // 不得以 feeMode NONE 產生 0 元。此處只驗證＋計價，DRAFT 建立、配額於確認時檢查。
+      const cfg = riceConfigByYear.get(entry.year);
+      if (!cfg || !cfg.open) {
+        return { ok: false, status: 400, error: `${itemType.name}：本年度白米尚未開放認購或年度設定未完成` };
+      }
+      const calc = computeRiceItemData(quantity, cfg.unitPrice);
+      if (!calc.ok) return { ok: false, status: 400, error: `${itemType.name}：${calc.error}` };
+      amountDue = calc.data.amountDue;
     } else if (isAnnualLanternPricedItemKey(itemType.key)) {
       // V15R5.1：光明燈/太歲燈/全家燈＝依「該年度活動」單價（brightLight/taisui/familyLantern），
       // **不再讀全域 defaultUnitPrice、不寫死 500**；未設定 → 0（不擋報名、可存草稿）。
@@ -881,6 +910,10 @@ export async function registerItemsBatch(
           createQty = 1;
           createLocked = p.amountDue;
           createAmount = p.amountDue;
+        } else if (p.itemType.contentKind === "RICE") {
+          // V16 白米：鎖定當年度每斤單價（快照）；createQty=斤數、createAmount=斤數×單價（已於預算階段算好）。
+          // 日後改年度單價不回頭改既有 DRAFT。DRAFT 建立，配額於確認報名時檢查（DRAFT 不佔配額）。
+          createLocked = riceConfigByYear.get(p.entry.year)?.unitPrice ?? null;
         } else if (isAnnualLanternPricedItemKey(p.itemType.key)) {
           // V15R5.1：光明燈/太歲燈/全家燈＝依該年度活動單價（brightLight/taisui/familyLantern，
           // 交易外已預取），項目自身計價，**不讀 defaultUnitPrice、不寫死 500**；未設定 → 0

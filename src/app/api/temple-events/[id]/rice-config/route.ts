@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
+import { assertUniversalSalvationPermissionForOperator, assertActivityPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 import { getRiceQuotaSummary, updateRiceConfig, type UpdateRiceConfigInput } from "@/lib/whiteRiceService";
 
@@ -29,7 +29,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const check = await assertUniversalSalvationPermissionForOperator(await readOperatorUserId(request), "update");
+  // V16：白米年度設定（總量／單價／開放／允許超量）＝活動設定管理權限（僅 ADMIN／SUPER_ADMIN，
+  // 對應 canActivity manageSettings）；STAFF／READONLY 一律不得修改設定。
+  const check = await assertActivityPermissionForOperator(await readOperatorUserId(request), "manageSettings");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const body = await readJsonBody(request);
@@ -40,6 +42,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if ("unitPrice" in body) input.unitPrice = body.unitPrice === null ? null : Number(body.unitPrice);
   if ("open" in body) input.open = Boolean(body.open);
   if ("note" in body) input.note = typeof body.note === "string" ? body.note : null;
+  if ("allowOverbook" in body) input.allowOverbook = Boolean(body.allowOverbook);
 
   const { id } = await params;
   const result = await updateRiceConfig(id, input, check.operator.name);

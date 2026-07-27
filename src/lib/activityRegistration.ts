@@ -13,6 +13,15 @@ import {
 } from "@/lib/registrationFormTypes";
 import { upsertLanternRegistrationInTransaction } from "@/lib/lanternRegistration";
 import { canAcceptRegistration, listActivityYearCandidates } from "@/lib/activityYear";
+import { assertRiceQuota } from "@/lib/whiteRiceService";
+
+/** V16：白米年度配額不足（確認報名時觸發）。用來在 transaction 內中止並回傳原狀態碼／訊息。 */
+class RiceQuotaBlockedError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "RiceQuotaBlockedError";
+  }
+}
 
 /**
  * V13.4：跨活動的**統一報名 service**。
@@ -340,7 +349,25 @@ export async function confirmRegistration(
     return { ok: false, status: 409, error: "這筆報名已取消，無法直接確認" };
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+    // V16：確認報名時，本筆 DRAFT 白米（US_RICE，contentKind=RICE）將轉為 CONFIRMED，
+    // 開始佔用年度配額。於同一 transaction、翻狀態「前」重新彙總並檢查：本年度未開放超量時，
+    // 任何角色（含 ADMIN／SUPER_ADMIN）都不得超出剩餘量；不保留填理由覆寫。
+    // DRAFT 不佔配額，因此 delta＝本筆所有 DRAFT 白米斤數總和。
+    if (record.templeEventId) {
+      const draftRice = await tx.ritualRegistrationItem.findMany({
+        where: { ritualRecordId, deletedAt: null, status: "DRAFT", registrationItemType: { contentKind: "RICE" } },
+        select: { quantity: true },
+      });
+      const deltaKg = draftRice.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
+      if (deltaKg > 0) {
+        const q = await assertRiceQuota(tx, record.templeEventId, deltaKg);
+        if (!q.ok) throw new RiceQuotaBlockedError(q.status, q.error);
+      }
+    }
+
     // 產生列印快照（依活動年度，不是今年）
     const snap = await generatePrintSnapshotsInTransaction(
       tx,
@@ -378,6 +405,11 @@ export async function confirmRegistration(
 
     return snap;
   });
+  } catch (e) {
+    // V16：白米超量被擋（本年度未開放超量）→ 回傳 403 與含年度總量／已認購／本次增加／剩餘／超出斤數的訊息。
+    if (e instanceof RiceQuotaBlockedError) return { ok: false, status: e.status, error: e.message };
+    throw e;
+  }
 
   return { ok: true, snapshotsGenerated: result.updated };
 }

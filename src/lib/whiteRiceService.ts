@@ -10,9 +10,9 @@ import { Prisma } from "@prisma/client";
 import { prisma, type DbClient } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
 import {
-  computeRiceAmountDue,
   computeRiceQuota,
-  checkRiceOverage,
+  computeRiceItemData,
+  evaluateRiceQuota,
   type Role,
 } from "@/lib/whiteRice";
 
@@ -35,10 +35,12 @@ export type RiceQuotaSummary = {
   totalKg: number | null;
   unitPrice: number | null;
   open: boolean;
+  allowOverbook: boolean;
   note: string | null;
   registeredKg: number;
   remainingKg: number;
   isOverbooked: boolean;
+  count: number;
   totalAmountDue: number;
   totalAmountPaid: number;
   totalAmountUnpaid: number;
@@ -51,13 +53,14 @@ export type RiceQuotaSummary = {
 export async function getRiceQuotaSummary(templeEventId: string): Promise<RiceQuotaSummary | null> {
   const event = await prisma.templeEvent.findUnique({
     where: { id: templeEventId },
-    select: { id: true, year: true, riceTotalKg: true, riceUnitPrice: true, riceOpen: true, riceNote: true },
+    select: { id: true, year: true, riceTotalKg: true, riceUnitPrice: true, riceOpen: true, riceNote: true, riceAllowOverbook: true },
   });
   if (!event) return null;
 
   const agg = await prisma.ritualRegistrationItem.aggregate({
     where: validRiceItemWhere(event.year),
     _sum: { quantity: true, amountDue: true, amountPaid: true, amountUnpaid: true },
+    _count: true,
   });
 
   const registeredKg = agg._sum.quantity ?? 0;
@@ -69,10 +72,12 @@ export async function getRiceQuotaSummary(templeEventId: string): Promise<RiceQu
     totalKg,
     unitPrice: toNum(event.riceUnitPrice),
     open: event.riceOpen,
+    allowOverbook: event.riceAllowOverbook,
     note: event.riceNote,
     registeredKg: quota.registeredKg,
     remainingKg: quota.remainingKg,
     isOverbooked: quota.isOverbooked,
+    count: agg._count ?? 0,
     totalAmountDue: Number(agg._sum.amountDue ?? 0),
     totalAmountPaid: Number(agg._sum.amountPaid ?? 0),
     totalAmountUnpaid: Number(agg._sum.amountUnpaid ?? 0),
@@ -83,6 +88,7 @@ export type UpdateRiceConfigInput = {
   totalKg?: number | null;
   unitPrice?: number | null;
   open?: boolean;
+  allowOverbook?: boolean;
   note?: string | null;
 };
 
@@ -112,6 +118,7 @@ export async function updateRiceConfig(
     data.riceUnitPrice = input.unitPrice;
   }
   if ("open" in input) data.riceOpen = Boolean(input.open);
+  if ("allowOverbook" in input) data.riceAllowOverbook = Boolean(input.allowOverbook);
   if ("note" in input) data.riceNote = input.note ?? null;
 
   const after = await prisma.templeEvent.update({ where: { id: templeEventId }, data });
@@ -175,7 +182,7 @@ export async function registerRice(
   const run = async (tx: DbClient) => {
       const event = await tx.templeEvent.findUnique({
         where: { id: record.templeEventId! },
-        select: { riceTotalKg: true, riceUnitPrice: true, riceOpen: true, year: true },
+        select: { riceTotalKg: true, riceUnitPrice: true, riceOpen: true, year: true, riceAllowOverbook: true },
       });
       if (!event) return { ok: false as const, status: 404, error: "找不到年度活動" };
       const unitPrice = toNum(event.riceUnitPrice);
@@ -183,31 +190,32 @@ export async function registerRice(
         return { ok: false as const, status: 400, error: "白米年度配額尚未設定或未開放認購" };
       }
 
-      // 重新彙總「目前有效認購斤數」，剩餘＝總 − 有效（不快取增減）。
-      const agg = await tx.ritualRegistrationItem.aggregate({
-        where: validRiceItemWhere(event.year),
-        _sum: { quantity: true },
+      // V16：斤數必須正整數、單價已設定（不無聲四捨五入、不偷用 0）。
+      const calc = computeRiceItemData(kg, unitPrice);
+      if (!calc.ok) return { ok: false as const, status: 400, error: calc.error };
+
+      // 重新彙總「目前有效認購斤數」，依「允許超量開關」判斷（tx 內，避免併發超量）。
+      const agg = await tx.ritualRegistrationItem.aggregate({ where: validRiceItemWhere(event.year), _sum: { quantity: true } });
+      const q = evaluateRiceQuota({
+        totalKg: toNum(event.riceTotalKg),
+        registeredKg: agg._sum.quantity ?? 0,
+        deltaKg: calc.data.quantity,
+        allowOverbook: event.riceAllowOverbook,
       });
-      const registeredKg = agg._sum.quantity ?? 0;
-      const remainingKg = computeRiceQuota(toNum(event.riceTotalKg), registeredKg).remainingKg;
-
-      const decision = checkRiceOverage(actor.role, kg, remainingKg, input.overageReason);
-      if (!decision.ok) return { ok: false as const, status: 403, error: decision.reason };
-      const isOverage = decision.overage === true;
-
-      const amountDue = computeRiceAmountDue(kg, unitPrice) ?? 0;
+      if (!q.ok) return { ok: false as const, status: 403, error: q.error };
 
       const item = await tx.ritualRegistrationItem.create({
         data: {
           ritualRecordId: record.id,
           registrationItemTypeId: type.id,
           memberId: input.memberId ?? null,
-          quantity: Math.round(kg),
-          amountDue: new Prisma.Decimal(amountDue),
-          amountUnpaid: new Prisma.Decimal(amountDue),
-          lockedUnitPrice: new Prisma.Decimal(unitPrice),
+          quantity: calc.data.quantity,
+          amountDue: new Prisma.Decimal(calc.data.amountDue),
+          amountPaid: new Prisma.Decimal(0),
+          amountUnpaid: new Prisma.Decimal(calc.data.amountUnpaid),
+          lockedUnitPrice: new Prisma.Decimal(calc.data.lockedUnitPrice),
           status: "CONFIRMED",
-          notes: isOverage ? `超額認購（剩餘 ${remainingKg} 斤）原因：${input.overageReason ?? ""}｜核准：${actor.name}` : null,
+          notes: q.overbook ? `超量認購（超出後剩餘 ${q.remainingAfter} 斤）｜核准：${actor.name}` : null,
         },
       });
 
@@ -218,13 +226,91 @@ export async function registerRice(
           action: "CREATE",
           afterData: item,
           operatorName: actor.name,
-          changeNote: isOverage ? "白米超額認購（已記錄操作人/時間/原因）" : "白米認購",
+          changeNote: q.overbook ? "白米超量認購（本年度開放超量，已記錄操作人）" : "白米認購",
         },
         tx
       );
 
-      return { ok: true as const, itemId: item.id, amountDue, overage: isOverage };
+      return { ok: true as const, itemId: item.id, amountDue: calc.data.amountDue, overage: q.overbook };
   };
   // 有外部 tx → 直接用該 tx（納入呼叫端交易）；否則自開一個 transaction（原行為）。
+  return db ? run(db) : prisma.$transaction(run);
+}
+
+/**
+ * V16：可重用的年度配額檢查（tx 內）。deltaKg＝本次「新增的有效斤數」。
+ * 由各入口（確認報名、Excel 匯入、批次、恢復、加斤數）於同一 transaction 內、寫入前呼叫，
+ * 依「允許超量開關」阻擋（關閉時所有角色一律阻擋，回傳詳細數字）。
+ */
+export async function assertRiceQuota(
+  tx: DbClient,
+  templeEventId: string,
+  deltaKg: number
+): Promise<{ ok: true; overbook: boolean } | { ok: false; status: number; error: string }> {
+  const event = await tx.templeEvent.findUnique({
+    where: { id: templeEventId },
+    select: { year: true, riceTotalKg: true, riceAllowOverbook: true },
+  });
+  if (!event) return { ok: false, status: 404, error: "找不到年度活動" };
+  const agg = await tx.ritualRegistrationItem.aggregate({ where: validRiceItemWhere(event.year), _sum: { quantity: true } });
+  const q = evaluateRiceQuota({
+    totalKg: toNum(event.riceTotalKg),
+    registeredKg: agg._sum.quantity ?? 0,
+    deltaKg,
+    allowOverbook: event.riceAllowOverbook,
+  });
+  if (!q.ok) return { ok: false, status: 403, error: q.error };
+  return { ok: true, overbook: q.overbook };
+}
+
+/**
+ * V16：修改白米斤數（用該筆已鎖 lockedUnitPrice 重算）。
+ * 增量且該筆為 CONFIRMED（占配額）→ tx 內檢查 delta；減量釋放額度。
+ * 新應收 < 已收（溢收）→ 阻擋並回傳詳細數字，須先走既有退款/沖銷流程；不動 amountPaid/收款/交易。
+ */
+export async function updateRiceQuantity(
+  itemId: string,
+  newKg: number,
+  operator: { name: string },
+  db?: DbClient
+): Promise<{ ok: true; quantity: number; amountDue: number; amountUnpaid: number } | { ok: false; status: number; error: string }> {
+  const run = async (tx: DbClient) => {
+    const item = await tx.ritualRegistrationItem.findUnique({
+      where: { id: itemId },
+      include: { registrationItemType: { select: { contentKind: true } }, ritualRecord: { select: { templeEventId: true } } },
+    });
+    if (!item || item.deletedAt) return { ok: false as const, status: 404, error: "找不到這筆白米報名" };
+    if (item.registrationItemType.contentKind !== "RICE") return { ok: false as const, status: 400, error: "這不是白米報名項目" };
+    if (item.status === "CANCELLED") return { ok: false as const, status: 400, error: "已取消的白米報名不可修改斤數" };
+
+    const unitPrice = toNum(item.lockedUnitPrice);
+    const calc = computeRiceItemData(newKg, unitPrice); // 用該筆已鎖單價、正整數驗證
+    if (!calc.ok) return { ok: false as const, status: 400, error: calc.error };
+
+    const oldKg = item.quantity;
+    const delta = calc.data.quantity - oldKg;
+    // 增量且已占配額（CONFIRMED）→ 檢查 delta；DRAFT 不占配額（確認時才檢查）。
+    if (delta > 0 && item.status === "CONFIRMED" && item.ritualRecord.templeEventId) {
+      const q = await assertRiceQuota(tx, item.ritualRecord.templeEventId, delta);
+      if (!q.ok) return q;
+    }
+
+    const amountPaid = Number(item.amountPaid);
+    if (calc.data.amountDue < amountPaid) {
+      return {
+        ok: false as const,
+        status: 409,
+        error: `修改後新應收（${calc.data.amountDue} 元）低於已收（${amountPaid} 元）——原斤數 ${oldKg} 斤／新斤數 ${calc.data.quantity} 斤／原應收 ${Number(item.amountDue)} 元／新應收 ${calc.data.amountDue} 元／已收 ${amountPaid} 元／溢收 ${Math.round((amountPaid - calc.data.amountDue) * 100) / 100} 元。請先於收款中心辦理退款／沖銷後再調整。`,
+      };
+    }
+    const amountUnpaid = Math.round((calc.data.amountDue - amountPaid) * 100) / 100;
+    const after = await tx.ritualRegistrationItem.update({
+      where: { id: itemId },
+      // 只更新斤數/應收/未收；不動 amountPaid、lockedUnitPrice、收款、交易、收據。
+      data: { quantity: calc.data.quantity, amountDue: new Prisma.Decimal(calc.data.amountDue), amountUnpaid: new Prisma.Decimal(amountUnpaid) },
+    });
+    await recordVersion({ entityType: "RitualRegistrationItem", entityId: itemId, action: "UPDATE", beforeData: item, afterData: after, operatorName: operator.name, changeNote: `修改白米斤數 ${oldKg}→${calc.data.quantity} 斤` }, tx);
+    return { ok: true as const, quantity: calc.data.quantity, amountDue: calc.data.amountDue, amountUnpaid };
+  };
   return db ? run(db) : prisma.$transaction(run);
 }

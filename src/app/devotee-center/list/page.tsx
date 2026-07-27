@@ -122,20 +122,47 @@ function DevoteeListInner() {
   // 對應指令「七、上一位／下一位」：把目前的搜尋字／篩選條件一起帶到
   // 信眾完整資料編輯頁，讓上一位/下一位可以在同一個篩選範圍內移動
   // （見 src/lib/devoteeList.ts getAdjacentDevoteeIds() 說明）。
+  // V17.3：把「活動報名」帶進來的活動上下文（registerActivityType/Year/Name）一路保留到
+  // 信眾詳情頁——點選信眾後直接開啟對應活動報名，不再要求重新選活動。
+  const registerActivityType = urlParams.get("registerActivityType");
+  const registerYear = urlParams.get("registerYear");
+  const registerName = urlParams.get("registerName");
   const detailQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (debouncedQ) params.set("q", debouncedQ);
     if (filters.length) params.set("filters", filters.join(","));
+    if (registerActivityType) params.set("registerActivityType", registerActivityType);
+    if (registerYear) params.set("registerYear", registerYear);
+    if (registerName) params.set("registerName", registerName);
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [debouncedQ, filters]);
+  }, [debouncedQ, filters, registerActivityType, registerYear, registerName]);
+
+  // V17.3：僅含活動上下文的 query（給「新增信眾」建立成功後導向新信眾詳情用；不帶搜尋/篩選）。
+  const registerQueryString = useMemo(() => {
+    const p = new URLSearchParams();
+    if (registerActivityType) p.set("registerActivityType", registerActivityType);
+    if (registerYear) p.set("registerYear", registerYear);
+    if (registerName) p.set("registerName", registerName);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  }, [registerActivityType, registerYear, registerName]);
 
   function toggleFilter(value: string) {
     setFilters((prev) => (prev.includes(value) ? prev.filter((f) => f !== value) : [...prev, value]));
   }
 
+  // V17 活動報名首頁：從「開始報名」帶活動 context 進來時，顯示報名模式橫幅
+  //（registerName/registerYear 於上方 detailQueryString 區塊已宣告，這裡直接沿用）。
   return (
     <div className="flex flex-col gap-6">
+      {registerName && (
+        <div className="rounded-3xl bg-yolk-50 p-4 text-sm text-ink shadow-card">
+          🎯 報名中：<span className="font-medium">{registerName}</span>
+          {registerYear ? `（民國 ${registerYear} 年）` : ""}
+          — 請搜尋並點選信眾或家戶，進入後即可為此活動報名。
+        </div>
+      )}
       <div className="rounded-3xl bg-white/70 p-5 shadow-card">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <input
@@ -219,7 +246,7 @@ function DevoteeListInner() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-base text-ink">{r.name}</span>
                 <Link
-                  href={`/household/${r.householdId}`}
+                  href={`/household/${r.householdId}${registerQueryString}`}
                   className="rounded-full bg-cream-100 px-2.5 py-0.5 text-xs text-ink-soft"
                 >
                   {r.householdName}（{r.householdId}）
@@ -308,7 +335,7 @@ function DevoteeListInner() {
                         才能繞到家戶。 */}
                     <td className="px-3 py-2">
                       <Link
-                        href={`/household/${r.householdId}`}
+                        href={`/household/${r.householdId}${registerQueryString}`}
                         className="text-ink-soft underline-offset-4 hover:text-ink hover:underline"
                       >
                         {r.householdId}
@@ -316,7 +343,7 @@ function DevoteeListInner() {
                     </td>
                     <td className="px-3 py-2">
                       <Link
-                        href={`/household/${r.householdId}`}
+                        href={`/household/${r.householdId}${registerQueryString}`}
                         className="text-ink-soft underline-offset-4 hover:text-ink hover:underline"
                       >
                         {r.householdName}
@@ -418,6 +445,8 @@ function DevoteeListInner() {
         <CreateDevoteeModal
           onClose={() => setShowCreateDevotee(false)}
           onCreated={() => setReloadTick((t) => t + 1)}
+          // V17.3：新增信眾流程也帶著活動上下文——建立成功後直接進該活動報名，不再要求重新選活動。
+          registerQuerySuffix={registerQueryString}
         />
       )}
     </div>

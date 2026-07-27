@@ -133,3 +133,57 @@ export function checkRiceOverage(
   }
   return { ok: false, reason: `剩餘斤數不足（剩 ${remainingKg} 斤），一般人員不得超額認購`, remainingKg };
 }
+
+// ============================================================
+// 五、V16：白米項目計價資料 + 依「允許超量開關」的配額檢查（取代 role 覆寫）
+// ============================================================
+
+export type RiceItemData = { quantity: number; lockedUnitPrice: number; amountDue: number; amountUnpaid: number };
+
+/**
+ * V16：由斤數＋年度單價計算白米項目寫入資料。
+ * 規則：斤數必須為正整數（不無聲四捨五入、不接受 0／負數／小數／空白）；
+ * 單價必須已設定且 ≥ 0（未設定不得計價、不得偷用 0）。amountDue＝斤數×單價、amountUnpaid＝amountDue、amountPaid 由呼叫端固定 0。
+ */
+export function computeRiceItemData(kg: number, unitPrice: number | null): { ok: true; data: RiceItemData } | { ok: false; error: string } {
+  if (unitPrice === null || !Number.isFinite(unitPrice) || unitPrice < 0) {
+    return { ok: false, error: "尚未設定白米年度單價（或單價不合法），無法計價；不得以 0 元計。" };
+  }
+  if (typeof kg !== "number" || !Number.isFinite(kg)) return { ok: false, error: "白米斤數必須是數字" };
+  if (!Number.isInteger(kg)) return { ok: false, error: "白米斤數必須是正整數（不接受小數）" };
+  if (kg <= 0) return { ok: false, error: "白米斤數必須大於 0" };
+  const amountDue = round2(kg * unitPrice);
+  return { ok: true, data: { quantity: kg, lockedUnitPrice: unitPrice, amountDue, amountUnpaid: amountDue } };
+}
+
+export type RiceQuotaCheck =
+  | { ok: true; overbook: boolean; remainingBefore: number; remainingAfter: number }
+  | { ok: false; error: string; totalKg: number; registeredKg: number; deltaKg: number; remainingKg: number; overBy: number };
+
+/**
+ * V16：依年度「允許超量開關」判斷「本次要增加 deltaKg 斤」是否可通過。
+ * allowOverbook=false：任何角色（含 ADMIN/SUPER_ADMIN）只要結果超過剩餘量即阻擋，回傳詳細數字。
+ * allowOverbook=true：允許超量，remainingAfter 可為負；回 overbook 旗標供頁面顯示警告。
+ * delta ≤ 0（減量／不變）一律通過（釋放額度）。
+ */
+export function evaluateRiceQuota(input: { totalKg: number | null; registeredKg: number; deltaKg: number; allowOverbook: boolean }): RiceQuotaCheck {
+  const total = input.totalKg !== null && Number.isFinite(input.totalKg) && input.totalKg > 0 ? round2(input.totalKg) : 0;
+  const registered = round2(Math.max(0, input.registeredKg));
+  const delta = round2(input.deltaKg);
+  const remainingBefore = round2(total - registered);
+  const remainingAfter = round2(remainingBefore - delta);
+  if (delta <= 0) return { ok: true, overbook: remainingAfter < 0, remainingBefore, remainingAfter };
+  const over = remainingAfter < 0;
+  if (over && !input.allowOverbook) {
+    return {
+      ok: false,
+      error: `白米可認購量不足：年度可認購 ${total} 斤、目前已認購 ${registered} 斤、剩餘 ${remainingBefore} 斤、本次要求 ${delta} 斤、將超出 ${round2(-remainingAfter)} 斤（本年度未開放超量認購）。`,
+      totalKg: total,
+      registeredKg: registered,
+      deltaKg: delta,
+      remainingKg: remainingBefore,
+      overBy: round2(-remainingAfter),
+    };
+  }
+  return { ok: true, overbook: over, remainingBefore, remainingAfter };
+}

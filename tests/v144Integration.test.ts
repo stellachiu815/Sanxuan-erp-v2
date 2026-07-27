@@ -104,26 +104,30 @@ test("22-25. 沿用去年不複製收款/已收/列印紀錄（新建 DRAFT、am
   }
 });
 
-// ── 白米財務/權限（驗收 41/42/46/47）──────────────────────────
-test("42. registerRice 鎖定 lockedUnitPrice；41. amountDue=斤×鎖定價", () => {
+// ── 白米財務/權限（驗收 41/42/46/47；V16 更新：改用 computeRiceItemData/evaluateRiceQuota）──
+test("42. registerRice 鎖定 lockedUnitPrice；41. amountDue=斤×鎖定價（V16：computeRiceItemData）", () => {
   const svc = read("src/lib/whiteRiceService.ts");
-  assert.equal(svc.includes("lockedUnitPrice: new Prisma.Decimal(unitPrice)"), true, "鎖定當年度單價");
-  assert.equal(/amountDue = computeRiceAmountDue\(kg, unitPrice\)/.test(svc), true, "應收=斤×單價");
+  // V16：鎖定單價與應收都取自 computeRiceItemData 的計算結果（斤數正整數＋單價已設定）。
+  assert.equal(svc.includes("lockedUnitPrice: new Prisma.Decimal(calc.data.lockedUnitPrice)"), true, "鎖定當年度單價（快照）");
+  assert.equal(/const calc = computeRiceItemData\(kg, unitPrice\)/.test(svc), true, "應收=斤×單價（computeRiceItemData）");
   // 重新彙總剩餘斤數（不快取增減）
   assert.equal(/validRiceItemWhere\(event\.year\)[\s\S]{0,200}_sum: \{ quantity: true \}/.test(svc), true);
 });
 
-test("46/47. 白米/列印新寫入 API operator 來自 session、READONLY 被擋", () => {
+test("46/47. 白米/列印新寫入 API operator 來自 session、READONLY 被擋（V16：設定＝manageSettings）", () => {
   const rice = read("src/app/api/universal-salvation/[year]/rice/route.ts");
   assert.equal(/assertUniversalSalvationPermissionForOperator\([\s\S]{0,80}"create"\)/.test(rice), true, "報名需 create（READONLY 無）");
   assert.equal(rice.includes("check.operator.id"), true, "operator 來自 session");
   const cfg = read("src/app/api/temple-events/[id]/rice-config/route.ts");
-  assert.equal(/assertUniversalSalvationPermissionForOperator\([\s\S]{0,80}"update"\)/.test(cfg), true, "設定 PATCH 需 update");
+  // V16：白米年度設定改為活動設定管理（僅 ADMIN/SUPER_ADMIN）。
+  assert.equal(/assertActivityPermissionForOperator\([\s\S]{0,80}"manageSettings"\)/.test(cfg), true, "設定 PATCH 需 manageSettings");
 });
 
-// ── 超額（驗收 5/6/28）──────────────────────────────────────
-test("5/6/28. 超額：STAFF 擋、ADMIN/SUPER 需原因（checkRiceOverage 在 registerRice 內每次重判）", () => {
+// ── 超額（驗收 5/6/28；V16：改為「允許超量開關」，關閉時所有角色一律擋、不填理由覆寫）──
+test("5/6/28. 超額：V16 依 riceAllowOverbook 開關（evaluateRiceQuota），關閉時所有角色一律擋", () => {
   const svc = read("src/lib/whiteRiceService.ts");
-  assert.equal(/checkRiceOverage\(actor\.role, kg, remainingKg, input\.overageReason\)/.test(svc), true);
-  assert.equal(/if \(!decision\.ok\) return \{ ok: false as const, status: 403/.test(svc), true);
+  // 不再用角色覆寫；registerRice 內以 evaluateRiceQuota（吃 allowOverbook）判斷。
+  assert.equal(/checkRiceOverage\(/.test(svc), false, "V16 不再於服務層用 checkRiceOverage 角色覆寫");
+  assert.equal(/evaluateRiceQuota\(\{[\s\S]{0,200}allowOverbook:/.test(svc), true, "依 allowOverbook 開關判斷");
+  assert.equal(/if \(!q\.ok\) return \{ ok: false as const, status: 403/.test(svc), true, "超量（未開放）回 403");
 });
