@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { getTempleEventHome } from "@/lib/templeEvents";
 import { listGenericParticipants, listTempleEventExpenses } from "@/lib/templeEvents";
 import ActivityHomeScreen from "@/components/activities/ActivityHomeScreen";
@@ -76,9 +76,7 @@ export default async function ActivityHomePage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <Link href="/activities" className="text-sm text-ink-soft hover:underline">
-            ← 宮務活動中心
-          </Link>
+          <BackButton fallbackHref="/activities" />
           <h1 className="text-sm text-ink-soft">{home.name}</h1>
         </div>
       </header>

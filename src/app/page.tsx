@@ -150,6 +150,9 @@ export default async function HomePage() {
         <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           🧾 全宮共用收據中心 →
         </Link>
+        <Link href="/finance-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
+          📒 財務中心 →
+        </Link>
         {showSystemCenter && (
           <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
             🛠️ 系統管理 →

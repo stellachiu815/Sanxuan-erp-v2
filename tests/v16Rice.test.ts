@@ -247,8 +247,12 @@ test("F1. 白米列印檢視只有姓名＋斤數（US_RICE 專用簡表）", ()
 });
 
 test("F2. 白米列印沿用同一列印中心 mark-printed（不建第二套列印追蹤）", () => {
-  const s = SRC("app/print-center/rosters/[itemKey]/[year]/page.tsx");
-  assert.match(s, /print-center\/rosters\/\$\{itemKey\}\/\$\{year\}\/mark-printed/);
+  // V21.1：名冊頁改用共用的 RosterPrintButton（先預覽→確認→開始列印→完成後才記錄），
+  // 仍沿用同一支 mark-printed 端點，不建第二套列印追蹤。
+  const page = SRC("app/print-center/rosters/[itemKey]/[year]/page.tsx");
+  assert.match(page, /RosterPrintButton/);
+  const btn = SRC("components/print/RosterPrintButton.tsx");
+  assert.match(btn, /print-center\/rosters\/\$\{itemKey\}\/\$\{year\}\/mark-printed/);
 });
 
 test("F3. US_RICE 種子項目 printDocumentKeys 含 US_RICE_ROSTER、contentKind RICE、feeMode NONE", () => {

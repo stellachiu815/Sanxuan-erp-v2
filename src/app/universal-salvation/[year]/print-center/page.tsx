@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import PrintItemsCenter from "@/components/universal-salvation/PrintItemsCenter";
 import PrintObjectCenter from "@/components/universal-salvation/PrintObjectCenter";
 
@@ -20,9 +20,7 @@ export default async function UniversalSalvationPrintCenterPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <Link href="/" className="text-sm text-ink-soft hover:underline">
-            ← 三玄宮行政系統
-          </Link>
+          <BackButton fallbackHref="/" />
           <h1 className="text-sm text-ink-soft">{yearParam} 年普渡列印管理</h1>
         </div>
       </header>

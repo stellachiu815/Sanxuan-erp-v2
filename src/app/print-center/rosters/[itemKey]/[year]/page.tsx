@@ -4,6 +4,7 @@ import { use as usePromise, useCallback, useEffect, useState } from "react";
 import { OperatorProvider } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
+import RosterPrintButton from "@/components/print/RosterPrintButton";
 
 /**
  * V14：列印管理－報名項目「總名單」檢視／列印／補印（指令一.6、五）。
@@ -23,7 +24,20 @@ type RosterRow = {
   amountPaid: number;
   amountUnpaid: number;
   status: string;
+  printedAt: string | null;
+  lastPrintedAt: string | null;
+  printCount: number;
+  printedByName: string | null;
 };
+
+function rocTime(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("zh-Hant");
+  } catch {
+    return "—";
+  }
+}
 type Roster = {
   itemName: string;
   activityGroupName: string;
@@ -33,6 +47,23 @@ type Roster = {
   totalQuantity: number;
   totalAmountDue: number;
 };
+type PreflightIssue = { registrationItemId: string; label: string; reasons: string[] };
+
+/** V21 列印預檢提示：有缺漏時列出原因，並在下方擋下列印。 */
+function PreflightNotice({ issues }: { issues: PreflightIssue[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="mb-4 rounded-2xl bg-blossom-100 p-4 text-sm text-ink print:hidden">
+      <p className="font-medium text-blossom-500">⚠️ 列印預檢未通過（{issues.length} 筆資料不完整，請補齊後再列印）</p>
+      <ul className="mt-2 flex flex-col gap-1 text-xs text-ink-soft">
+        {issues.slice(0, 20).map((it) => (
+          <li key={it.registrationItemId}>・{it.label}：{it.reasons.join("、")}</li>
+        ))}
+        {issues.length > 20 && <li>…等共 {issues.length} 筆</li>}
+      </ul>
+    </div>
+  );
+}
 
 export default function RosterPrintPage({
   params,
@@ -54,6 +85,7 @@ export default function RosterPrintPage({
 
 function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
   const [roster, setRoster] = useState<Roster | null>(null);
+  const [preflight, setPreflight] = useState<PreflightIssue[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -65,6 +97,7 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
         return;
       }
       setRoster(data.roster);
+      setPreflight(Array.isArray(data.preflight) ? data.preflight : []);
     } catch {
       setError("讀取名單時發生連線問題。");
     }
@@ -78,25 +111,23 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
   if (!roster) return <p className="p-6 text-sm text-ink-faint">讀取中…</p>;
 
   // V16：白米列印只需「姓名＋斤數」（沿用 US_RICE_ROSTER + 同一列印中心，不建第二套列印）。
+  // V21：列印預檢未通過（有缺漏欄位）時，不得直接列印。
+  const blocked = preflight.length > 0;
   const isRice = itemKey === "US_RICE";
   if (isRice) {
     return (
       <main className="mx-auto max-w-2xl px-6 py-8">
-        <div className="mb-4 flex items-center justify-between print:hidden">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
           <h1 className="text-lg text-ink">白米認購名單（民國 {roster.year} 年）</h1>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await fetchRegistration(`/api/print-center/rosters/${itemKey}/${year}/mark-printed`, { method: "POST", body: "{}" });
-              } catch { /* 記錄失敗不阻擋列印 */ }
-              window.print();
-            }}
-            className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink hover:bg-yolk-300"
-          >
-            列印／補印
-          </button>
+          <div className="flex items-center gap-2">
+            {blocked && <span className="text-sm text-blossom-500">預檢未通過</span>}
+            <RosterPrintButton itemKey={itemKey} year={year} disabled={blocked} count={roster.rows.length} onPrinted={load} />
+          </div>
         </div>
+        {roster.printDocumentKeys.length > 0 && (
+          <p className="mb-3 text-xs text-ink-faint print:hidden">使用模板：{roster.printDocumentKeys.join("、")}</p>
+        )}
+        <PreflightNotice issues={preflight} />
         <h1 className="mb-2 hidden text-center text-lg print:block">白米認購名單（民國 {roster.year} 年）</h1>
         <table className="w-full border-collapse text-left text-sm">
           <thead>
@@ -129,29 +160,21 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-4 flex items-center justify-between print:hidden">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <h1 className="text-lg text-ink">
           {roster.activityGroupName}・{roster.itemName} 報名總名單（民國 {roster.year} 年）
         </h1>
-        <button
-          type="button"
-          onClick={async () => {
-            // 先記錄已列印（補印只增加次數、不改收款），再叫瀏覽器列印。
-            try {
-              await fetchRegistration(
-                `/api/print-center/rosters/${itemKey}/${year}/mark-printed`,
-                { method: "POST", body: "{}" }
-              );
-            } catch {
-              /* 記錄失敗不阻擋列印 */
-            }
-            window.print();
-          }}
-          className="min-h-11 rounded-full bg-yolk-200 px-5 py-2 text-sm font-medium text-ink hover:bg-yolk-300"
-        >
-          列印／補印
-        </button>
+        <div className="flex items-center gap-2">
+          {blocked && <span className="text-sm text-blossom-500">預檢未通過</span>}
+          <RosterPrintButton itemKey={itemKey} year={year} disabled={blocked} count={roster.rows.length} onPrinted={load} />
+        </div>
       </div>
+
+      {roster.printDocumentKeys.length > 0 && (
+        <p className="mb-3 text-xs text-ink-faint print:hidden">使用模板：{roster.printDocumentKeys.join("、")}</p>
+      )}
+
+      <PreflightNotice issues={preflight} />
 
       <h1 className="mb-2 hidden text-center text-lg print:block">
         {roster.activityGroupName}・{roster.itemName} 報名總名單（民國 {roster.year} 年）
@@ -167,6 +190,8 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
             <th className="px-2 py-1.5">數量</th>
             <th className="px-2 py-1.5">應收</th>
             <th className="px-2 py-1.5">未收</th>
+            {/* V21 列印紀錄：首次／最後列印時間、次數、列印人員（列印時隱藏，只在管理畫面看）。 */}
+            <th className="px-2 py-1.5 print:hidden">列印紀錄</th>
           </tr>
         </thead>
         <tbody>
@@ -179,6 +204,11 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
               <td className="px-2 py-1.5 text-ink-soft">{r.quantity}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.amountDue}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.amountUnpaid}</td>
+              <td className="px-2 py-1.5 text-xs text-ink-faint print:hidden">
+                {r.printCount > 0
+                  ? `已列印 ${r.printCount} 次｜首印 ${rocTime(r.printedAt)}｜最後 ${rocTime(r.lastPrintedAt ?? r.printedAt)}${r.printedByName ? `｜${r.printedByName}` : ""}`
+                  : "未列印"}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -188,6 +218,7 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
             <td className="px-2 py-1.5">{roster.totalQuantity}</td>
             <td className="px-2 py-1.5">{roster.totalAmountDue}</td>
             <td className="px-2 py-1.5" />
+            <td className="px-2 py-1.5 print:hidden" />
           </tr>
         </tfoot>
       </table>

@@ -959,34 +959,106 @@ enum FinanceRecordType {
 
 /// 財務資料只能作廢（VOID），不可永久刪除；狀態流轉：DRAFT → CONFIRMED → VOID
 enum FinanceRecordStatus {
-  DRAFT // 草稿（FINANCE_CLERK 未來只能建立到這個狀態）
+  DRAFT // 草稿（FINANCE_CLERK 只能建立到這個狀態）
   CONFIRMED // 已確認
   VOID // 已作廢（不可再修改，資料仍保留）
 }
 
-/// 財務流水帳（架構預留，尚未開發畫面與 API）
+/// V22 財務中心：資金存放帳戶。總結餘 = 銀行存款 + 現金。
+enum FinanceAccount {
+  BANK // 銀行存款
+  CASH // 現金
+}
+
+/// V22 財務中心：流水帳每一筆的語意類別。
+/// 收入/支出計入「今日收入/支出、報表收支」；OPENING/TRANSFER/ADJUSTMENT 只改變餘額、不計收支。
+enum FinanceEntryKind {
+  OPENING // 期初餘額（正式啟用日建立，之後年度以累計餘額自動承接）
+  INCOME // 一般收入（手動）
+  EXPENSE // 支出（一般或指定活動）
+  TRANSFER_IN // 資金轉移－轉入（不計收入）
+  TRANSFER_OUT // 資金轉移－轉出（不計支出）
+  ADJUSTMENT // 盤點/對帳差額調整（不計收支，只改餘額）
+}
+
+/// V22 財務中心：對帳戶餘額的方向。IN 增加、OUT 減少。
+enum FinanceDirection {
+  IN
+  OUT
+}
+
+/// 財務流水帳（V22 財務中心正式啟用）。單一帳本：期初餘額、一般收入、支出、
+/// 資金轉移、盤點差額調整都記在這裡；活動收款則由 PaymentTransaction（COMPLETED）
+/// 直接衍生為收入，不重複寫入本表、不改動既有收款流程。所有更正一律新增修正紀錄
+/// （correctsRecordId），既有錯誤紀錄改為作廢（VOID），不得實體刪除。
 model FinanceRecord {
   id          String              @id @default(cuid())
   type        FinanceRecordType
-  category    String? // 項目分類，例如「香油錢」「法會收入」「雜支」
-  amount      Decimal             @db.Decimal(12, 2)
+  category    String? // 項目分類/名稱，例如「香油錢」「花」「水費」。V22 不建立固定分類，此為自由文字。
+  amount      Decimal             @db.Decimal(12, 2) // 一律正數；方向由 direction 決定
   occurredOn  DateTime            @db.Date // 帳務發生日期
   description String?             @db.Text
   status      FinanceRecordStatus @default(DRAFT)
 
-  createdById String
-  createdBy   User   @relation("FinanceRecordCreatedBy", fields: [createdById], references: [id])
+  // V22 新增欄位（皆可為 null 以相容既有預留設計）：
+  account       FinanceAccount? // 影響的帳戶（銀行/現金）
+  entryKind     FinanceEntryKind? // 流水帳語意類別
+  direction     FinanceDirection? // 對該帳戶餘額的方向
+  year          Int? // 帳務年度（民國年，由 occurredOn 導出），供年度報表/承接
+  templeEventId String? // 指定活動（活動支出）；一般收支為 null
+  templeEvent   TempleEvent? @relation("FinanceRecordTempleEvent", fields: [templeEventId], references: [id], onDelete: SetNull)
 
-  voidedById String?
-  voidedBy   User?     @relation("FinanceRecordVoidedBy", fields: [voidedById], references: [id])
-  voidedAt   DateTime?
-  voidReason String?   @db.Text // 作廢原因（依需求，作廢必須說明原因並寫入 Audit Log）
+  transferGroupId  String? // 資金轉移：同一次轉移的兩腳（TRANSFER_OUT/TRANSFER_IN）共用此群組 id
+  reconciliationId String? // 盤點/對帳產生的差額調整，回填對應的對帳紀錄 id
+  correctsRecordId String? // 更正紀錄：本筆用來更正的原始紀錄 id（原紀錄另作廢）
+
+  // V22：啟用前的歷史/備查紀錄（例如 7/29 一般支出）。期初餘額已內含這些金額，
+  // 故此類紀錄只保留在流水帳供備查，不再計入帳戶餘額與收入/支出報表合計，避免重複扣款。
+  isHistorical Boolean @default(false)
+
+  createdById   String? // V22：改為可空以相容期初/系統匯入；一般由登入者填入
+  createdBy     User?   @relation("FinanceRecordCreatedBy", fields: [createdById], references: [id])
+  createdByName String? // 操作人姓名快照
+
+  voidedById   String?
+  voidedBy     User?     @relation("FinanceRecordVoidedBy", fields: [voidedById], references: [id])
+  voidedByName String?
+  voidedAt     DateTime?
+  voidReason   String?   @db.Text // 作廢原因（作廢必須說明原因並寫入 Audit Log）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([account])
+  @@index([entryKind])
+  @@index([year])
+  @@index([occurredOn])
+  @@index([templeEventId])
+  @@index([transferGroupId])
   @@map("finance_records")
+}
+
+/// V22 財務中心：現金盤點／銀行對帳。記錄系統餘額與實際盤點金額的差額；
+/// 差額不可直接改餘額，改由此紀錄同時建立一筆 ADJUSTMENT FinanceRecord 修正。
+model FinanceReconciliation {
+  id           String         @id @default(cuid())
+  account      FinanceAccount
+  occurredOn   DateTime       @db.Date
+  systemAmount Decimal        @db.Decimal(12, 2) // 盤點當下系統計算餘額（快照）
+  countedAmount Decimal       @db.Decimal(12, 2) // 實際盤點/對帳金額
+  difference   Decimal        @db.Decimal(12, 2) // countedAmount - systemAmount
+  note         String?        @db.Text
+
+  adjustmentRecordId String? // 對應產生的 ADJUSTMENT FinanceRecord id（difference≠0 時）
+
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([account])
+  @@index([occurredOn])
+  @@map("finance_reconciliations")
 }
 
 enum AuditAction {
@@ -1403,6 +1475,7 @@ model TempleEvent {
   printBatches             TempleEventPrintBatch[]
   checklist                TempleEventChecklistItem[]
   expenses                 TempleEventExpense[]
+  financeRecords           FinanceRecord[]            @relation("FinanceRecordTempleEvent")
   // 修正：PurificationEntry.templeEvent 是 @relation(fields: [templeEventId], references: [id])
   // 的 FK 端（見下方 PurificationEntry model，欄位與外鍵在資料庫裡本來就存在），但這裡漏了
   // 對應的反向欄位，導致 Prisma Client 產生/驗證失敗（Render build 報錯：

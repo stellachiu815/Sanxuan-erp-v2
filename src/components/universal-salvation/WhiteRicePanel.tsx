@@ -25,6 +25,11 @@ type Summary = {
   allowOverbook: boolean;
   /** V16：有效認購筆數。 */
   count: number;
+  /** V20：已超額斤數、今年總認購戶數、已收／未收斤數。 */
+  overbookedKg: number;
+  householdCount: number;
+  paidKg: number;
+  unpaidKg: number;
   totalAmountDue: number;
   totalAmountPaid: number;
   totalAmountUnpaid: number;
@@ -179,14 +184,20 @@ function RiceQuotaSummaryCard({ summary }: { summary: Summary }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {cell("年度總量", summary.totalKg !== null ? `${summary.totalKg} 斤` : "未設定")}
-        {cell("已認購", `${summary.registeredKg} 斤（${summary.count} 筆）`)}
-        {cell("剩餘可認購", `${summary.remainingKg} 斤`, summary.isOverbooked)}
+        {cell("白米總開放斤數", summary.totalKg !== null ? `${summary.totalKg} 斤` : "未設定")}
+        {cell("已認購斤數", `${summary.registeredKg} 斤`)}
+        {cell("剩餘斤數", `${summary.remainingKg} 斤`, summary.isOverbooked)}
+        {cell("今年總認購戶數", `${summary.householdCount} 戶`)}
+        {cell("已收斤數", `${summary.paidKg} 斤`)}
+        {cell("未收斤數", `${summary.unpaidKg} 斤`)}
         {cell("每斤金額", summary.unitPrice !== null ? `${summary.unitPrice} 元` : "未設定")}
-        {cell("認購總金額", `${summary.totalAmountDue} 元`)}
-        {cell("已收金額", `${summary.totalAmountPaid} 元`)}
-        {cell("未收金額", `${summary.totalAmountUnpaid} 元`)}
-        {cell("狀態", summary.open ? (summary.allowOverbook ? "開放（允許超量）" : "開放中") : "未開放")}
+        {cell("狀態", summary.open ? (summary.allowOverbook ? "開放（允許超額）" : "開放中") : "未開放")}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {cell("認購總金額", `${summary.totalAmountDue.toLocaleString("zh-Hant")} 元`)}
+        {cell("已收金額", `${summary.totalAmountPaid.toLocaleString("zh-Hant")} 元`)}
+        {cell("未收金額", `${summary.totalAmountUnpaid.toLocaleString("zh-Hant")} 元`)}
+        {cell("認購筆數", `${summary.count} 筆`)}
       </div>
       {summary.isOverbooked && (
         <div className="rounded-2xl bg-blossom-100 px-3 py-2 text-xs text-blossom-500">
@@ -384,10 +395,16 @@ function RiceRegisterForm({ year, ritualRecordId, summary, members, onRegistered
             className="mt-1 w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2 text-sm min-h-[44px]" />
         </label>
       </div>
+      {/* V20：建立白米報名時即時顯示總量／已認購／剩餘／本次。 */}
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div className="rounded-xl bg-cream-50 p-2"><p className="text-ink-faint">總量</p><p className="text-sm font-medium text-ink">{summary.totalKg !== null ? `${summary.totalKg} 斤` : "未設定"}</p></div>
+        <div className="rounded-xl bg-cream-50 p-2"><p className="text-ink-faint">已認購</p><p className="text-sm font-medium text-ink">{summary.registeredKg} 斤</p></div>
+        <div className={`rounded-xl p-2 ${summary.isOverbooked ? "bg-blossom-100" : "bg-cream-50"}`}><p className="text-ink-faint">剩餘</p><p className="text-sm font-medium text-ink">{summary.remainingKg} 斤</p></div>
+        <div className="rounded-xl bg-cream-50 p-2"><p className="text-ink-faint">本次</p><p className={`text-sm font-medium ${willOverbook ? "text-blossom-500" : "text-ink"}`}>{kgValid ? `${kgNum} 斤` : "—"}</p></div>
+      </div>
       <div className="mt-2 flex flex-wrap gap-4 text-xs text-ink-soft">
         <span>每斤金額：{summary.unitPrice !== null ? `${summary.unitPrice} 元` : "未設定"}</span>
         <span>應收（試算）：{previewDue !== null ? `${previewDue} 元` : "—"}</span>
-        <span className={willOverbook ? "text-blossom-500" : ""}>剩餘可認購：{summary.remainingKg} 斤</span>
       </div>
       {blockedByQuota && (
         <p className="mt-2 text-xs text-blossom-500">

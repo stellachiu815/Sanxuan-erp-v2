@@ -36,7 +36,13 @@ export type FinanceAction =
   | "create" // 新增（草稿）
   | "update" // 修改已確認資料
   | "void" // 作廢
-  | "export"; // 匯出
+  | "export" // 匯出
+  // V22 財務中心正式啟用新增的動作：
+  | "createEntry" // 新增收入/支出（正式流水帳）
+  | "transfer" // 資金轉移（現金↔銀行）
+  | "reconcile" // 現金盤點/銀行對帳
+  | "correct" // 更正（新增修正紀錄）
+  | "manageOpening"; // 期初餘額（僅 SUPER_ADMIN）
 
 /**
  * 權限矩陣。依需求：
@@ -46,15 +52,15 @@ export type FinanceAction =
  *   不能修改已確認資料、不能作廢、不能看完整報表、不能匯出。
  */
 const FINANCE_PERMISSIONS: Record<Role, FinanceAction[]> = {
-  SUPER_ADMIN: ["view", "viewFullReport", "create", "update", "void", "export"],
-  // V11.1.1 新增角色：財務模組本身還沒有開發任何畫面/API，這裡先給
-  // ADMIN 跟 SUPER_ADMIN 一樣的權限（沒有既有註解說這個模組要限制成
-  // 「僅 SUPER_ADMIN」），READONLY 只給查看類權限，等財務模組真的開發
-  // 時再依實際需求調整。
-  ADMIN: ["view", "viewFullReport", "create", "update", "void", "export"],
-  STAFF: [],
-  READONLY: ["view"],
-  FINANCE_CLERK: ["create"],
+  // V22 財務中心正式啟用：期初餘額（manageOpening）僅 SUPER_ADMIN；作廢/更正屬 ADMIN 以上。
+  SUPER_ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct", "manageOpening"],
+  ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct"],
+  // STAFF（日常行政人員）：比照收款中心的日常操作定位，可查看/新增收支/轉移/盤點/匯出，
+  // 但不可作廢/更正/期初（敏感操作）。財務中心是每日使用工具，故開放日常記帳。
+  STAFF: ["view", "viewFullReport", "create", "export", "createEntry", "transfer", "reconcile"],
+  READONLY: ["view", "viewFullReport", "export"],
+  // FINANCE_CLERK（財務人員）：只能新增（草稿）與查看/匯出，不可轉移/盤點/作廢/更正。
+  FINANCE_CLERK: ["view", "create", "createEntry", "export"],
 };
 
 /** 檢查某個角色是否能做某個財務操作。 */
@@ -427,9 +433,11 @@ export type SystemAction =
   // 所以這裡不是新訂規則，而是把既有已寫明的規則真正落實到後端，維持
   // SUPER_ADMIN 專屬。保留期限（30 天）的判斷不變，仍由
   // src/lib/recycleBin.ts 的 canPurgeOf() 負責，兩者是獨立的兩道關卡。
-  | "manageUsers"; // V12「信眾資料中心正式建置」指令「九、其他使用者帳號」新增：
-// 建立操作人員／修改姓名／啟用停用／指定角色，見下方 SYSTEM_PERMISSIONS
-// 對這個動作的角色說明。
+  | "manageUsers" // V12「信眾資料中心正式建置」指令「九、其他使用者帳號」新增：
+  // 建立操作人員／修改姓名／啟用停用／指定角色，見下方 SYSTEM_PERMISSIONS
+  // 對這個動作的角色說明。
+  | "runAcceptanceScan"; // V19「驗收／健康檢查中心」：執行完整只讀資料掃描。
+// 僅 SUPER_ADMIN／ADMIN 可執行（見下方 SYSTEM_PERMISSIONS）。只讀、不修改任何正式資料。
 
 const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   SUPER_ADMIN: [
@@ -443,6 +451,7 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
     "manageUsers",
     "manageRecycleBin",
     "purgeRecycleBin",
+    "runAcceptanceScan",
   ],
   // V12「信眾資料中心正式建置」指令「九」逐字定義：「ADMIN＝全部功能／可進
   // 系統管理／可匯入／可新增修改刪除」。使用者已明確確認（AskUserQuestion）
@@ -466,7 +475,7 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   // V14.3 角色規則修正：ADMIN **不可**管理使用者／修改角色／系統設定／備份設定
   // （移除既有 V12 誤給的 manageUsers——使用者本輪明確要求 ADMIN 不得管理帳號）。
   // ADMIN 可用回收桶還原（manageRecycleBin）與資料匯入（manageDataImport，屬日常作業）。
-  ADMIN: ["manageDataImport", "manageRecycleBin"],
+  ADMIN: ["manageDataImport", "manageRecycleBin", "runAcceptanceScan"],
   STAFF: [],
   READONLY: [],
   FINANCE_CLERK: [],

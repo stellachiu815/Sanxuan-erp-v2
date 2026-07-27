@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { getPurificationYearOverview, listPrintBatches } from "@/lib/purification";
 import PurificationPrintCenter from "@/components/purification/PurificationPrintCenter";
 
@@ -23,9 +23,7 @@ export default async function PurificationPrintPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <Link href={`/purification/${yearId}`} className="text-sm text-ink-soft hover:underline">
-            ← {overview.name}
-          </Link>
+          <BackButton fallbackHref={`/purification/${yearId}`} />
           <h1 className="text-sm text-ink-soft">小人頭貼紙列印管理</h1>
         </div>
       </header>

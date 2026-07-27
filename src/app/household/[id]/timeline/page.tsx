@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { notFound } from "next/navigation";
 import { getHouseholdTimeline } from "@/lib/timeline";
 import TimelineScreen from "@/components/timeline/TimelineScreen";
@@ -42,12 +42,10 @@ export default async function HouseholdTimelinePage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center gap-4">
-          <Link
-            href={`/household/${timeline.household.id}${initialMemberId ? `?member=${initialMemberId}` : ""}`}
+          <BackButton
+            fallbackHref={`/household/${timeline.household.id}${initialMemberId ? `?member=${initialMemberId}` : ""}`}
             className="whitespace-nowrap text-sm text-ink-soft transition hover:text-ink"
-          >
-            ← 返回家戶頁
-          </Link>
+          />
           <span className="truncate text-sm text-ink-faint">
             {timeline.household.name}・{timeline.household.id}
           </span>

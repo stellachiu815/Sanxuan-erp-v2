@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
+import { previewRouteForPrintObject } from "@/lib/printPreviewRoutes";
 
 /**
  * V15R8：普渡列印管理「唯一入口」。所有來源（手動／信眾頁／家戶多人／活動頁／Excel 匯入／
@@ -17,6 +18,8 @@ type Item = {
   year: number;
   itemKey: string;
   itemName: string;
+  contentKind: string;
+  templeEventId: string | null;
   householdId: string;
   householdName: string;
   memberName: string | null;
@@ -71,6 +74,9 @@ export default function PrintManagementCenter() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  // V21.1：列印／補印一律「先確認內容 → 開始列印 → 完成後才更新列印次數」。
+  // pending 記錄本次要列印的目標，未按「開始列印」前不呼叫任何會增加列印次數的 API。
+  const [pending, setPending] = useState<{ kind: "ids" | "all"; ids: string[]; count: number } | null>(null);
 
   const load = useCallback(async () => {
     setItems(null);
@@ -99,26 +105,37 @@ export default function PrintManagementCenter() {
     return [{ key: "", name: "全部項目" }, ...[...m.entries()].map(([key, name]) => ({ key, name }))];
   }, [items]);
 
-  async function print(ids: string[]) {
+  // 只設定「待列印」目標（進入確認狀態），此時完全不呼叫 API、不更新任何列印次數。
+  function requestPrint(ids: string[]) {
     if (ids.length === 0) return;
-    setBusy(true); setError(null); setMsg(null);
-    try {
-      const res = await fetchRegistration(`/api/print-center/items/print`, { method: "POST", body: JSON.stringify({ ids }) });
-      const data = await res.json();
-      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
-      setMsg(`已列印 ${data.printed} 筆（首次設定首印時間，補印累加次數，收款/金額不變）。`);
-      await load();
-    } catch { setError("列印時發生連線問題。"); } finally { setBusy(false); }
+    setError(null); setMsg(null);
+    setPending({ kind: "ids", ids, count: ids.length });
+  }
+  function requestPrintAll() {
+    if ((items ?? []).length === 0) return;
+    setError(null); setMsg(null);
+    setPending({ kind: "all", ids: [], count: (items ?? []).length });
   }
 
-  async function printAll() {
+  // 使用者確認內容無誤、按「開始列印」後：先叫出瀏覽器列印（正式版型），
+  // 列印流程結束後才呼叫 API 更新列印次數／時間／操作人（補印只累加次數、不改收款）。
+  async function confirmPrint() {
+    if (!pending) return;
     setBusy(true); setError(null); setMsg(null);
     try {
-      const filter = { year, itemKey: itemKey || null, source: source || null, printStatus, q: q.trim() || null };
-      const res = await fetchRegistration(`/api/print-center/items/print`, { method: "POST", body: JSON.stringify({ all: true, filter }) });
+      // 1) 正式列印（實體列印物件版型由列印對話框輸出）。
+      if (typeof window !== "undefined") window.print();
+      // 2) 列印完成後才更新列印紀錄。
+      const body = pending.kind === "all"
+        ? JSON.stringify({ all: true, filter: { year, itemKey: itemKey || null, source: source || null, printStatus, q: q.trim() || null } })
+        : JSON.stringify({ ids: pending.ids });
+      const res = await fetchRegistration(`/api/print-center/items/print`, { method: "POST", body });
       const data = await res.json();
       if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
-      setMsg(`已依目前篩選全部列印 ${data.printed} 筆。`);
+      setMsg(pending.kind === "all"
+        ? `已依目前篩選全部列印 ${data.printed} 筆（首印設定時間、補印累加次數，收款/金額不變）。`
+        : `已列印 ${data.printed} 筆（首印設定時間、補印累加次數，收款/金額不變）。`);
+      setPending(null);
       await load();
     } catch { setError("列印時發生連線問題。"); } finally { setBusy(false); }
   }
@@ -181,12 +198,29 @@ export default function PrintManagementCenter() {
       {msg && <p className="rounded-2xl bg-sage-100 px-4 py-2 text-sm text-ink">{msg}</p>}
       {error && <p className="text-sm text-blossom-500">⚠️ {error}</p>}
 
+      {/* V21.1 列印確認：按下列印／補印後先進入此確認，確認內容無誤再「開始列印」，完成後才更新列印次數。 */}
+      {pending && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-yolk-100 px-4 py-3 text-sm text-ink shadow-card">
+          <span>
+            即將列印 <span className="font-medium">{pending.count}</span> 筆
+            {pending.kind === "all" ? "（依目前篩選）" : ""}。
+            請確認上方名單內容無誤後開始列印；列印完成後才會更新列印次數／時間／操作人。
+          </span>
+          <button type="button" onClick={() => void confirmPrint()} disabled={busy} className="rounded-full bg-sage-200 px-4 py-1.5 text-sm font-medium text-ink hover:bg-sage-300 disabled:opacity-40">
+            {busy ? "列印中…" : "開始列印"}
+          </button>
+          <button type="button" onClick={() => setPending(null)} disabled={busy} className="rounded-full bg-cream-200 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-300 disabled:opacity-40">
+            取消
+          </button>
+        </div>
+      )}
+
       {/* 操作列 */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-white/90 px-4 py-3 shadow-card backdrop-blur">
         <span className="text-sm text-ink">共 {rows.length} 筆</span>
         <span className="text-xs text-ink-faint">已選 {selectedIds.length} 筆</span>
-        <button type="button" onClick={() => void print(selectedIds)} disabled={busy || selectedIds.length === 0} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">列印選取（批次）</button>
-        <button type="button" onClick={() => void printAll()} disabled={busy || rows.length === 0} className="rounded-full bg-blossom-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">全部列印（目前篩選 {rows.length} 筆）</button>
+        <button type="button" onClick={() => requestPrint(selectedIds)} disabled={busy || selectedIds.length === 0} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">列印選取（批次）</button>
+        <button type="button" onClick={() => requestPrintAll()} disabled={busy || rows.length === 0} className="rounded-full bg-blossom-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">全部列印（目前篩選 {rows.length} 筆）</button>
       </div>
 
       {/* 名單 */}
@@ -217,9 +251,26 @@ export default function PrintManagementCenter() {
                       <div className="mt-0.5 text-xs text-ink-faint">首次：{fmt(it.firstPrintedAt)}　最後：{fmt(it.lastPrintedAt)}　操作人：{it.lastPrintedByName ?? "—"}</div>
                     )}
                   </div>
-                  <button type="button" onClick={() => void print([it.registrationItemId])} disabled={busy} className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-100 disabled:opacity-40">
-                    {it.printCount === 0 ? "列印" : "補印"}
-                  </button>
+                  {(() => {
+                    // V21.1 正式預覽對照表：依列印物件型別開到「真正的列印模板」，不導向管理頁。
+                    const preview = previewRouteForPrintObject({ itemKey: it.itemKey, contentKind: it.contentKind, householdId: it.householdId, templeEventId: it.templeEventId, year: it.year });
+                    return (
+                      <div className="flex items-center gap-1">
+                        <Link
+                          href={preview.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-100"
+                          title={`以${preview.label}預覽實際列印內容`}
+                        >
+                          👁 預覽（{preview.label}）
+                        </Link>
+                        <button type="button" onClick={() => requestPrint([it.registrationItemId])} disabled={busy} className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-100 disabled:opacity-40">
+                          {it.printCount === 0 ? "列印" : "補印"}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>

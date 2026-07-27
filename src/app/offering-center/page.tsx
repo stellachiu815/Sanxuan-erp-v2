@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { prisma } from "@/lib/prisma";
 import { activityTypeLabel } from "@/lib/labels";
 import { getCurrentRitualYear } from "@/lib/ritual";
@@ -72,9 +73,7 @@ export default async function OfferingCenterHomePage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-          <Link href="/" className="text-sm text-ink-soft hover:underline">
-            ← 三玄宮行政系統
-          </Link>
+          <BackButton fallbackHref="/" />
           <h1 className="text-sm text-ink-soft">🙏 供品管理</h1>
         </div>
       </header>

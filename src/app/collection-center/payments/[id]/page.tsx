@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { notFound } from "next/navigation";
 import { getPaymentTransaction } from "@/lib/collectionCenter";
 import PaymentTransactionDetailScreen from "@/components/collection/PaymentTransactionDetailScreen";
@@ -42,9 +42,7 @@ export default async function PaymentTransactionDetailPage({ params }: { params:
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
-          <Link href="/collection-center/payments" className="text-sm text-ink-soft hover:underline">
-            ← 收款紀錄
-          </Link>
+          <BackButton fallbackHref="/collection-center/payments" />
           <h1 className="text-sm text-ink-soft">收款詳細：{view.transactionNo}</h1>
         </div>
       </header>

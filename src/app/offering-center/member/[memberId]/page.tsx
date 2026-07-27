@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getMemberOfferingHistory } from "@/lib/offeringClaims";
@@ -34,9 +34,7 @@ export default async function MemberOfferingHistoryPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-          <Link href={`/household/${member.householdId}`} className="text-sm text-ink-soft hover:underline">
-            ← {member.household.name}
-          </Link>
+          <BackButton fallbackHref={`/household/${member.householdId}`} />
           <h1 className="text-sm text-ink-soft">📜 {member.name} 供品認捐歷年查詢</h1>
         </div>
       </header>

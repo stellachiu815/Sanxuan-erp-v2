@@ -36,6 +36,7 @@ import {
   canPurification,
   canActivity,
   canTemplate,
+  canFinance,
   type Role,
   type ReceiptAction,
   type SystemAction,
@@ -47,6 +48,7 @@ import {
   type PurificationAction,
   type ActivityAction,
   type TemplateAction,
+  type FinanceAction,
 } from "@/lib/permissions";
 
 export type ResolvedOperator = {
@@ -245,6 +247,21 @@ export async function assertPurificationPermissionForOperator(
   }
   if (!canPurification(operator.role, action)) {
     return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個操作` };
+  }
+  return { ok: true, operator };
+}
+
+/** V22：財務中心 API 的權限檢查入口（沿用既有 resolveOperator + canFinance 矩陣）。 */
+export async function assertFinancePermissionForOperator(
+  userId: string | null | undefined,
+  action: FinanceAction
+): Promise<OperatorCheckResult> {
+  const operator = await resolveOperator(userId);
+  if (!operator) {
+    return { ok: false, status: 401, error: "尚未登入或帳號已停用，請重新登入" };
+  }
+  if (!canFinance(operator.role, action)) {
+    return { ok: false, status: 403, error: `目前操作人員（${operator.name}）沒有權限執行這個財務操作` };
   }
   return { ok: true, operator };
 }

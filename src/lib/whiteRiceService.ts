@@ -40,15 +40,24 @@ export type RiceQuotaSummary = {
   registeredKg: number;
   remainingKg: number;
   isOverbooked: boolean;
+  /** V20：已超額斤數（未超額為 0；＝max(0, 已認購 − 總量)）。 */
+  overbookedKg: number;
   count: number;
+  /** V20：今年總認購戶數（不重複家戶）。 */
+  householdCount: number;
+  /** V20：已收斤數（依各筆已收比例換算並取整）。 */
+  paidKg: number;
+  /** V20：未收斤數（＝已認購斤數 − 已收斤數）。 */
+  unpaidKg: number;
   totalAmountDue: number;
   totalAmountPaid: number;
   totalAmountUnpaid: number;
 };
 
 /**
- * 年度白米配額即時彙總：讀 TempleEvent 設定 + 由有效正式報名重新彙總斤數與金額。
- * 剩餘斤數＝總斤數 − 有效認購斤數（指令四），不快取增減。
+ * 年度白米配額即時彙總：讀 TempleEvent 設定 + 由有效正式報名（RICE 報名項目）即時彙總。
+ * 全部即時計算、不快取、不人工維護。剩餘斤數＝總斤數 − 有效認購斤數（可為負＝超額）。
+ * 已收／未收斤數依各筆「已收金額 / 應收金額」比例換算（同一年度單價時等同已收金額 ÷ 單價）。
  */
 export async function getRiceQuotaSummary(templeEventId: string): Promise<RiceQuotaSummary | null> {
   const event = await prisma.templeEvent.findUnique({
@@ -57,15 +66,34 @@ export async function getRiceQuotaSummary(templeEventId: string): Promise<RiceQu
   });
   if (!event) return null;
 
-  const agg = await prisma.ritualRegistrationItem.aggregate({
+  const items = await prisma.ritualRegistrationItem.findMany({
     where: validRiceItemWhere(event.year),
-    _sum: { quantity: true, amountDue: true, amountPaid: true, amountUnpaid: true },
-    _count: true,
+    select: { quantity: true, amountDue: true, amountPaid: true, amountUnpaid: true, ritualRecord: { select: { householdId: true } } },
   });
 
-  const registeredKg = agg._sum.quantity ?? 0;
+  let registeredKg = 0;
+  let paidKgRaw = 0;
+  let dueSum = 0;
+  let paidSum = 0;
+  let unpaidSum = 0;
+  const households = new Set<string>();
+  for (const it of items) {
+    const q = it.quantity ?? 0;
+    const due = Number(it.amountDue ?? 0);
+    const paid = Number(it.amountPaid ?? 0);
+    registeredKg += q;
+    dueSum += due;
+    paidSum += paid;
+    unpaidSum += Number(it.amountUnpaid ?? 0);
+    // 已收斤數＝依已收比例換算；應收為 0 時，若已收 > 0 視為整筆已收，否則 0。
+    paidKgRaw += due > 0 ? q * (paid / due) : paid > 0 ? q : 0;
+    households.add(it.ritualRecord.householdId);
+  }
+
   const totalKg = toNum(event.riceTotalKg);
   const quota = computeRiceQuota(totalKg, registeredKg);
+  const paidKg = Math.round(paidKgRaw);
+  const unpaidKg = quota.registeredKg - paidKg;
 
   return {
     year: event.year,
@@ -77,10 +105,14 @@ export async function getRiceQuotaSummary(templeEventId: string): Promise<RiceQu
     registeredKg: quota.registeredKg,
     remainingKg: quota.remainingKg,
     isOverbooked: quota.isOverbooked,
-    count: agg._count ?? 0,
-    totalAmountDue: Number(agg._sum.amountDue ?? 0),
-    totalAmountPaid: Number(agg._sum.amountPaid ?? 0),
-    totalAmountUnpaid: Number(agg._sum.amountUnpaid ?? 0),
+    overbookedKg: quota.remainingKg < 0 ? -quota.remainingKg : 0,
+    count: items.length,
+    householdCount: households.size,
+    paidKg,
+    unpaidKg,
+    totalAmountDue: dueSum,
+    totalAmountPaid: paidSum,
+    totalAmountUnpaid: unpaidSum,
   };
 }
 

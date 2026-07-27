@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import BirthdayCenterClient from "./BirthdayCenterClient";
 
 export const metadata = {
@@ -19,9 +19,7 @@ export default function BirthdayCenterPage() {
     <div className="min-h-screen px-6 py-10">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <div>
-          <Link href="/" className="text-sm text-ink-soft transition hover:text-ink">
-            ← 返回首頁
-          </Link>
+          <BackButton fallbackHref="/" className="text-sm text-ink-soft transition hover:text-ink" />
         </div>
 
         <div>

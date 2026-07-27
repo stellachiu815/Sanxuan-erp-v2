@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { listBannedNumbers } from "@/lib/purification";
 import BannedNumbersScreen from "@/components/purification/BannedNumbersScreen";
 import { requirePagePermission } from "@/lib/pageGuard";
@@ -40,9 +40,7 @@ export default async function BannedNumbersPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
-          <Link href="/purification" className="text-sm text-ink-soft hover:underline">
-            ← 祭改年度清單
-          </Link>
+          <BackButton fallbackHref="/purification" />
           <h1 className="text-sm text-ink-soft">禁用編號設定</h1>
         </div>
       </header>

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import BackButton from "@/components/navigation/BackButton";
 import Link from "next/link";
 import LanternPrintCenter from "@/components/ritual/LanternPrintCenter";
 import { LANTERN_ACTIVITY_TYPES, LANTERN_TYPE_LABEL } from "@/lib/lanternPrint";
@@ -44,12 +45,10 @@ export default async function LanternPrintPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-5xl items-center gap-4">
-          <Link
-            href="/activities"
+          <BackButton
+            fallbackHref="/activities"
             className="whitespace-nowrap text-sm text-ink-soft transition hover:text-ink"
-          >
-            ← 返回活動中心
-          </Link>
+          />
           <span className="truncate text-sm text-ink-faint">{label}列印</span>
         </div>
       </header>

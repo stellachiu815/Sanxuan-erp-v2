@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { listPendingReceiptAllocations } from "@/lib/receipt";
 import PendingReceiptsScreen from "@/components/receipt/PendingReceiptsScreen";
 import { OperatorProvider } from "@/lib/operatorClient";
@@ -32,9 +32,7 @@ export default async function ReceiptPendingPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <Link href="/receipt-center" className="text-sm text-ink-soft hover:underline">
-            ← 收據中心
-          </Link>
+          <BackButton fallbackHref="/receipt-center" />
           <h1 className="text-sm text-ink-soft">📋 待開立收據</h1>
         </div>
       </header>

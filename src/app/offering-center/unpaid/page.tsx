@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { listOfferingClaims } from "@/lib/offeringClaims";
 import { getCurrentRitualYear } from "@/lib/ritual";
 import UnpaidListScreen from "@/components/offering/UnpaidListScreen";
@@ -68,9 +68,7 @@ export default async function OfferingUnpaidPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-          <Link href="/offering-center" className="text-sm text-ink-soft hover:underline">
-            ← 供品認捐中心
-          </Link>
+          <BackButton fallbackHref="/offering-center" />
           <h1 className="text-sm text-ink-soft">💰 未收款清單</h1>
         </div>
       </header>

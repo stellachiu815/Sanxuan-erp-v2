@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { OperatorProvider } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import SystemCenterGate from "@/components/system-center/SystemCenterGate";
@@ -9,9 +9,7 @@ export default function SystemSettingsPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
-          <Link href="/system-center" className="text-sm text-ink-soft hover:underline">
-            ← 系統管理
-          </Link>
+          <BackButton fallbackHref="/system-center" />
           <h1 className="text-sm text-ink-soft">⚙️ 系統設定</h1>
         </div>
       </header>

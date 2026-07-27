@@ -1,4 +1,5 @@
 import { listTempleEvents } from "@/lib/templeEvents";
+import { getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import ActivityListScreen from "@/components/activities/ActivityListScreen";
 
 /**
@@ -25,6 +26,17 @@ export const dynamic = "force-dynamic";
 export default async function ActivitiesPage() {
   const events = await listTempleEvents();
 
+  // V20：普渡活動卡顯示白米即時資訊（總開放／已認購／剩餘斤數＋今年總認購戶數）。
+  // 只對有設定白米總量的中元普渡年度計算（即時，不快取；非白米活動不顯示）。
+  const riceEvents = events.filter((e) => e.activityType === "UNIVERSAL_SALVATION" && e.riceTotalKg !== null);
+  const riceByEvent = new Map<string, { totalKg: number; registeredKg: number; remainingKg: number; householdCount: number }>();
+  await Promise.all(
+    riceEvents.map(async (e) => {
+      const s = await getRiceQuotaSummary(e.id);
+      if (s && s.totalKg !== null) riceByEvent.set(e.id, { totalKg: s.totalKg, registeredKg: s.registeredKg, remainingKg: s.remainingKg, householdCount: s.householdCount });
+    })
+  );
+
   return (
     <div className="min-h-screen">
       <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10">
@@ -35,6 +47,7 @@ export default async function ActivitiesPage() {
             year: e.year,
             name: e.name,
             status: e.status,
+            rice: riceByEvent.get(e.id) ?? null,
           }))}
         />
       </main>

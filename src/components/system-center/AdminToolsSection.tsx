@@ -25,8 +25,9 @@ export default function AdminToolsSection() {
 
   const canManageUsers = canSystem(operatorUser.role, "manageUsers");
   const canImport = canSystem(operatorUser.role, "manageDataImport");
+  const canScan = canSystem(operatorUser.role, "runAcceptanceScan");
 
-  if (!canManageUsers && !canImport) return null;
+  if (!canManageUsers && !canImport && !canScan) return null;
 
   return (
     <section className="rounded-3xl bg-white/70 p-6 shadow-card">
@@ -43,6 +44,12 @@ export default function AdminToolsSection() {
           <Link href="/system-center/data-import" className="rounded-3xl bg-sage-100 p-6 shadow-card transition hover:bg-sage-200">
             <p className="text-base text-ink">📥 信眾資料匯入</p>
             <p className="mt-1 text-xs text-ink-faint">正式家戶 Excel 欄位對照、預覽、匯入</p>
+          </Link>
+        )}
+        {canScan && (
+          <Link href="/system-center/acceptance" className="rounded-3xl bg-mist-100 p-6 shadow-card transition hover:bg-mist-200">
+            <p className="text-base text-ink">🧪 驗收／健康檢查</p>
+            <p className="mt-1 text-xs text-ink-faint">一鍵只讀掃描活動、報名、收款、財務、列印、信眾、家戶與帳號權限</p>
           </Link>
         )}
       </div>

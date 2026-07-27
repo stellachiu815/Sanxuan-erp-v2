@@ -6,7 +6,8 @@ import { primaryButtonClass } from "@/components/household/formStyles";
 import { activityTypeLabel, templeEventStatusLabel } from "@/lib/labels";
 import ActivityWizard from "./ActivityWizard";
 
-type EventItem = { id: string; activityType: string; year: number; name: string; status: string };
+type RiceInfo = { totalKg: number; registeredKg: number; remainingKg: number; householdCount: number };
+type EventItem = { id: string; activityType: string; year: number; name: string; status: string; rice?: RiceInfo | null };
 
 /** V15R4 年度燈統一（方案A）：這四個活動類型同屬「年度燈」群組，畫面標示為同一年度活動。 */
 const ANNUAL_LANTERN_MEMBERS = new Set(["GUANGMING_LANTERN", "TAISUI_LANTERN", "FAMILY_LANTERN", "PURIFICATION"]);
@@ -51,6 +52,23 @@ export default function ActivityListScreen({ initialEvents }: { initialEvents: E
                 </div>
                 <h3 className="mt-3 text-lg font-medium text-ink">{e.name}</h3>
                 <p className="mt-1 text-xs text-ink-faint">民國 {e.year} 年度</p>
+                {/* V20：白米資訊（僅普渡且已設定白米總量時顯示）。 */}
+                {e.rice && (
+                  <div className="mt-3 rounded-xl bg-cream-50 p-3 text-xs text-ink-soft">
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-medium text-ink">白米</span>
+                      <span>{e.rice.registeredKg} / {e.rice.totalKg} 斤</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between">
+                      <span>剩餘</span>
+                      <span className={e.rice.remainingKg < 0 ? "text-blossom-500" : ""}>{e.rice.remainingKg} 斤</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between">
+                      <span>今年總認購</span>
+                      <span>{e.rice.householdCount} 戶</span>
+                    </div>
+                  </div>
+                )}
               </Link>
             </li>
           ))}

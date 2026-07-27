@@ -31,6 +31,10 @@ export type PrintCenterRow = {
   year: number;
   itemKey: string;
   itemName: string;
+  /** 列印物件型別（TABLET／POCKET／RICE／SPONSOR／PURIFICATION…）供 UI 決定正式列印版面路由。 */
+  contentKind: string;
+  /** 承載此報名的 TempleEvent id（祭改正式列印頁 /purification/[eventId]/print 需用；其餘型別可為 null）。 */
+  templeEventId: string | null;
   householdId: string;
   householdName: string;
   memberName: string | null;
@@ -73,9 +77,9 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
     },
     include: {
       member: { select: { name: true } },
-      registrationItemType: { select: { key: true, name: true } },
+      registrationItemType: { select: { key: true, name: true, contentKind: true } },
       universalSalvationEntry: { select: { displayName: true, yangshangNames: true, yangshangName: true, tabletAddress: true } },
-      ritualRecord: { select: { year: true, registrationSource: true, household: { select: { id: true, name: true } } } },
+      ritualRecord: { select: { year: true, registrationSource: true, templeEventId: true, household: { select: { id: true, name: true } } } },
     },
     orderBy: [{ ritualRecord: { household: { name: "asc" } } }, { createdAt: "asc" }],
   });
@@ -90,6 +94,8 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
       year: r.ritualRecord.year,
       itemKey: r.registrationItemType.key,
       itemName: r.registrationItemType.name,
+      contentKind: r.registrationItemType.contentKind,
+      templeEventId: r.ritualRecord.templeEventId ?? null,
       householdId: r.ritualRecord.household.id,
       householdName: r.ritualRecord.household.name,
       memberName: r.member?.name ?? null,
@@ -176,6 +182,11 @@ export type RosterRow = {
   amountPaid: number;
   amountUnpaid: number;
   status: string;
+  /** V21 列印紀錄：首次列印時間／最後列印(補印)時間／列印次數／最後列印人員。 */
+  printedAt: string | null;
+  lastPrintedAt: string | null;
+  printCount: number;
+  printedByName: string | null;
 };
 
 export type RosterResult = {
@@ -223,18 +234,25 @@ export async function buildItemRoster(
     orderBy: [{ ritualRecord: { household: { name: "asc" } } }, { createdAt: "asc" }],
   });
 
-  const rosterRows: RosterRow[] = rows.map((r) => ({
-    registrationItemId: r.id,
-    householdId: r.ritualRecord.household.id,
-    householdName: r.ritualRecord.household.name,
-    memberName: r.member?.name ?? null,
-    itemName: r.customName ?? itemType.name,
-    quantity: r.quantity,
-    amountDue: Number(r.amountDue),
-    amountPaid: Number(r.amountPaid),
-    amountUnpaid: Number(r.amountUnpaid),
-    status: r.status,
-  }));
+  const rosterRows: RosterRow[] = rows.map((r) => {
+    const pr = r as unknown as { printedAt: Date | null; lastPrintedAt: Date | null; printCount: number | null; printedByName: string | null };
+    return {
+      registrationItemId: r.id,
+      householdId: r.ritualRecord.household.id,
+      householdName: r.ritualRecord.household.name,
+      memberName: r.member?.name ?? null,
+      itemName: r.customName ?? itemType.name,
+      quantity: r.quantity,
+      amountDue: Number(r.amountDue),
+      amountPaid: Number(r.amountPaid),
+      amountUnpaid: Number(r.amountUnpaid),
+      status: r.status,
+      printedAt: pr.printedAt ? pr.printedAt.toISOString() : null,
+      lastPrintedAt: pr.lastPrintedAt ? pr.lastPrintedAt.toISOString() : null,
+      printCount: pr.printCount ?? 0,
+      printedByName: pr.printedByName ?? null,
+    };
+  });
 
   return {
     itemKey: itemType.key,
@@ -257,6 +275,8 @@ export type ActivityItemPrintSummary = {
   confirmedCount: number;
   printedCount: number;
   unprintedCount: number;
+  /** V21：已補印筆數（printCount ≥ 2，即首印之後又列印過）。 */
+  reprintedCount: number;
   printDocumentKeys: string[];
 };
 
@@ -278,20 +298,21 @@ export async function listActivityItemPrintSummary(year: number): Promise<Activi
         status: "CONFIRMED",
         ritualRecord: { deletedAt: null, status: "CONFIRMED", year },
       },
-      select: { registrationItemTypeId: true, printedAt: true },
+      select: { registrationItemTypeId: true, printedAt: true, printCount: true },
     }),
   ]);
 
-  const stat = new Map<string, { confirmed: number; printed: number }>();
+  const stat = new Map<string, { confirmed: number; printed: number; reprinted: number }>();
   for (const it of items) {
-    const s = stat.get(it.registrationItemTypeId) ?? { confirmed: 0, printed: 0 };
+    const s = stat.get(it.registrationItemTypeId) ?? { confirmed: 0, printed: 0, reprinted: 0 };
     s.confirmed += 1;
     if (it.printedAt) s.printed += 1;
+    if ((it.printCount ?? 0) >= 2) s.reprinted += 1; // V21：已補印（首印後又印過）。
     stat.set(it.registrationItemTypeId, s);
   }
 
   return itemTypes.map((t) => {
-    const s = stat.get(t.id) ?? { confirmed: 0, printed: 0 };
+    const s = stat.get(t.id) ?? { confirmed: 0, printed: 0, reprinted: 0 };
     return {
       itemKey: t.key,
       itemName: t.name,
@@ -301,9 +322,47 @@ export async function listActivityItemPrintSummary(year: number): Promise<Activi
       confirmedCount: s.confirmed,
       printedCount: s.printed,
       unprintedCount: s.confirmed - s.printed,
+      reprintedCount: s.reprinted,
       printDocumentKeys: t.printDocumentKeys,
     };
   });
+}
+
+/**
+ * V21 列印預檢：正式列印前檢查名冊每一列的必要欄位是否齊全。
+ *
+ * 只讀、不寫入、不列印；回傳每一列缺漏的原因，讓畫面在列印前提示、必要時擋下。
+ * 依項目性質檢查：一律需姓名／名稱；牌位類（US_ANCESTOR/ZHENGHUN/YUANQIN/WUYUAN）需牌位名稱與地址；
+ * 白米（US_RICE）需正整數斤數；其餘需數量 ≥ 1。缺活動資料由呼叫端在載入名冊時即會顯示。
+ */
+export type RosterPreflightIssue = { registrationItemId: string; label: string; reasons: string[] };
+
+const TABLET_ITEM_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN"]);
+
+export function validateRosterForPrint(itemKey: string, rows: RosterRow[]): RosterPreflightIssue[] {
+  const isTablet = TABLET_ITEM_KEYS.has(itemKey);
+  const isRice = itemKey === "US_RICE";
+  const issues: RosterPreflightIssue[] = [];
+  for (const r of rows) {
+    const reasons: string[] = [];
+    const name = (r.memberName ?? "").trim();
+    const itemName = (r.itemName ?? "").trim();
+    // 姓名／名稱：牌位類看牌位名稱（itemName），其餘看認購人／成員姓名。
+    if (isTablet) {
+      if (!itemName || itemName === "（尚缺牌位姓名）" || itemName === "牌位資料待確認") reasons.push("缺牌位姓名");
+    } else if (!name && !itemName) {
+      reasons.push("缺姓名");
+    }
+    if (isRice) {
+      if (!Number.isInteger(r.quantity) || r.quantity <= 0) reasons.push("白米斤數異常");
+    } else if (!Number.isFinite(r.quantity) || r.quantity < 1) {
+      reasons.push("缺數量");
+    }
+    if (reasons.length > 0) {
+      issues.push({ registrationItemId: r.registrationItemId, label: itemName || name || "（未命名）", reasons });
+    }
+  }
+  return issues;
 }
 
 /**

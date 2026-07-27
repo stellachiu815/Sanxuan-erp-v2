@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { prisma } from "@/lib/prisma";
 import { getCurrentRitualYear, getUniversalSalvationRecord } from "@/lib/ritual";
 import UniversalSalvationScreen from "@/components/ritual/UniversalSalvationScreen";
@@ -58,12 +58,10 @@ export default async function UniversalSalvationPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-4">
-          <Link
-            href={`/household/${household.id}`}
+          <BackButton
+            fallbackHref={`/household/${household.id}`}
             className="whitespace-nowrap text-sm text-ink-soft transition hover:text-ink"
-          >
-            ← 返回家戶頁
-          </Link>
+          />
           <span className="truncate text-sm text-ink-faint">
             {household.name}・{household.id}
           </span>

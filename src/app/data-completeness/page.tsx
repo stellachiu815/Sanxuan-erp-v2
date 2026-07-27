@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import BackButton from "@/components/navigation/BackButton";
 import Link from "next/link";
 import { fetchRegistration } from "@/lib/registrationFetch";
 import { useCurrentUser } from "@/lib/permissionClient";
@@ -57,7 +58,7 @@ export default function DataCompletenessPage() {
     <main className="mx-auto max-w-5xl px-6 py-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/" className="text-sm text-ink-soft hover:underline">← 首頁</Link>
+          <BackButton fallbackHref="/" />
           <h1 className="mt-1 text-lg text-ink">⚠️ 資料待補清單</h1>
           <p className="text-xs text-ink-faint">正式確認／正式列印前需補齊缺項；草稿仍可儲存。</p>
         </div>

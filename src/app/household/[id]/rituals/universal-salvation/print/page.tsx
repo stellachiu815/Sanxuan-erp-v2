@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { prisma } from "@/lib/prisma";
 import { getCurrentRitualYear } from "@/lib/ritual";
 import PrintCenter from "@/components/ritual/PrintCenter";
@@ -32,12 +32,10 @@ export default async function UniversalSalvationPrintPage({
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-5xl items-center gap-4">
-          <Link
-            href={`/household/${household.id}/rituals/universal-salvation`}
+          <BackButton
+            fallbackHref={`/household/${household.id}/rituals/universal-salvation`}
             className="whitespace-nowrap text-sm text-ink-soft transition hover:text-ink"
-          >
-            ← 返回普渡登記
-          </Link>
+          />
           <span className="truncate text-sm text-ink-faint">
             {household.name}・{household.id}
           </span>

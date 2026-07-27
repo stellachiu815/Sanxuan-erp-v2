@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { getReceiptNumberingConfig, previewNextReceiptNumber } from "@/lib/receipt";
 import { previewReceiptNumberFormat } from "@/lib/receiptRules";
 import ReceiptSettingsScreen from "@/components/receipt/ReceiptSettingsScreen";
@@ -35,9 +35,7 @@ export default async function ReceiptSettingsPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
-          <Link href="/receipt-center" className="text-sm text-ink-soft hover:underline">
-            ← 收據中心
-          </Link>
+          <BackButton fallbackHref="/receipt-center" />
           <h1 className="text-sm text-ink-soft">⚙️ 收據號碼管理／設定</h1>
         </div>
       </header>

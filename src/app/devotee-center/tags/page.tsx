@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { useEffect, useState } from "react";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee } from "@/lib/permissions";
@@ -106,9 +106,7 @@ export default function DevoteeTagsPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
-          <Link href="/devotee-center" className="text-sm text-ink-soft hover:underline">
-            ← 信眾關係中心
-          </Link>
+          <BackButton fallbackHref="/devotee-center" />
           <h1 className="text-sm text-ink-soft">🏷️ 標籤管理</h1>
         </div>
       </header>

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { notFound } from "next/navigation";
 import { getReceiptDetail } from "@/lib/receipt";
 import ReceiptDetailScreen from "@/components/receipt/ReceiptDetailScreen";
@@ -51,9 +51,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
-          <Link href="/receipt-center/receipts" className="text-sm text-ink-soft hover:underline">
-            ← 收據查詢
-          </Link>
+          <BackButton fallbackHref="/receipt-center/receipts" />
           <h1 className="text-sm text-ink-soft">收據詳細：{view.receiptNumber ?? "（不需開立）"}</h1>
         </div>
       </header>

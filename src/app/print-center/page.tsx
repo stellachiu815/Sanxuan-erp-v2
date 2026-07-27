@@ -24,6 +24,7 @@ type SummaryRow = {
   confirmedCount: number;
   printedCount: number;
   unprintedCount: number;
+  reprintedCount: number;
   printDocumentKeys: string[];
 };
 
@@ -69,6 +70,14 @@ function PrintCenterInner() {
     (groups.get(r.activityGroupName) ?? groups.set(r.activityGroupName, []).get(r.activityGroupName)!).push(r);
   }
 
+  // V21 列印中心首頁：各活動（主活動群組）待列印／已列印／需補印彙總。
+  const groupTotals = Array.from(groups.entries()).map(([groupName, items]) => ({
+    groupName,
+    pending: items.reduce((s, it) => s + it.unprintedCount, 0),
+    printed: items.reduce((s, it) => s + it.printedCount, 0),
+    reprinted: items.reduce((s, it) => s + it.reprintedCount, 0),
+  }));
+
   return (
     <main className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -83,6 +92,25 @@ function PrintCenterInner() {
           />
         </label>
       </div>
+
+      {/* V21：各活動列印狀態總覽（待列印／已列印／需補印）。 */}
+      {rows !== null && groupTotals.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-base text-ink">各活動列印狀態（民國 {year} 年）</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {groupTotals.map((g) => (
+              <div key={g.groupName} className="rounded-2xl bg-white/70 p-4 shadow-card">
+                <p className="text-sm font-medium text-ink">{g.groupName}</p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
+                  <span>待列印：<span className={g.pending > 0 ? "font-medium text-blossom-500" : "text-ink"}>{g.pending}</span></span>
+                  <span>已列印：<span className="text-ink">{g.printed}</span></span>
+                  <span>補印：<span className="text-ink">{g.reprinted}</span></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* V15R8：普渡列印管理唯一入口——所有來源共用的報名名單（搜尋／篩選／狀態／單筆＋批次＋全部列印）。 */}
       <section className="mb-8">
@@ -103,9 +131,10 @@ function PrintCenterInner() {
                 <tr className="text-xs text-ink-faint">
                   <th className="px-2 py-1.5">項目</th>
                   <th className="px-2 py-1.5">已確認</th>
-                  <th className="px-2 py-1.5">未列印</th>
+                  <th className="px-2 py-1.5">待列印</th>
                   <th className="px-2 py-1.5">已列印</th>
-                  <th className="px-2 py-1.5">總名單</th>
+                  <th className="px-2 py-1.5">補印</th>
+                  <th className="px-2 py-1.5">列印／預覽／補印／紀錄／總名冊</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,14 +142,15 @@ function PrintCenterInner() {
                   <tr key={it.itemKey} className="border-t border-cream-200">
                     <td className="px-2 py-1.5 text-ink">{it.itemName}</td>
                     <td className="px-2 py-1.5 text-ink-soft">{it.confirmedCount}</td>
-                    <td className="px-2 py-1.5 text-ink-soft">{it.unprintedCount}</td>
+                    <td className={`px-2 py-1.5 ${it.unprintedCount > 0 ? "font-medium text-blossom-500" : "text-ink-soft"}`}>{it.unprintedCount}</td>
                     <td className="px-2 py-1.5 text-ink-soft">{it.printedCount}</td>
+                    <td className="px-2 py-1.5 text-ink-soft">{it.reprintedCount}</td>
                     <td className="px-2 py-1.5">
                       <Link
                         href={`/print-center/rosters/${it.itemKey}/${it.year}`}
                         className="rounded-full bg-sage-100 px-3 py-1 text-xs text-ink hover:bg-sage-200"
                       >
-                        進入總名單／列印／補印
+                        進入總名冊／列印／預覽／補印／紀錄
                       </Link>
                     </td>
                   </tr>

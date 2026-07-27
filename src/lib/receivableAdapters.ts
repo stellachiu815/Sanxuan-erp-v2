@@ -1120,7 +1120,9 @@ const lanternRegistrationAdapter: ReceivableSourceAdapter = {
 function makeRegistrationItemAdapter(
   sourceType: string,
   itemKeys: string[],
-  fallbackLabel: string
+  fallbackLabel: string,
+  /** V20：白米來源在收款中心額外顯示認購／已收／未收斤數（只顯示，不改收款流程）。 */
+  isRice = false
 ): ReceivableSourceAdapter {
   return {
     sourceType,
@@ -1161,11 +1163,19 @@ function makeRegistrationItemAdapter(
           const rec = r.ritualRecord;
           // 名稱優先讀正式關聯的牌位（超拔祖先→周姓歷代祖先、乙位正魂→○○○乙位正魂、
           // 冤親→當事人姓名），退回自訂名稱／項目型別名。
-          const itemName =
+          const baseName =
             r.universalSalvationEntry?.displayName ?? r.customName ?? r.registrationItemType.name;
           const amountDue = Number(r.amountDue);
           const amountPaid = Number(r.amountPaid);
           const amountUnpaid = Number(r.amountUnpaid);
+          // V20：白米收款額外顯示認購／已收／未收斤數（只顯示，不改收款流程與金額）。
+          // 已收斤數＝依已收比例換算並取整；未收斤數＝認購 − 已收。
+          const riceKg = r.quantity ?? 0;
+          const ricePaidKg = amountDue > 0 ? Math.round(riceKg * (amountPaid / amountDue)) : amountPaid > 0 ? riceKg : 0;
+          const riceUnpaidKg = riceKg - ricePaidKg;
+          const itemName = isRice
+            ? `${baseName}（認購 ${riceKg} 斤／已收 ${ricePaidKg} 斤／未收 ${riceUnpaidKg} 斤，${rec.household.name}）`
+            : `${baseName}（${rec.household.name}）`;
           const view: UniversalReceivableView = {
             sourceType,
             sourceId: r.id,
@@ -1175,7 +1185,7 @@ function makeRegistrationItemAdapter(
             phone: rec.household.phone,
             activityId: rec.templeEventId,
             activityName: rec.templeEvent?.name ?? `${rec.year}年度${r.registrationItemType.activityGroupName}`,
-            itemName: `${itemName}（${rec.household.name}）`,
+            itemName,
             receivableAmount: amountDue,
             paidAmount: amountPaid,
             unpaidAmount: amountUnpaid,
@@ -1263,7 +1273,7 @@ function makeRegistrationItemAdapter(
   };
 }
 
-const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION", ["US_RICE"], "白米登記");
+const riceRegistrationAdapter = makeRegistrationItemAdapter("RICE_REGISTRATION", ["US_RICE"], "白米登記", true);
 const celebrationTableAdapter = makeRegistrationItemAdapter("CELEBRATION_TABLE", ["CELEBRATION_TABLE"], "宮慶訂桌");
 const dragonPhoenixLanternAdapter = makeRegistrationItemAdapter("DRAGON_PHOENIX_LANTERN", ["DRAGON_PHOENIX"], "龍鳳燈");
 // V15R5：年度燈統一後的光明燈／太歲燈／全家燈——項目自身計價（self-costed），

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "@/components/navigation/BackButton";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { listFloralOfferingRoster } from "@/lib/offeringClaims";
@@ -38,9 +38,7 @@ export default async function FloralRosterPage({ params }: { params: Promise<{ o
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-          <Link href={`/offering-center/activity/${offering.templeEventId}`} className="text-sm text-ink-soft hover:underline">
-            ← {offering.templeEvent.year} 年 {activityTypeLabel[offering.templeEvent.activityType] ?? offering.templeEvent.activityType}
-          </Link>
+          <BackButton fallbackHref={`/offering-center/activity/${offering.templeEventId}`} />
           <h1 className="text-sm text-ink-soft">🌸 {offering.offeringType.name}年度名單</h1>
         </div>
       </header>
