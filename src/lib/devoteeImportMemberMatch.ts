@@ -92,10 +92,10 @@ export type MemberMatchResult = {
   /** 依可信度排序（HIGH 在前） */
   candidates: MemberMatchCandidate[];
   /**
-   * 建議動作：
+   * 建議動作（V25.1：家戶編號 HouseholdCode 優先權最高）：
    *   CREATE            沒有任何候選 → 直接新增
-   *   SKIP_SAME_PERSON  同一戶內高可信度命中 → 視為既有成員，不重複建立
-   *   NEEDS_REVIEW      有候選但不足以自動判定，或候選在別戶 → 交人工確認
+   *   SKIP_SAME_PERSON  同一家戶編號內、姓名相同且唯一 → 視為同一人，直接更新（不需人工確認）
+   *   NEEDS_REVIEW      只在其他家戶找到同名（跨戶不自動轉戶），或同戶內多位同名 → 交人工確認
    */
   suggestion: "CREATE" | "SKIP_SAME_PERSON" | "NEEDS_REVIEW";
   reason: string;
@@ -197,37 +197,52 @@ export function matchIncomingMember(
     return { incoming, candidates, suggestion: "CREATE", reason: "資料庫沒有相似的既有信眾" };
   }
 
-  const best = candidates[0];
+  /**
+   * V25.1 預檢修正：**家戶編號（HouseholdCode）是家戶的唯一識別，優先權最高。**
+   *
+   * 匯入的家戶編號若對應到既有家戶（targetHouseholdId），代表這一列就是「更新
+   * 這一戶」。因此在**同一家戶編號內**、姓名相同的成員，就是既有成員本人——
+   * 直接更新即可，不得再進入疑似重複／人工確認／Merge 流程。
+   *
+   * 舊做法的問題：家戶檔沒有電話/生日可比，同戶同名只會命中「地址相同」（因為
+   * 同一戶地址本來就相同）→ 判為 MEDIUM → NEEDS_REVIEW，導致 727 戶重匯時
+   * 幾乎每一戶都被要求人工確認。這在「同 HouseholdCode」前提下是不必要的。
+   *
+   * 仍需人工確認者只剩真正的模糊情況：
+   *   - 同一戶內有「多位同名」（不知道要更新哪一位）；
+   *   - 只在「其他家戶」找到同名成員（跨戶，不可自動轉戶，指令三）。
+   */
+  const sameHousehold = candidates.filter((c) => !c.inOtherHousehold);
+  const otherHousehold = candidates.filter((c) => c.inOtherHousehold);
 
-  // 候選在別的家戶：指令三明訂「已在其他家戶的同名成員，不可自動轉戶」，
-  // 一律交人工決定（保留原家戶／轉入新家戶／建立新人物／略過）。
-  if (best.inOtherHousehold) {
-    return {
-      incoming,
-      candidates,
-      suggestion: "NEEDS_REVIEW",
-      reason: `「${best.name}」已存在於其他家戶 ${best.householdName}（${best.householdId}），比對依據：${best.matchedFields.join("＋")}。不會自動轉戶，請人工確認。`,
-    };
-  }
-
-  // 同一戶內的高可信度命中：視為既有成員，不重複建立。
-  if (best.confidence === "HIGH") {
+  // 同一家戶編號內、姓名相同且唯一 → 視為同一人，直接更新，不需人工確認。
+  if (sameHousehold.length === 1) {
+    const m = sameHousehold[0];
     return {
       incoming,
       candidates,
       suggestion: "SKIP_SAME_PERSON",
-      reason: `本戶已有「${best.name}」，比對依據：${best.matchedFields.join("＋")}，視為同一人，不重複建立。`,
+      reason: `本戶（家戶編號相同）已有「${m.name}」，家戶編號為家戶唯一識別，視為同一人直接更新（比對依據：家戶編號＋${m.matchedFields.join("＋")}），不需人工確認。`,
     };
   }
 
+  // 同一家戶編號內有「多位同名」→ 無法自動判定要更新哪一位（多個候選）→ 交人工。
+  if (sameHousehold.length > 1) {
+    return {
+      incoming,
+      candidates,
+      suggestion: "NEEDS_REVIEW",
+      reason: `本戶（家戶編號相同）有多位同名的「${incoming.name}」，無法自動判定要更新哪一位，請人工確認。`,
+    };
+  }
+
+  // 到這裡：沒有任何同戶候選，只有「其他家戶」的同名成員 → 不可自動轉戶（指令三），交人工。
+  const best = otherHousehold[0];
   return {
     incoming,
     candidates,
     suggestion: "NEEDS_REVIEW",
-    reason:
-      best.confidence === "MEDIUM"
-        ? `本戶已有同名的「${best.name}」且地址相同，但沒有電話或生日可以進一步確認，請人工判斷是否為同一人。`
-        : `本戶已有同名的「${best.name}」，但沒有其他欄位可以佐證（缺電話與生日），請人工判斷是否為同一人。`,
+    reason: `「${best.name}」已存在於其他家戶 ${best.householdName}（${best.householdId}），比對依據：${best.matchedFields.join("＋")}。家戶編號不同，不會自動轉戶，請人工確認。`,
   };
 }
 

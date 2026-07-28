@@ -240,17 +240,13 @@ test("人工決議：由 --resolve 外部 JSON 帶入，不是寫死在程式的
   assert.ok(/argv\[i\] === "--resolve"/.test(tool), "支援 --resolve 旗標");
   assert.ok(/function loadResolutions\(/.test(tool), "由外部 JSON 載入決議");
   assert.ok(/const override = overrideFor\(key\)/.test(tool) && /mergedRaw\[key\] = override/.test(tool), "有決議值則採用（可解 CONFLICT）");
-  // 不得把這次的具體姓名／地址寫死在程式碼裡（那才是永久特例）。
+  // 不得把任何具體人工決議姓名寫死在程式碼裡（那才是永久特例）。決議屬使用者資料，不是程式。
   assert.ok(!/吳詩靜|蔡昕穎|吳淑芬|許力丹/.test(tool), "程式碼不得寫死本次人工決議的姓名");
-  // 決議資料檔存在且內容正確。
-  const data = JSON.parse(read("scripts/data/v25-devotee-resolutions.json")) as { resolutions: { name: string; gender?: string; address?: string }[] };
-  const byName = new Map(data.resolutions.map((r) => [r.name, r]));
-  assert.equal(byName.get("吳詩靜")?.gender, "女");
-  assert.equal(byName.get("蔡昕穎")?.address, "新北市林口區中華一路一零一號六樓");
-  assert.equal(byName.get("吳淑芬")?.address, "台南市新營區東興六街卅號");
-  assert.equal(byName.get("許力丹")?.gender, "女");
-  // 歷代祖先不得出現在決議檔（規則二：完全不動）。
-  assert.ok(!/歷代祖先/.test(read("scripts/data/v25-devotee-resolutions.json")), "決議檔不含歷代祖先");
+  // 提供決議格式範本檔（.example.json）供使用者複製填寫；實際決議檔由使用者自行提供、不綁進測試。
+  const example = JSON.parse(read("scripts/data/v25-devotee-resolutions.example.json")) as { resolutions: { name: string }[] };
+  assert.ok(Array.isArray(example.resolutions), "範本含 resolutions 陣列");
+  // 決議檔不得含歷代祖先（規則二：完全不動）。
+  assert.ok(!/歷代祖先/.test(read("scripts/data/v25-devotee-resolutions.example.json")), "決議範本不含歷代祖先");
 });
 
 test("人工決議：未套用（姓名對不到）會警示，避免打錯無聲略過", () => {
