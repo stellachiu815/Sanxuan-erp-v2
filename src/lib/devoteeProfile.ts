@@ -3,6 +3,7 @@ import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
 import { safeDeriveBirthdayInfo } from "@/lib/lunar";
 // V14.1（十五～二十二）：農曆顯示一律民國年＋國字月日，不顯示西元。
 import { formatLunarBirthDate } from "@/lib/minguoDate";
+import { displayPersonalAddress } from "@/lib/personalAddress";
 import type { Member, DevoteeProfile } from "@prisma/client";
 
 /**
@@ -62,6 +63,17 @@ export type DevoteeSummary = {
   isDeceased: boolean;
   deceasedAt: string | null;
   memberNotes: string | null;
+
+  /**
+   * V25：信眾**個人**通訊地址（Member.address）。最高權威來源＝正式信眾 Excel。
+   * 與 householdAddress 完全獨立。可能為 null（尚未填個人地址）。
+   */
+  personalAddress: string | null;
+  /**
+   * V25：顯示用地址＝個人地址優先，個人地址空白時才 fallback 家戶地址。
+   * 僅供畫面顯示／帶入，**不代表已寫入 Member**（見 src/lib/personalAddress.ts）。
+   */
+  displayAddress: string | null;
 
   householdName: string;
   householdContactName: string | null;
@@ -139,6 +151,14 @@ export function composeDevoteeSummary(
     isDeceased: member.isDeceased,
     deceasedAt: member.deceasedAt ? member.deceasedAt.toISOString().slice(0, 10) : null,
     memberNotes: member.notes,
+
+    // V25：個人地址（Member.address）與家戶地址並存、各自獨立；displayAddress 是顯示 fallback。
+    // 以 cast 讀取新欄位以相容尚未 regenerate 的 Prisma client（Mac 上 prisma generate 後即為原生型別）。
+    personalAddress: (member as unknown as { address: string | null }).address ?? null,
+    displayAddress: displayPersonalAddress(
+      (member as unknown as { address: string | null }).address ?? null,
+      member.household.address
+    ),
 
     householdName: member.household.name,
     householdContactName: member.household.contactName,

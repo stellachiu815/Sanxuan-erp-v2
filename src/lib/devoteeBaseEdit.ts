@@ -54,6 +54,13 @@ export type UpdateDevoteeBaseInput = {
    */
   nationalId?: string | null;
 
+  /**
+   * V25：信眾**個人**通訊地址（Member.address）。與 household.address 完全獨立。
+   * undefined = 這次不修改；null = 明確清空；字串 = 設定新值。
+   * 只改本人，不影響 Household.address、也不影響同戶其他成員。
+   */
+  address?: string | null;
+
   // 家戶資料（Household）——刻意不包含 id，見上方說明。
   household?: {
     name?: string;
@@ -110,6 +117,13 @@ export async function updateDevoteeBase(
   if (input.yangshangName !== undefined) memberData.yangshangName = input.yangshangName;
   if (input.notes !== undefined) memberData.notes = input.notes;
   if (input.birthHour !== undefined) memberData.birthHour = input.birthHour;
+  /**
+   * V25：信眾個人通訊地址（Member.address）。只改本人，與 Household.address 完全獨立。
+   * 以 cast 寫入新欄位以相容尚未 regenerate 的 Prisma client（Mac 上 prisma generate 後即原生）。
+   */
+  if (input.address !== undefined) {
+    (memberData as Record<string, unknown>).address = input.address;
+  }
 
   // V13.1 指令一：身分證字號。只有實際輸入時才驗證格式——既有正式資料裡
   // 可能有格式不正確的舊值，不能因此讓整筆資料存不進去。

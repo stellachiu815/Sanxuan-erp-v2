@@ -181,6 +181,40 @@ export function normalizeColumnName(name: string): string {
 }
 
 /**
+ * V24 根因修正：正式家戶七欄（＋舊「所有成員」相容欄）為固定格式，其標題列一律對應到
+ * 固定目標 key，不受舊的欄位對應記憶（remembered）或先前誤選影響。
+ */
+export const CANONICAL_DEVOTEE_HOUSEHOLD_COLUMNS: Record<string, string> = {
+  家戶編號: "householdCode",
+  戶名: "householdName",
+  主要聯絡人: "primaryContact",
+  地址: "address",
+  歷代祖先: "ancestors",
+  乙位正魂: "spirits",
+  家戶成員: "householdMembers",
+  所有成員: "allMembers",
+};
+
+/**
+ * 以正式固定對應覆蓋家戶標題欄——但若使用者**這次**手動把某欄改成別的目標
+ * （manualMapping 有值），尊重使用者當下的選擇，不覆蓋。回傳修正後的 mapping。
+ */
+export function applyCanonicalDevoteeHouseholdMapping(
+  columns: string[],
+  mapping: Record<string, string | null>,
+  manualMapping: Record<string, string | null>
+): Record<string, string | null> {
+  const out = { ...mapping };
+  for (const col of columns) {
+    const canon = CANONICAL_DEVOTEE_HOUSEHOLD_COLUMNS[col.trim()];
+    if (canon && manualMapping[col] === undefined) {
+      out[col] = canon;
+    }
+  }
+  return out;
+}
+
+/**
  * 純函式版「猜欄位對應」：已儲存記憶（remembered，key 是去除空白後的欄位
  * 名稱）優先，找不到才用別名表。都對不到就回傳 null（前端顯示成
  * 「（不匯入）」，需要人工手動選擇）。

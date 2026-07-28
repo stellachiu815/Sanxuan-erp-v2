@@ -62,6 +62,11 @@ export type CreateMemberInput = {
    * V13.1 指令一：身分證字號（選填）。空白存 null；只有實際輸入時才驗證格式。
    */
   nationalId?: unknown;
+  /**
+   * V25：信眾**個人**通訊地址（Member.address）。與 Household.address 完全獨立，
+   * 建立後直接寫入本人。空白存 null（畫面 fallback 顯示家戶地址，僅顯示不寫回）。
+   */
+  personalAddress?: unknown;
 };
 
 /** 正規化後、已驗證完成的建立資料（內部使用）。 */
@@ -80,6 +85,8 @@ type NormalizedMemberInput = {
   mobile: string | null;
   email: string | null;
   nationalId: string | null;
+  /** V25：信眾個人通訊地址（Member.address）。 */
+  address: string | null;
 };
 
 /**
@@ -105,6 +112,8 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
   const notes = typeof input.notes === "string" && input.notes.trim() ? input.notes.trim() : null;
   const mobile = typeof input.mobile === "string" && input.mobile.trim() ? input.mobile.trim() : null;
   const email = typeof input.email === "string" && input.email.trim() ? input.email.trim() : null;
+  // V25：信眾個人通訊地址（Member.address），與家戶地址獨立。空白 → null。
+  const address = typeof input.personalAddress === "string" && input.personalAddress.trim() ? input.personalAddress.trim() : null;
 
   /**
    * V13.1 指令二：國曆與農曆生日**兩者都要永久保存**。
@@ -150,6 +159,7 @@ export function normalizeCreateMemberInput(input: CreateMemberInput): Normalized
     mobile,
     email,
     nationalId,
+    address,
   };
 }
 
@@ -183,6 +193,8 @@ export async function createMemberInTransaction(
       lunarIsLeapMonth: normalized.lunarIsLeapMonth,
       // V13.1 指令一：身分證字號（已在 normalizeCreateMemberInput 驗證過）
       nationalId: normalized.nationalId,
+      // V25：信眾個人通訊地址（Member.address）。cast 以相容尚未 regenerate 的 Prisma client。
+      ...(normalized.address ? ({ address: normalized.address } as Record<string, unknown>) : {}),
     },
   });
 

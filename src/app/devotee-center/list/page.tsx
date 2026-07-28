@@ -23,6 +23,8 @@ type DevoteeRow = {
   mobile: string | null;
   householdPhone: string | null;
   householdAddress: string | null;
+  // V25：個人地址優先、空白 fallback 家戶（顯示用），與 DevoteeSummary.displayAddress 一致。
+  displayAddress: string | null;
   solarBirthDate: string | null;
   lunarBirthDisplay: string | null;
   zodiac: string | null;
@@ -258,8 +260,8 @@ function DevoteeListInner() {
                   .filter(Boolean)
                   .join("・") || "尚未填寫聯絡資料"}
               </p>
-              {r.householdAddress && (
-                <p className="mt-0.5 text-xs text-ink-faint">{r.householdAddress}</p>
+              {r.displayAddress && (
+                <p className="mt-0.5 text-xs text-ink-faint">{r.displayAddress}</p>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {r.isDeceased && (
@@ -325,7 +327,7 @@ function DevoteeListInner() {
             <tbody>
               {data.rows.map((r) => {
                 const hasBirthday = Boolean(r.solarBirthDate || r.lunarBirthDisplay);
-                const hasAddress = Boolean(r.householdAddress);
+                const hasAddress = Boolean(r.displayAddress);
                 const isDataComplete = hasBirthday && hasAddress; // 姓名恆為必填，不需另外檢查
                 return (
                   <tr key={r.memberId} className="border-t border-cream-200">
@@ -354,7 +356,7 @@ function DevoteeListInner() {
                       {r.lunarBirthDisplay || formatIsoDateToRocCompact(r.solarBirthDate) || "—"}
                       {r.zodiac && <span className="ml-1 text-xs text-ink-faint">（{r.zodiac}）</span>}
                     </td>
-                    <td className="px-3 py-2 text-ink-soft">{r.householdAddress || "—"}</td>
+                    <td className="px-3 py-2 text-ink-soft">{r.displayAddress || "—"}</td>
                     <td className="px-3 py-2 text-ink-soft">{r.mobile || r.householdPhone || "—"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">

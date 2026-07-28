@@ -143,6 +143,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         yangshangName: "yangshangName" in body ? toNullableString(body.yangshangName) : undefined,
         notes: "notes" in body ? toNullableString(body.notes) : undefined,
         birthHour: "birthHour" in body ? ((body.birthHour as string | null) ?? null) : undefined,
+        // V25：信眾個人地址（Member.address），只改本人，與家戶地址獨立。
+        address: "address" in body ? toNullableString(body.address) : undefined,
         birthday,
         household,
       },

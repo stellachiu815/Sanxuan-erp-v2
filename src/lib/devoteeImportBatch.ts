@@ -1,13 +1,14 @@
 import { Prisma, type ImportRowStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isGenderConflict } from "@/lib/genderNormalize";
-import { recordVersion } from "@/lib/recordVersion";
+import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
+import { randomUUID } from "node:crypto";
 import {
   normalizeAndValidateDevoteeRow,
   type NormalizedDevoteeRow,
   type NormalizedHouseholdFields,
 } from "@/lib/devoteeImportValidate";
-import { forwardFillAndGroupHouseholdRows, toSafeCalendarDate } from "@/lib/devoteeImportNormalize";
+import { forwardFillAndGroupHouseholdRows, toSafeCalendarDate, type TabletMeta } from "@/lib/devoteeImportNormalize";
 import {
   parsePersonSheet,
   buildPersonLookup,
@@ -66,15 +67,19 @@ export const DEVOTEE_IMPORT_KIND = "DEVOTEE_PRECHECK";
  * 每批 DEFAULT_COMMIT_CHUNK_SIZE 戶、各自獨立 transaction 完成，前端自動
  * 續批並顯示進度。詳見 commitDevoteeImport()。
  *
- * ⚠️ 為什麼一定要分批，不能一個大 transaction 包住 869 戶：
- *   1. Prisma 互動式交易預設 timeout 只有 5 秒（我們調高到 120 秒仍不夠）。
- *   2. 每一戶大約 26 次資料庫往返（查家戶／別名／成員比對／建立／版本紀錄
- *      …），869 戶就是兩萬次以上，單一交易會長時間持有大量列鎖。
- *   3. Render 的 HTTP 請求也有逾時上限，單一請求跑完兩萬次查詢並不實際。
+ * ⚠️ 為什麼仍要分批，不用一個大 transaction 包住全部：
+ *   1. 分批讓失敗影響範圍可控（該批回滾、前面已成功維持），也讓前端能顯示進度。
+ *   2. Render 的 HTTP 請求有逾時上限，單一請求不宜跑太久。
+ *
+ * ⚠️ V24.3：每一批不再是「逐戶逐筆查詢／建立」（舊做法一批 50 戶約 1300+ 次
+ * 資料庫往返，遠端資料庫下實測 126 秒 → 互動式交易逾時 → Transaction not found）。
+ * 改為「批次預查（4 次）＋ 每種資料一次 createMany ＋ 一次 recordVersion.createMany」，
+ * 一批的往返次數與戶數無關（約十餘次），因此可以安全地把每批戶數放大到 200，
+ * 減少前端續批的 HTTP 次數，整批 727 戶可在數十秒內完成。
  */
-export const DEFAULT_COMMIT_CHUNK_SIZE = 50;
+export const DEFAULT_COMMIT_CHUNK_SIZE = 200;
 
-/** 交易 timeout（毫秒）。一批 50 戶約 1300 次查詢，給足裕度避免誤判失敗。 */
+/** 交易 timeout（毫秒）。V24.3 起每批僅十餘次批次往返，120 秒是充足的安全裕度（非用來掩蓋逐筆逾時）。 */
 export const COMMIT_TRANSACTION_TIMEOUT_MS = 120_000;
 export const COMMIT_TRANSACTION_MAX_WAIT_MS = 20_000;
 
@@ -112,6 +117,12 @@ type StoredRowPayload = {
     memberNames: string[];
     ancestorNames: string[];
     spiritNames: string[];
+    /**
+     * V24：牌位隨附資料（陽上姓名／安奉地），依 displayName 對應。與 tabletLocations 一樣，
+     * 必須在**預檢階段**先算好落地，commit 只讀 ImportRow 時才有資料可寫 WorshipRecord。
+     * 舊批次沒有此欄位（undefined），讀取時容忍為空陣列。
+     */
+    tabletMeta?: TabletMeta[];
   };
   /** V12.6：預檢算出的預計動作計畫。舊批次沒有這個欄位，讀取時要容忍 undefined。 */
   plan?: RowPlan;
@@ -127,6 +138,12 @@ type StoredRowPayload = {
    * 地址為 null，屬於待補資料，不會出錯。
    */
   tabletLocations?: Record<string, string | null>;
+  /**
+   * V24：每筆牌位的陽上姓名（key = 牌位名稱 displayName）。與 tabletLocations 同理，於預檢階段
+   * 由家戶檔算好落地，commit 只讀 ImportRow 時才有資料可寫 WorshipRecord.yangshangName。
+   * 陽上原文保留、不刪除、不重組。舊批次沒有此欄位時視為無陽上（不覆蓋）。
+   */
+  tabletYangshang?: Record<string, string>;
 };
 
 /**
@@ -138,7 +155,8 @@ type StoredRowPayload = {
 function serializeRowForStorage(
   row: NormalizedDevoteeRow,
   plan?: RowPlan,
-  tabletLocations?: Record<string, string | null>
+  tabletLocations?: Record<string, string | null>,
+  tabletYangshang?: Record<string, string>
 ): StoredRowPayload {
   return {
     raw: toJsonSafeRow(row.raw),
@@ -147,9 +165,11 @@ function serializeRowForStorage(
       memberNames: row.memberNames,
       ancestorNames: row.ancestorNames,
       spiritNames: row.spiritNames,
+      ...(row.tabletMeta.length > 0 ? { tabletMeta: row.tabletMeta } : {}),
     },
     ...(plan ? { plan } : {}),
     ...(tabletLocations && Object.keys(tabletLocations).length > 0 ? { tabletLocations } : {}),
+    ...(tabletYangshang && Object.keys(tabletYangshang).length > 0 ? { tabletYangshang } : {}),
   };
 }
 
@@ -168,9 +188,25 @@ function buildTabletLocations(
 ): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   const code = row.household.code;
+  // V24：家戶檔本身若帶「安奉地」（依 displayName 對應），作為個人 Excel 未提供時的來源。
+  const metaAddress = new Map<string, string>();
+  for (const m of row.tabletMeta) {
+    if (m.address) metaAddress.set(m.displayName, m.address);
+  }
   for (const name of [...row.ancestorNames, ...row.spiritNames]) {
     const person = lookupPerson(lookup, code, name);
-    out[name] = person?.tabletAddress ?? person?.address ?? null;
+    // 取值順序：個人 Excel 牌位地址 → 個人 Excel 地址 → 家戶檔安奉地 → null。
+    // 一律**不**用家戶地址（Household.address）遞補（既有規則：牌位地址不得被家戶地址覆蓋）。
+    out[name] = person?.tabletAddress ?? person?.address ?? metaAddress.get(name) ?? null;
+  }
+  return out;
+}
+
+/** V24：本列各牌位（依 displayName）的陽上姓名。原文保留、不刪除、不重組；無則不設。 */
+function buildTabletYangshang(row: NormalizedDevoteeRow): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of row.tabletMeta) {
+    if (m.yangshang) out[m.displayName] = m.yangshang;
   }
   return out;
 }
@@ -183,6 +219,9 @@ function deserializeStoredRow(rowNumber: number, stored: StoredRowPayload): Norm
     memberNames: stored.normalized.memberNames,
     ancestorNames: stored.normalized.ancestorNames,
     spiritNames: stored.normalized.spiritNames,
+    // commit 階段不需要無效牌位清單（僅分析/預覽階段用於統計）；此處補空陣列以符合型別。
+    skippedTablets: [],
+    tabletMeta: stored.normalized.tabletMeta ?? [],
     missingFieldErrors: [],
     formatErrors: [],
     warnings: [],
@@ -337,6 +376,11 @@ export type AnalyzedDevoteeRow = {
    * 舊批次沒有這個欄位時為 null。
    */
   tabletLocations: Record<string, string | null> | null;
+  /**
+   * V24：這一列各個牌位的陽上姓名（key = 牌位名稱）。於預檢階段由家戶檔算出並存入
+   * ImportRow，commit 時寫入 WorshipRecord.yangshangName。舊批次沒有這個欄位時為 null。
+   */
+  tabletYangshang: Record<string, string> | null;
 };
 
 // ============================================================
@@ -674,7 +718,8 @@ export async function analyzeDevoteeImport(
       rawData: serializeRowForStorage(
         normalized,
         plan,
-        buildTabletLocations(normalized, personLookup)
+        buildTabletLocations(normalized, personLookup),
+        buildTabletYangshang(normalized)
       ) as unknown as Prisma.InputJsonValue,
       status,
       // 只有真正阻擋匯入的才放進 errors；被降級的空白欄位改放 warnings，
@@ -728,6 +773,7 @@ export async function analyzeDevoteeImport(
       warnings: normalized.warnings,
       plan: rowPlans[i] ?? null,
       tabletLocations: buildTabletLocations(normalized, personLookup),
+      tabletYangshang: buildTabletYangshang(normalized),
     };
   });
 
@@ -780,6 +826,8 @@ export async function getDevoteeImportBatch(batchId: string): Promise<DevoteeImp
       plan: stored.plan ?? null,
       // 舊批次沒有 tabletLocations，一律容忍為 null（牌位地址視為待補）
       tabletLocations: stored.tabletLocations ?? null,
+      // 舊批次沒有 tabletYangshang，一律容忍為 null（無陽上，不覆蓋）
+      tabletYangshang: stored.tabletYangshang ?? null,
       status: r.status,
       errors: (r.errors as string[] | null) ?? [],
       warnings: (r.warnings as string[] | null) ?? [],
@@ -851,32 +899,65 @@ export async function getCommitPreview(batchId: string): Promise<CommitPreviewRe
   const namesByCode = groupReadyRowsByHouseholdCode(readyRows);
   const codes = Array.from(namesByCode.keys());
 
-  const existingHouseholds = await prisma.household.findMany({
-    where: { id: { in: codes }, deletedAt: null },
-    select: { id: true },
-  });
+  /**
+   * V24.2 效能根因修正：確認匯入頁「永久載入中」。
+   *
+   * 舊做法對每一戶各發 2 次查詢（member.findMany + worshipRecord.findMany），
+   * 727 戶＝約 1,454 次**連續**查詢，實測 commit-preview 回應要 114–157 秒，
+   * 前端等同永久卡在「載入中」。回傳內容其實只有幾個統計數字（payload 很小），
+   * 慢的是資料庫來回次數，不是資料量。
+   *
+   * 改為「三次批次查詢」：一次撈回全部相關的既有家戶／成員／牌位，於記憶體
+   * 依家戶編號分組後比對。查詢邏輯與結果完全不變，只是把 O(戶數) 次來回
+   * 壓成固定 3 次，數百戶也能在極短時間內回應。
+   */
+  const [existingHouseholds, existingMembers, existingWorship] = await Promise.all([
+    prisma.household.findMany({ where: { id: { in: codes }, deletedAt: null }, select: { id: true } }),
+    prisma.member.findMany({
+      where: { householdId: { in: codes }, deletedAt: null },
+      select: { householdId: true, name: true },
+    }),
+    prisma.worshipRecord.findMany({
+      where: { householdId: { in: codes } },
+      select: { householdId: true, type: true, displayName: true },
+    }),
+  ]);
+
   const existingHouseholdIds = new Set(existingHouseholds.map((h) => h.id));
   const newHouseholdCount = codes.filter((c) => !existingHouseholdIds.has(c)).length;
   const updateHouseholdCount = codes.length - newHouseholdCount;
 
+  // 依家戶編號把既有成員／牌位名稱分組（記憶體內），對應舊做法逐戶查詢的結果。
+  const existingMemberNamesByCode = new Map<string, Set<string>>();
+  for (const m of existingMembers) {
+    let set = existingMemberNamesByCode.get(m.householdId);
+    if (!set) existingMemberNamesByCode.set(m.householdId, (set = new Set()));
+    set.add(m.name);
+  }
+  const existingAncestorNamesByCode = new Map<string, Set<string>>();
+  const existingSpiritNamesByCode = new Map<string, Set<string>>();
+  for (const w of existingWorship) {
+    const target =
+      w.type === "ANCESTOR_LINE"
+        ? existingAncestorNamesByCode
+        : w.type === "INDIVIDUAL"
+          ? existingSpiritNamesByCode
+          : null;
+    if (!target) continue;
+    let set = target.get(w.householdId);
+    if (!set) target.set(w.householdId, (set = new Set()));
+    set.add(w.displayName);
+  }
+
+  const EMPTY_NAME_SET: ReadonlySet<string> = new Set();
   let newMemberCount = 0;
   let newAncestorCount = 0;
   let newSpiritCount = 0;
-  let totalMemberNameCount = 0;
 
   for (const [code, bucket] of namesByCode) {
-    totalMemberNameCount += bucket.members.size;
-    const [existingMembers, existingWorship] = await Promise.all([
-      prisma.member.findMany({ where: { householdId: code, deletedAt: null }, select: { name: true } }),
-      prisma.worshipRecord.findMany({ where: { householdId: code }, select: { type: true, displayName: true } }),
-    ]);
-    const existingMemberNames = new Set(existingMembers.map((m) => m.name));
-    const existingAncestorNames = new Set(
-      existingWorship.filter((w) => w.type === "ANCESTOR_LINE").map((w) => w.displayName)
-    );
-    const existingSpiritNames = new Set(
-      existingWorship.filter((w) => w.type === "INDIVIDUAL").map((w) => w.displayName)
-    );
+    const existingMemberNames = existingMemberNamesByCode.get(code) ?? EMPTY_NAME_SET;
+    const existingAncestorNames = existingAncestorNamesByCode.get(code) ?? EMPTY_NAME_SET;
+    const existingSpiritNames = existingSpiritNamesByCode.get(code) ?? EMPTY_NAME_SET;
 
     for (const n of bucket.members) if (!existingMemberNames.has(n)) newMemberCount++;
     for (const n of bucket.ancestors) if (!existingAncestorNames.has(n)) newAncestorCount++;
@@ -1095,46 +1176,91 @@ export async function commitDevoteeImport(
         throw new Error("這一批資料已經被其他視窗匯入了，請重新整理頁面查看目前進度，不會重複建立資料");
       }
 
-      // 需求指定的建立順序：Household → Member → Ancestor → Spirit。
-      // 一列＝一戶，依序處理每一列即可，不需要像舊版一樣先把列分組成戶。
+      /**
+       * V24.3 交易逾時根因修正：把「逐戶逐筆 create + 每筆 recordVersion」改成
+       * 「批次預查 + createMany 批次寫入 + 單次 recordVersion.createMany」。
+       *
+       * 舊做法每戶約 17 次連續查詢，遠端資料庫單次往返約 150ms，一批 50 戶＝
+       * 850+ 次往返、實測 126 秒，超過互動式交易上限，之後的 member.create 落在
+       * 已關閉的交易上 → "Transaction not found"。新做法把「讀」壓成 4 次批次預查、
+       * 「寫」壓成每種資料一次 createMany（家戶／成員／個資／牌位／稽核），業務規則
+       * 與稽核內容不變，整批仍在單一交易內（整批成功或整批回滾）。罕見路徑（個人檔
+       * 補欄位 UPDATE、人工確認轉戶 TRANSFER_IN、既有家戶更新）數量極少，維持原逐筆
+       * 邏輯，於批次寫入後執行。
+       */
+      const codes = readyRows.map((r) => r.household.code);
+
+      // ── 批次預查：一次撈回本批相關的既有家戶／別名／封存／成員名／牌位名 ──
+      const [existingActive, archivedRows, aliasRows, existingMembersRows, existingWorshipRows] =
+        await Promise.all([
+          tx.household.findMany({ where: { id: { in: codes }, deletedAt: null } }),
+          tx.household.findMany({ where: { id: { in: codes }, NOT: { deletedAt: null } }, select: { id: true, name: true } }),
+          tx.householdCodeAlias.findMany({ where: { oldCode: { in: codes } }, include: { household: true } }),
+          tx.member.findMany({ where: { householdId: { in: codes }, deletedAt: null }, select: { id: true, name: true, householdId: true } }),
+          tx.worshipRecord.findMany({ where: { householdId: { in: codes } }, select: { householdId: true, type: true, displayName: true } }),
+        ]);
+      const activeByCode = new Map(existingActive.map((h) => [h.id, h]));
+      const archivedByCode = new Map(archivedRows.map((h) => [h.id, h]));
+      const aliasByOldCode = new Map(aliasRows.map((a) => [a.oldCode, a]));
+      const existingMemberNamesByHousehold = new Map<string, Set<string>>();
+      for (const m of existingMembersRows) {
+        let s = existingMemberNamesByHousehold.get(m.householdId);
+        if (!s) existingMemberNamesByHousehold.set(m.householdId, (s = new Set()));
+        s.add(m.name);
+      }
+      const worshipNamesByHousehold = new Map<string, { ancestors: Set<string>; spirits: Set<string> }>();
+      for (const w of existingWorshipRows) {
+        let e = worshipNamesByHousehold.get(w.householdId);
+        if (!e) worshipNamesByHousehold.set(w.householdId, (e = { ancestors: new Set(), spirits: new Set() }));
+        if (w.type === "ANCESTOR_LINE") e.ancestors.add(w.displayName);
+        else if (w.type === "INDIVIDUAL") e.spirits.add(w.displayName);
+      }
+
+      // ── 累積器（記憶體內完成分類，最後批次寫入） ──
+      const auditRows: Prisma.RecordVersionCreateManyInput[] = [];
+      const pushAudit = (input: {
+        entityType: string;
+        entityId: string;
+        action: "CREATE" | "UPDATE";
+        beforeData?: unknown;
+        afterData?: unknown;
+        changeNote?: string | null;
+      }) => {
+        const rowData: Prisma.RecordVersionCreateManyInput = {
+          entityType: input.entityType,
+          entityId: input.entityId,
+          action: input.action,
+          operatorName: operatorName?.trim() || null,
+          changeNote: input.changeNote?.trim() || null,
+        };
+        if (input.beforeData !== undefined) rowData.beforeData = toJsonSnapshot(input.beforeData);
+        if (input.afterData !== undefined) rowData.afterData = toJsonSnapshot(input.afterData);
+        auditRows.push(rowData);
+      };
+
+      const householdCreateData: Prisma.HouseholdCreateManyInput[] = [];
+      const newHouseholdCodes: string[] = [];
+      const householdUpdateOps: { id: string; data: Prisma.HouseholdUpdateInput; before: unknown; changeNote: string }[] = [];
+      const memberCreateData: Prisma.MemberCreateManyInput[] = [];
+      const newMemberMeta: { id: string; householdId: string; name: string; changeNote: string; mobile: string | null }[] = [];
+      const worshipCreateData: Prisma.WorshipRecordCreateManyInput[] = [];
+      const newWorshipIds: string[] = [];
+      const worshipAuditNote = new Map<string, string>();
+      const resolvedHouseholdIdByRowId = new Map<string, string>();
+      const newHouseholdIds = new Set<string>();
+
+      // ── 第一輪：記憶體分類（Household 解析、成員／牌位分類），不寫入 ──
       for (const r of readyRows) {
         const code = r.household.code;
+        const active = activeByCode.get(code);
+        const alias = active ? undefined : aliasByOldCode.get(code);
+        const aliasHousehold = alias?.household && !alias.household.deletedAt ? alias.household : undefined;
 
-        // 一、Household：依 V12.3 指令七的順序解析家戶編號——
-        //   1) 先查目前的 Household.id
-        //   2) 沒有就查 HouseholdCodeAlias.oldCode（改過編號或已被合併的舊編號）
-        //   3) 命中別名時，更新別名指向的「目前正式家戶」，不可用舊編號另開一戶
-        //   4) 都沒命中才建立新家戶
-        //
-        // ⚠️ 正式 Excel 七欄格式完全沒有改變，使用者手上的檔案照用即可。
-        let household = await tx.household.findFirst({ where: { id: code, deletedAt: null } });
-        let matchedViaAlias = false;
-
-        if (!household) {
-          const alias = await tx.householdCodeAlias.findUnique({
-            where: { oldCode: code },
-            include: { household: true },
-          });
-          if (alias?.household && !alias.household.deletedAt) {
-            household = alias.household;
-            matchedViaAlias = true;
-          }
-        }
-
-        if (household) {
-          const beforeData = household;
-          /**
-           * V12.6 指令二：**空白欄位不可覆蓋既有有效資料**，除非使用者明確
-           * 選擇覆蓋。
-           *
-           * 舊版是無條件寫入三個欄位，Excel 該格留白就會把資料庫既有的
-           * 戶名／主要聯絡人／地址清成空值——這是靜默的資料流失。
-           *
-           * 現在的規則：
-           *   Excel 有值 → 以 Excel 為準（預檢已把差異列為「欄位衝突」讓使用者看過）
-           *   Excel 空白 → 保留既有值（預檢已列在「保留既有欄位」提醒裡）
-           *   除非該列被標記 overwriteBlanks（使用者在預檢中心明確勾選覆蓋）
-           */
+        let householdId: string;
+        if (active || aliasHousehold) {
+          // 既有家戶（含舊編號別名）→ 更新基本資料（空白不覆蓋，除非明確覆蓋）。
+          const before = (active ?? aliasHousehold)!;
+          householdId = before.id;
           const overwriteBlanks = r.plan?.overwriteBlanks === true;
           const keepIfBlank = <T,>(excel: T | null, existing: T | null): T | null =>
             excel !== null && excel !== undefined && excel !== ("" as unknown as T)
@@ -1142,406 +1268,279 @@ export async function commitDevoteeImport(
               : overwriteBlanks
                 ? excel ?? null
                 : existing;
-
-          household = await tx.household.update({
-            where: { id: household.id },
+          householdUpdateOps.push({
+            id: householdId,
             data: {
-              name: r.household.name || (overwriteBlanks ? r.household.name : beforeData.name),
-              contactName: keepIfBlank(r.household.contactName, beforeData.contactName),
-              address: keepIfBlank(r.household.address, beforeData.address),
+              name: r.household.name || (overwriteBlanks ? r.household.name : before.name),
+              contactName: keepIfBlank(r.household.contactName, before.contactName),
+              address: keepIfBlank(r.household.address, before.address),
             },
+            before,
+            changeNote: aliasHousehold
+              ? `信眾資料匯入預檢中心：正式匯入（Excel 使用舊家戶編號 ${code}，已對照到目前家戶 ${householdId}，更新基本資料）`
+              : "信眾資料匯入預檢中心：正式匯入（家戶編號已存在，更新基本資料）",
           });
-          await recordVersion(
-            {
-              entityType: "Household",
-              entityId: household.id,
-              action: "UPDATE",
-              beforeData,
-              afterData: household,
-              operatorName,
-              changeNote: matchedViaAlias
-                ? `信眾資料匯入預檢中心：正式匯入（Excel 使用舊家戶編號 ${code}，已對照到目前家戶 ${household.id}，更新基本資料）`
-                : "信眾資料匯入預檢中心：正式匯入（家戶編號已存在，更新基本資料）",
-            },
-            tx
-          );
           householdsUpdated++;
         } else {
-          // V12.3 指令七.5：這個編號可能屬於「已封存、但沒有合併也沒有別名」
-          // 的家戶——直接 create 會撞主鍵（P2002）讓整批匯入失敗。這裡先明確
-          // 檢查並丟出可讀的錯誤，要求人工決定恢復、改編號或略過。
-          const archived = await tx.household.findUnique({ where: { id: code } });
+          // 全新家戶；但若編號屬於「已封存、無別名」→ 直接 create 會撞主鍵，明確擋下並整批回滾。
+          const archived = archivedByCode.get(code);
           if (archived) {
             throw new Error(
               `家戶編號 ${code} 屬於已封存的家戶「${archived.name}」，既沒有合併也沒有編號對照。` +
                 `請先從回收區恢復該家戶、或改用其他編號、或把這一列從本次匯入中排除，再重新執行匯入。`
             );
           }
-
-          household = await tx.household.create({
-            data: {
-              id: code,
-              name: r.household.name,
-              contactName: r.household.contactName,
-              address: r.household.address,
-            },
+          householdId = code;
+          newHouseholdIds.add(code);
+          newHouseholdCodes.push(code);
+          householdCreateData.push({
+            id: code,
+            name: r.household.name,
+            contactName: r.household.contactName,
+            address: r.household.address,
           });
-          await recordVersion(
-            { entityType: "Household", entityId: household.id, action: "CREATE", afterData: household, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入" },
-            tx
-          );
           householdsCreated++;
         }
+        touchedHouseholdIds.add(householdId);
+        resolvedHouseholdIdByRowId.set(r.id, householdId);
+        importedRowIds.push(r.id);
 
-        /**
-         * 二、家戶成員（V12.6 指令三：多欄比對，不可只用姓名判定同一人）。
-         *
-         * 這裡**依預檢算好的 plan 執行**，不重算比對——預檢顯示給使用者看的
-         * 動作，就是實際會發生的動作，兩者不會不一致。plan 缺席時（舊批次）
-         * 退回舊行為，維持向下相容。
-         *
-         *   CREATE  → 新增成員（＋個人 Excel 提供的欄位）
-         *   UPDATE  → 高可信度命中既有成員，用個人 Excel 補足空欄位
-         *   SKIP    → 同一戶已有這個人且沒有補充資料，不動
-         *   REVIEW  → 需人工確認；這種列的 status 是 SUSPECTED_DUPLICATE，
-         *             根本不會進入 readyRows，所以這裡不會遇到
-         */
+        // 家戶成員：依 plan 分類。CREATE／CREATE_NEW（＝一般新增）進批次；UPDATE／TRANSFER_IN 留待第二輪逐筆。
         const plannedMembers = r.plan?.members;
         if (plannedMembers?.length) {
           for (const pm of plannedMembers) {
             if (pm.action === "SKIP") continue;
-
-            /**
-             * V12.6 驗收修正：commit 必須依人工決定執行，不可忽略。
-             *
-             * action === "REVIEW" 的成員一定要有 resolution 才會走到這裡
-             * （沒有決定的列狀態仍是 SUSPECTED_DUPLICATE，不會進 readyRows）。
-             * 這裡把四種決定映射成實際動作：
-             *
-             *   KEEP_ORIGINAL 保留原家戶 → 什麼都不做（不建立、不搬動）
-             *   SKIP          略過此人   → 什麼都不做
-             *   TRANSFER_IN   轉入本戶   → 搬動既有成員，並呼叫既有的
-             *                              syncMemberHouseholdReferences()
-             *                              同步六張去正規化表（V12.3 服務，
-             *                              不複製邏輯）
-             *   CREATE_NEW    建立新信眾 → 當成全新成員新增
-             */
             if (pm.action === "REVIEW") {
               const res = pm.resolution;
-              if (!res) continue; // 防呆：理論上不會發生
-
-              if (res.decision === "KEEP_ORIGINAL" || res.decision === "SKIP") {
-                continue;
-              }
-
-              if (res.decision === "TRANSFER_IN" && res.memberId) {
-                const moving = await tx.member.findUnique({ where: { id: res.memberId } });
-                if (!moving || moving.deletedAt) continue;
-                if (moving.householdId === household.id) continue; // 已經在本戶
-
-                const before = moving;
-                const after = await tx.member.update({
-                  where: { id: res.memberId },
-                  data: { householdId: household.id },
-                });
-                // ⚠️ 成員換戶了，六張同時存 memberId 與 householdId 的表必須
-                // 一起同步，否則收款／收據／供品會留在舊戶（V12.3 指令一.A）。
-                const syncCounts = await syncMemberHouseholdReferences(tx, [res.memberId], household.id);
-                await recordVersion(
-                  {
-                    entityType: "Member",
-                    entityId: res.memberId,
-                    action: "UPDATE",
-                    beforeData: before,
-                    afterData: after,
-                    operatorName,
-                    changeNote: `信眾資料匯入預檢中心：依人工確認，由家戶 ${before.householdId} 轉入 ${household.id}｜同步關聯紀錄：${describeSyncCounts(syncCounts)}`,
-                  },
-                  tx
-                );
-                membersUpdated++;
-                continue;
-              }
-
-              // CREATE_NEW：往下走一般新增流程
-            }
-
-            if (pm.action === "CREATE") {
-              const created = await tx.member.create({
-                data: {
-                  householdId: household.id,
-                  name: pm.name,
-                  /**
-                   * V12.9：一律經過 toSafeCalendarDate()，任何無效日期都變成
-                   * null 而不是 Invalid Date。舊寫法直接把字串拼上
-                   * "T00:00:00.000Z" 丟給 new Date()，字串一旦不是
-                   * yyyy-MM-dd 就會產生 Invalid Date，送進 Prisma 會拋
-                   * 「Provided Date object is invalid」並中止整批匯入。
-                   */
-                  ...(toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)
-                    ? { solarBirthDate: toSafeCalendarDate(pm.personData?.solarBirthDate ?? null)! }
-                    : {}),
-                  /**
-                   * V13.2：性別。個人資料工作表有值就寫入，沒有就維持 null。
-                   * 絕不從身分證推導。
-                   */
-                  ...(pm.personData?.gender ? { gender: pm.personData.gender } : {}),
-                  // V24：身份→Member.role。個人檔有對到才寫入（其餘維持 schema 預設 OTHER）。
-                  ...(pm.personData?.role ? { role: pm.personData.role as Prisma.MemberCreateInput["role"] } : {}),
-                  // V13.1 指令一：身分證。空白時整個欄位不寫入（維持 null），
-                  // 不會塞入空字串。
-                  ...(pm.personData?.nationalId ? { nationalId: pm.personData.nationalId } : {}),
-                  ...(pm.personData?.lunarBirthYear
-                    ? {
-                        lunarBirthYear: pm.personData.lunarBirthYear,
-                        lunarBirthMonth: pm.personData.lunarBirthMonth,
-                        lunarBirthDay: pm.personData.lunarBirthDay,
-                        lunarIsLeapMonth: pm.personData.lunarIsLeapMonth,
-                      }
-                    : {}),
-                },
-              });
-              // 個人 Excel 的手機／Email 寫進既有的 DevoteeProfile（延遲建立）
-              if (pm.personData?.mobile) {
-                await tx.devoteeProfile.create({
-                  data: { memberId: created.id, mobile: pm.personData.mobile },
-                });
-              }
-              await recordVersion(
-                {
-                  entityType: "Member",
-                  entityId: created.id,
-                  action: "CREATE",
-                  afterData: created,
-                  operatorName,
-                  changeNote: `信眾資料匯入預檢中心：正式匯入（家戶成員）${pm.personData ? "｜已套用個人資料 Excel 補充欄位" : ""}`,
-                },
-                tx
-              );
-              membersCreated++;
+              if (!res) continue;
+              // KEEP_ORIGINAL／SKIP：不動；TRANSFER_IN：第二輪處理；CREATE_NEW：維持原行為（原程式此處不落入 create 分支）。
               continue;
             }
+            if (pm.action === "UPDATE") continue; // 第二輪逐筆處理
+            if (pm.action === "CREATE") {
+              // plan 已判定為新增（多欄比對認定為不同人），一律建立，不再依姓名去重。
+              const id = randomUUID();
+              const solar = toSafeCalendarDate(pm.personData?.solarBirthDate ?? null);
+              memberCreateData.push({
+                id,
+                householdId,
+                name: pm.name,
+                ...(solar ? { solarBirthDate: solar } : {}),
+                ...(pm.personData?.gender ? { gender: pm.personData.gender } : {}),
+                ...(pm.personData?.role ? { role: pm.personData.role as Prisma.MemberCreateManyInput["role"] } : {}),
+                ...(pm.personData?.nationalId ? { nationalId: pm.personData.nationalId } : {}),
+                // V25：正式信眾 Excel 的「通訊地址」→ Member.address（個人地址，最高權威）。
+                // 家戶匯入永遠不寫 Member.address；同戶不同成員可各有不同個人地址。
+                // cast 以相容尚未 regenerate 的 Prisma client。
+                ...(pm.personData?.address ? ({ address: pm.personData.address } as Record<string, unknown>) : {}),
+                ...(pm.personData?.lunarBirthYear
+                  ? {
+                      lunarBirthYear: pm.personData.lunarBirthYear,
+                      lunarBirthMonth: pm.personData.lunarBirthMonth,
+                      lunarBirthDay: pm.personData.lunarBirthDay,
+                      lunarIsLeapMonth: pm.personData.lunarIsLeapMonth,
+                    }
+                  : {}),
+              });
+              newMemberMeta.push({
+                id,
+                householdId,
+                name: pm.name,
+                changeNote: `信眾資料匯入預檢中心：正式匯入（家戶成員）${pm.personData ? "｜已套用個人資料 Excel 補充欄位" : ""}`,
+                mobile: pm.personData?.mobile ?? null,
+              });
+              membersCreated++;
+            }
+          }
+        } else if (r.memberNames.length > 0) {
+          // 向下相容：舊批次（rawData 沒有 plan）→ 依姓名比對，已存在的略過。
+          const seedNames = new Set(existingMemberNamesByHousehold.get(householdId) ?? []);
+          for (const memberName of r.memberNames) {
+            if (seedNames.has(memberName)) continue;
+            seedNames.add(memberName);
+            const id = randomUUID();
+            memberCreateData.push({ id, householdId, name: memberName });
+            newMemberMeta.push({ id, householdId, name: memberName, changeNote: "信眾資料匯入預檢中心：正式匯入（家戶成員）", mobile: null });
+            membersCreated++;
+          }
+        }
 
-            // UPDATE：高可信度命中既有成員，只補「目前是空的」欄位，
-            // 不覆蓋既有有效資料（指令四：空白資料不得覆蓋現有資料）。
+        // 牌位：歷代祖先／乙位正魂。依名稱比對，已存在（含本批稍早同戶）的略過，其餘進批次。
+        const tabletLocation = (name: string): string | null => r.tabletLocations?.[name] ?? null;
+        const tabletYangshang = (name: string): string | null => r.tabletYangshang?.[name] ?? null;
+        let wseed = worshipNamesByHousehold.get(householdId);
+        if (!wseed) worshipNamesByHousehold.set(householdId, (wseed = { ancestors: new Set(), spirits: new Set() }));
+        for (const displayName of r.ancestorNames) {
+          if (wseed.ancestors.has(displayName)) continue;
+          wseed.ancestors.add(displayName);
+          const id = randomUUID();
+          worshipCreateData.push({
+            id,
+            householdId,
+            type: "ANCESTOR_LINE",
+            displayName,
+            location: tabletLocation(displayName),
+            yangshangName: tabletYangshang(displayName),
+            createdByName: operatorName ?? null,
+          });
+          newWorshipIds.push(id);
+          worshipAuditNote.set(id, "信眾資料匯入預檢中心：正式匯入（歷代祖先）");
+          ancestorsCreated++;
+        }
+        for (const displayName of r.spiritNames) {
+          if (wseed.spirits.has(displayName)) continue;
+          wseed.spirits.add(displayName);
+          const id = randomUUID();
+          worshipCreateData.push({
+            id,
+            householdId,
+            type: "INDIVIDUAL",
+            displayName,
+            location: tabletLocation(displayName),
+            yangshangName: tabletYangshang(displayName),
+            createdByName: operatorName ?? null,
+          });
+          newWorshipIds.push(id);
+          worshipAuditNote.set(id, "信眾資料匯入預檢中心：正式匯入（乙位正魂）");
+          spiritsCreated++;
+        }
+      }
+
+      // ── 第二輪：批次寫入（順序：Household → Member → DevoteeProfile → WorshipRecord），維持 FK 依賴 ──
+      if (householdCreateData.length > 0) {
+        await tx.household.createMany({ data: householdCreateData });
+        const createdHouseholds = await tx.household.findMany({ where: { id: { in: newHouseholdCodes } } });
+        for (const h of createdHouseholds) {
+          pushAudit({ entityType: "Household", entityId: h.id, action: "CREATE", afterData: h, changeNote: "信眾資料匯入預檢中心：正式匯入" });
+        }
+      }
+      for (const op of householdUpdateOps) {
+        const after = await tx.household.update({ where: { id: op.id }, data: op.data });
+        pushAudit({ entityType: "Household", entityId: op.id, action: "UPDATE", beforeData: op.before, afterData: after, changeNote: op.changeNote });
+      }
+
+      if (memberCreateData.length > 0) {
+        await tx.member.createMany({ data: memberCreateData });
+        const createdMembers = await tx.member.findMany({ where: { id: { in: newMemberMeta.map((m) => m.id) } } });
+        const createdById = new Map(createdMembers.map((m) => [m.id, m]));
+        for (const meta of newMemberMeta) {
+          const row = createdById.get(meta.id);
+          if (row) pushAudit({ entityType: "Member", entityId: meta.id, action: "CREATE", afterData: row, changeNote: meta.changeNote });
+        }
+        const profileData = newMemberMeta
+          .filter((m) => m.mobile)
+          .map((m) => ({ memberId: m.id, mobile: m.mobile! }));
+        if (profileData.length > 0) await tx.devoteeProfile.createMany({ data: profileData });
+      }
+
+      if (worshipCreateData.length > 0) {
+        await tx.worshipRecord.createMany({ data: worshipCreateData });
+        const createdWorship = await tx.worshipRecord.findMany({ where: { id: { in: newWorshipIds } } });
+        for (const w of createdWorship) {
+          pushAudit({ entityType: "WorshipRecord", entityId: w.id, action: "CREATE", afterData: w, changeNote: worshipAuditNote.get(w.id) ?? "信眾資料匯入預檢中心：正式匯入（牌位）" });
+        }
+      }
+
+      // ── 罕見路徑（逐筆，數量極少）：UPDATE 以個人檔補空欄位、REVIEW/TRANSFER_IN 轉戶 ──
+      for (const r of readyRows) {
+        const plannedMembers = r.plan?.members;
+        if (!plannedMembers?.length) continue;
+        const householdId = resolvedHouseholdIdByRowId.get(r.id)!;
+        for (const pm of plannedMembers) {
+          if (pm.action === "REVIEW" && pm.resolution?.decision === "TRANSFER_IN" && pm.resolution.memberId) {
+            const moving = await tx.member.findUnique({ where: { id: pm.resolution.memberId } });
+            if (!moving || moving.deletedAt) continue;
+            if (moving.householdId === householdId) continue;
+            const before = moving;
+            const after = await tx.member.update({ where: { id: pm.resolution.memberId }, data: { householdId } });
+            const syncCounts = await syncMemberHouseholdReferences(tx, [pm.resolution.memberId], householdId);
+            pushAudit({
+              entityType: "Member",
+              entityId: pm.resolution.memberId,
+              action: "UPDATE",
+              beforeData: before,
+              afterData: after,
+              changeNote: `信眾資料匯入預檢中心：依人工確認，由家戶 ${before.householdId} 轉入 ${householdId}｜同步關聯紀錄：${describeSyncCounts(syncCounts)}`,
+            });
+            membersUpdated++;
+            continue;
+          }
+          if (pm.action === "UPDATE") {
             const targetId = pm.candidates[0]?.memberId;
             if (!targetId || !pm.personData) continue;
             const existing = await tx.member.findUnique({ where: { id: targetId } });
             if (!existing) continue;
-
             const patch: Prisma.MemberUpdateInput = {};
-            // V12.9：同上，無效日期一律略過（維持 null），不送 Invalid Date。
             const safeSolar = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
-            if (!existing.solarBirthDate && safeSolar) {
-              patch.solarBirthDate = safeSolar;
-            }
+            if (!existing.solarBirthDate && safeSolar) patch.solarBirthDate = safeSolar;
             if (!existing.lunarBirthYear && pm.personData.lunarBirthYear) {
               patch.lunarBirthYear = pm.personData.lunarBirthYear;
               patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
               patch.lunarBirthDay = pm.personData.lunarBirthDay;
               patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
             }
-            /**
-             * V13.1 指令一／十三：身分證。
-             *
-             * 兩層保護，缺一不可：
-             *   1. `pm.personData.nationalId` 有值才進入（Excel 空白 → 不動）
-             *   2. `!existing.nationalId` 才寫入（既有已有值 → 不覆蓋）
-             *
-             * 指令一：「Excel 空白不得覆蓋原有資料」；
-             * 指令十三：「只有 Excel 明確提供新值時才更新」「刪除既有資料必須
-             * 由使用者明確操作，不得把空白視為刪除」。
-             */
-            if (!existing.nationalId && pm.personData.nationalId) {
-              patch.nationalId = pm.personData.nationalId;
+            if (!existing.nationalId && pm.personData.nationalId) patch.nationalId = pm.personData.nationalId;
+            if (!existing.gender && pm.personData.gender) patch.gender = pm.personData.gender;
+            // V25：個人地址（Member.address）。比照「空白不覆蓋既有」——既有為空且 Excel 有值才補。
+            // （一次性權威同步以 scripts/syncDevoteesFromExcel.ts 執行「Excel 有值即覆蓋」的完整校正。）
+            if (!(existing as unknown as { address: string | null }).address && pm.personData.address) {
+              (patch as Record<string, unknown>).address = pm.personData.address;
             }
-            /**
-             * V13.2 第三節：性別的三種情況。
-             *
-             *   1. Excel 沒有性別       → 完全不動（家戶 Excel 沒這欄不代表要清空）
-             *   2. 既有為空、Excel 有值 → 補入
-             *   3. 兩邊都有且不同        → **不靜默覆蓋**，保留舊值，
-             *                             衝突已在預檢階段標示由使用者確認
-             *
-             * 第 3 點是關鍵：這裡刻意選擇「保留舊值」而不是「採用新值」。
-             * 資料庫既有值是行政人員實際確認過的資料，Excel 可能是舊檔或
-             * 有打字錯誤；預設保留既有值，要改必須由使用者在預檢明確決定。
-             */
-            if (!existing.gender && pm.personData.gender) {
-              patch.gender = pm.personData.gender;
-            }
-            /**
-             * V24：身份→Member.role。比照性別「空白不覆蓋」原則——只有在既有為
-             * 預設值 OTHER（等同尚未指定）且個人檔提供了明確身份時才補入；
-             * 既有已是特定身份時一律保留，不靜默覆蓋。
-             */
             if (existing.role === "OTHER" && pm.personData.role && pm.personData.role !== "OTHER") {
               patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
             }
             if (Object.keys(patch).length > 0) {
               const after = await tx.member.update({ where: { id: targetId }, data: patch });
-              await recordVersion(
-                {
-                  entityType: "Member",
-                  entityId: targetId,
-                  action: "UPDATE",
-                  beforeData: existing,
-                  afterData: after,
-                  operatorName,
-                  changeNote: `信眾資料匯入預檢中心：正式匯入（以個人資料 Excel 補足空白欄位，比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`,
-                },
-                tx
-              );
+              pushAudit({
+                entityType: "Member",
+                entityId: targetId,
+                action: "UPDATE",
+                beforeData: existing,
+                afterData: after,
+                changeNote: `信眾資料匯入預檢中心：正式匯入（以個人資料 Excel 補足空白欄位，比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`,
+              });
               membersUpdated++;
             }
-
             if (pm.personData.mobile) {
               const profile = await tx.devoteeProfile.findUnique({ where: { memberId: targetId } });
               if (!profile) {
-                await tx.devoteeProfile.create({
-                  data: { memberId: targetId, mobile: pm.personData.mobile },
-                });
+                await tx.devoteeProfile.create({ data: { memberId: targetId, mobile: pm.personData.mobile } });
                 membersUpdated++;
               } else if (!profile.mobile) {
-                await tx.devoteeProfile.update({
-                  where: { memberId: targetId },
-                  data: { mobile: pm.personData.mobile },
-                });
+                await tx.devoteeProfile.update({ where: { memberId: targetId }, data: { mobile: pm.personData.mobile } });
                 membersUpdated++;
               }
             }
           }
-        } else if (r.memberNames.length > 0) {
-          // 向下相容：V12.6 之前建立、rawData 沒有 plan 的舊批次，維持原本
-          // 「依姓名比對、已存在的略過」行為，避免舊批次確認匯入時行為改變。
-          const existingMembers = await tx.member.findMany({
-            where: { householdId: household.id, deletedAt: null },
-            select: { name: true },
-          });
-          const existingNames = new Set(existingMembers.map((m) => m.name));
-          for (const memberName of r.memberNames) {
-            if (existingNames.has(memberName)) continue;
-            const created = await tx.member.create({ data: { householdId: household.id, name: memberName } });
-            await recordVersion(
-              { entityType: "Member", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（家戶成員）" },
-              tx
-            );
-            existingNames.add(memberName);
-            membersCreated++;
-          }
         }
-
-        /**
-         * V13.1 指令八：牌位地址。
-         *
-         * 「只要該列資料類型屬於歷代祖先／乙位正魂，該列的『地址』一律視為
-         * 牌位地址」。所以這裡取值順序是：
-         *   1. 個人 Excel 的獨立「牌位地址」欄（若有）
-         *   2. 個人 Excel 的「地址」欄（因為這一列是牌位，地址就是牌位地址）
-         *
-         * ⚠️ 明確**不使用**家戶地址（r.household.address）遞補。
-         * 指令八：牌位地址「不得被家戶地址自動覆蓋」、若空白「保持 NULL，
-         * 不得自動推測」。牌位地址留空是合法狀態，會標示為待補資料。
-         */
-        const tabletLocation = (name: string): string | null =>
-          r.tabletLocations?.[name] ?? null;
-
-        // 三、歷代祖先：依名稱比對，已存在的略過，只新增找不到的。
-        if (r.ancestorNames.length > 0) {
-          const existingAncestors = await tx.worshipRecord.findMany({
-            where: { householdId: household.id, type: "ANCESTOR_LINE" },
-            select: { displayName: true },
-          });
-          const existingNames = new Set(existingAncestors.map((w) => w.displayName));
-          for (const displayName of r.ancestorNames) {
-            if (existingNames.has(displayName)) continue;
-            const created = await tx.worshipRecord.create({
-              data: {
-                householdId: household.id,
-                type: "ANCESTOR_LINE",
-                displayName,
-                location: tabletLocation(displayName),
-                createdByName: operatorName,
-              },
-            });
-            await recordVersion(
-              { entityType: "WorshipRecord", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（歷代祖先）" },
-              tx
-            );
-            existingNames.add(displayName);
-            ancestorsCreated++;
-          }
-        }
-
-        // 四、乙位正魂：依名稱比對，已存在的略過，只新增找不到的。
-        if (r.spiritNames.length > 0) {
-          const existingSpirits = await tx.worshipRecord.findMany({
-            where: { householdId: household.id, type: "INDIVIDUAL" },
-            select: { displayName: true },
-          });
-          const existingNames = new Set(existingSpirits.map((w) => w.displayName));
-          for (const displayName of r.spiritNames) {
-            if (existingNames.has(displayName)) continue;
-            const created = await tx.worshipRecord.create({
-              data: {
-                householdId: household.id,
-                type: "INDIVIDUAL",
-                displayName,
-                // V13.1 指令八：同歷代祖先，地址視為牌位地址，不用家戶地址遞補
-                location: tabletLocation(displayName),
-                createdByName: operatorName,
-              },
-            });
-            await recordVersion(
-              { entityType: "WorshipRecord", entityId: created.id, action: "CREATE", afterData: created, operatorName, changeNote: "信眾資料匯入預檢中心：正式匯入（乙位正魂）" },
-              tx
-            );
-            existingNames.add(displayName);
-            spiritsCreated++;
-          }
-        }
-
-        touchedHouseholdIds.add(household.id);
-        importedRowIds.push(r.id);
       }
 
-      // V12.7：列狀態已在交易開頭 claim 成 IMPORTED，這裡不需要再更新。
-      // 「資料不完整／格式錯誤」的列改由 finalizeBatchIfComplete() 在全部
-      // 批次跑完之後一次凍結成 EXCLUDED，避免每一批都重複掃全表。
+      // ── 稽核：一次寫入本批所有版本紀錄（原本每筆一次 insert，現為單次 createMany） ──
+      if (auditRows.length > 0) await tx.recordVersion.createMany({ data: auditRows });
 
       /**
-       * V12.6 指令七：匯入完成後必須執行既有同步服務——**呼叫既有共用
-       * service，不複製邏輯**。
-       *
-       *   1. Primary Contact Sync（src/lib/householdPrimaryContact.ts）
-       *      匯入會新增成員、也會更新家戶的 contactName 文字。若該文字
-       *      剛好對應到這一戶的某位成員，就把 Member.isPrimaryContact
-       *      旗標同步過去，避免出現「contactName 有值但沒有任何成員被標記
-       *      為主要聯絡人」的不一致（V12.3 指令三.5 的規則）。
-       *
-       *   2. Household Reference Sync（src/lib/householdReferenceSync.ts）
-       *      這一輪的匯入**不會把成員從一戶搬到另一戶**——跨戶同名一律被
-       *      標成 SUSPECTED_DUPLICATE 擋在 readyRows 之外（指令三：不可
-       *      自動轉戶）。沒有成員換戶，六張去正規化表的 householdId 就
-       *      沒有需要同步的對象，因此這裡不呼叫 syncMemberHouseholdReferences()。
-       *      日後若開放「匯入時可轉戶」，必須在這裡呼叫它。
-       *
-       *   3. HouseholdCodeAlias：由上方家戶解析階段直接使用（舊編號對照），
-       *      匯入本身不會產生新的別名（別名只在改編號／合併時建立）。
+       * V12.6 指令七：主要聯絡人一致性同步（呼叫既有 setPrimaryContact，不複製邏輯）。
+       * 全新家戶為效能考量批次處理（新戶必無其他主要聯絡人、contactName 於建立時已寫入，
+       * 只需把對應成員 isPrimaryContact 設為 true）；既有家戶維持原逐筆邏輯（數量極少）。
        */
+      const newPrimaryMemberIds: string[] = [];
+      for (const r of readyRows) {
+        const householdId = resolvedHouseholdIdByRowId.get(r.id)!;
+        if (!newHouseholdIds.has(householdId)) continue;
+        const contactName = r.household.contactName;
+        if (!contactName) continue;
+        const match = newMemberMeta.find((m) => m.householdId === householdId && m.name === contactName);
+        if (match) newPrimaryMemberIds.push(match.id);
+      }
+      if (newPrimaryMemberIds.length > 0) {
+        await tx.member.updateMany({ where: { id: { in: newPrimaryMemberIds } }, data: { isPrimaryContact: true } });
+      }
       for (const householdId of touchedHouseholdIds) {
-        const h = await tx.household.findUnique({
-          where: { id: householdId },
-          select: { contactName: true },
-        });
+        if (newHouseholdIds.has(householdId)) continue; // 新戶已於上方批次處理
+        const h = await tx.household.findUnique({ where: { id: householdId }, select: { contactName: true } });
         if (!h?.contactName) continue;
-        const matched = await tx.member.findFirst({
-          where: { householdId, name: h.contactName, deletedAt: null },
-          select: { id: true },
-        });
-        if (matched) {
-          await setPrimaryContact(tx, householdId, matched.id);
-        }
+        const matched = await tx.member.findFirst({ where: { householdId, name: h.contactName, deletedAt: null }, select: { id: true } });
+        if (matched) await setPrimaryContact(tx, householdId, matched.id);
       }
 
       // V12.7：分批累加（不是覆蓋），才能反映跨批次的累計進度。

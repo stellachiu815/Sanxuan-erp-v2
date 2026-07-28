@@ -55,6 +55,9 @@ type Overview = {
     companyName: string | null;
     personalNote: string | null;
     careFlag: boolean;
+    // V25：個人地址（Member.address，最高權威）與顯示用地址（個人優先、空白 fallback 家戶）。
+    personalAddress: string | null;
+    displayAddress: string | null;
     householdName: string;
     householdPhone: string | null;
     householdAddress: string | null;
@@ -170,8 +173,9 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
               {b.isDisabled && <span className="ml-2 rounded-full bg-blossom-200 px-2 py-0.5 text-xs">停用</span>}
               {b.careFlag && <span className="ml-2 rounded-full bg-blossom-100 px-2 py-0.5 text-xs">需要關懷</span>}
             </h2>
+            {/* V25：顯示信眾**個人**地址（Member.address）優先，空白才 fallback 家戶地址。 */}
             <p className="mt-1 text-sm text-ink-soft">
-              {b.householdName}・{b.mobile || b.householdPhone || "無電話"}・{b.householdAddress || "無地址"}
+              {b.householdName}・{b.mobile || b.householdPhone || "無電話"}・{b.displayAddress || "無地址"}
             </p>
             {/*
               V13.1 生日／生肖模組：性別、國曆、農曆、生肖、實歲、虛歲
@@ -536,7 +540,7 @@ function OverviewTab({
       <DevoteeCompletenessCard
         mobile={overview.basic.mobile}
         email={overview.basic.email}
-        address={overview.household.address}
+        address={overview.basic.displayAddress}
         solarBirthDate={overview.basic.solarBirthDate}
         lunarBirthDisplay={overview.basic.lunarBirthDisplay}
         householdId={overview.basic.householdId}
@@ -674,6 +678,8 @@ function BaseEditForm({
   const [deceasedAt, setDeceasedAt] = useState(basic.deceasedAt ?? "");
   const [notes, setNotes] = useState(basic.memberNotes ?? "");
   const [birthHour, setBirthHour] = useState(basic.birthHour ?? "");
+  // V25：信眾個人地址（Member.address），與家戶地址完全獨立，只改本人。
+  const [personalAddress, setPersonalAddress] = useState(basic.personalAddress ?? "");
 
   /**
    * V13.2 第五節：生日改用共用的 BirthdayField，不再維護第二套邏輯。
@@ -805,6 +811,8 @@ function BaseEditForm({
         deceasedAt: isDeceased ? deceasedAt || null : null,
         notes: notes || null,
         birthHour: birthHour || null,
+        // V25：信眾個人地址（Member.address）。只改本人，與家戶地址獨立。
+        address: personalAddress.trim() || null,
         birthdayType: birthdayMode,
         household: {
           name: householdName.trim(),
@@ -954,6 +962,22 @@ function BaseEditForm({
         是主要聯絡人
       </label>
 
+      {/*
+        V25：信眾**個人**通訊地址（Member.address），與下方「家戶共用地址」完全獨立。
+        只修改本人，不影響 Household.address，也不影響同戶其他成員。
+        正式信眾 Excel 的「通訊地址」是這個欄位的最高權威來源。
+        留空時，畫面會 fallback 顯示家戶地址（僅顯示，不會寫回本欄）。
+      */}
+      <label id="field-personal-address" className="mt-3 flex flex-col gap-1 text-xs text-ink-faint">
+        個人通訊地址（只改本人，不影響同戶其他成員）
+        <input
+          value={personalAddress}
+          onChange={(e) => setPersonalAddress(e.target.value)}
+          placeholder={household.address ? `留空則顯示家戶地址：${household.address}` : "尚未填寫個人地址"}
+          className="min-h-11 rounded-full border border-cream-200 bg-cream-50 px-3 py-1.5 text-sm text-ink"
+        />
+      </label>
+
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -984,7 +1008,7 @@ function BaseEditForm({
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-ink-faint sm:col-span-2">
-          地址
+          家戶共用地址（全戶共用，非個人地址）
           <input
             id="field-address"
             value={address}

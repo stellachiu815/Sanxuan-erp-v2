@@ -1,0 +1,15 @@
+-- V25 正式信眾資料權威同步：新增「信眾個人通訊地址」欄位。
+--
+-- 背景：在此之前系統只有 Household.address（家戶共用地址），沒有任何
+-- 個人地址欄位；正式信眾 Excel 的「通訊地址」被解析但無處可存，信眾頁面
+-- 一律顯示家戶地址，造成「同戶成員地址相同、個人真實地址遺失」的錯配。
+--
+-- 這個欄位與 Household.address 完全獨立：
+--   - 正式信眾 Excel 只寫 Member.address；
+--   - 正式家戶 Excel 只寫 Household.address；
+--   - 兩者永不互相覆蓋，同戶不同成員可各有不同個人地址。
+--
+-- nullable、無預設值：既有資料一律先為 NULL（畫面 fallback 顯示家戶地址），
+-- 之後由一次性同步工具（scripts/syncDevoteesFromExcel.ts）依正式信眾 Excel
+-- 逐一填入正確的個人地址。此 migration 不動任何既有資料。
+ALTER TABLE "members" ADD COLUMN "address" TEXT;

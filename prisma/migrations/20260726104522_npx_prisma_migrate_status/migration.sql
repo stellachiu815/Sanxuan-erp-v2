@@ -1,0 +1,22 @@
+-- 佔位還原（History reconciliation placeholder）——請勿刪除、請一併提交 git。
+--
+-- 這個 migration 目錄在正式資料庫的 _prisma_migrations 表中「已記錄為已套用」，
+-- 但原始資料夾從未進入 git、也在本機遺失，導致：
+--   The migrations recorded in the database diverge from the local migrations directory.
+--   Missing migration: 20260726104522_npx_prisma_migrate_status
+--
+-- 由其名稱可判斷，這是開發期間一次誤植指令（例如
+--   npx prisma migrate dev --name "npx prisma migrate status"）
+-- 所產生並套用到共用/正式資料庫、但未提交的 migration。
+--
+-- 修復原則（不使用 reset、不清資料、不重匯）：重建同名資料夾，讓「本機 migration
+-- 目錄」與「資料庫歷史」一致。此檔刻意為 no-op：這個 migration 當時對資料庫做的
+-- 任何結構變更（若有）都**早已存在於正式資料庫**，不需要、也不會被重新執行
+-- （它在 _prisma_migrations 已標記為 applied，prisma migrate deploy 會直接略過）。
+--
+-- 對全新資料庫（例如新開發機）而言，此 no-op 依時間戳順序套用亦無任何影響。
+--
+-- ⚠️ 重要：重建資料夾後，必須把正式資料庫此列的 checksum 對齊本檔內容
+--    （見 docs/V25_1_migration_repair.md 的步驟 4），否則 prisma 會報
+--    「migration was modified after it was applied」。
+SELECT 1;

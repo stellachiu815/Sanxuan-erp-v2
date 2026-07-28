@@ -14,7 +14,9 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "test:purification": "tsx --test tests/*.test.ts",
-    "backup:before-update": "tsx scripts/preDeployBackup.ts"
+    "backup:before-update": "tsx scripts/preDeployBackup.ts",
+    "sync:devotees": "tsx scripts/syncDevoteesFromExcel.ts",
+    "sync:devotees:commit": "tsx scripts/syncDevoteesFromExcel.ts --commit"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",

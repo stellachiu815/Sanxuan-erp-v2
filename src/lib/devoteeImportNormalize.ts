@@ -11,6 +11,7 @@
  * 等舊版彈性格式欄位，所以舊版對應的正規化函式（日期、性別、生肖同義詞
  * 換算等）已經一併移除，不是遺漏——這些欄位在正式格式裡已經不存在。
  */
+import { Buffer } from "node:buffer";
 
 /**
  * V12.8「合併儲存格（Forward Fill）」前處理。
@@ -54,8 +55,137 @@ const HOUSEHOLD_LEVEL_TARGETS = [
   "tabletCount",
 ] as const;
 
-/** 成員層級欄位：同一戶的多列要「串接」，不是沿用。 */
-const MEMBER_LEVEL_TARGETS = ["allMembers", "householdMembers", "ancestors", "spirits"] as const;
+/**
+ * 成員層級欄位：同一戶的多列要「串接」，不是沿用。
+ * V24：加入 tabletMeta——牌位（歷代祖先／乙位正魂）的**每筆**陽上姓名＋安奉地，
+ * 以 base64（避開頓號/逗號/換行等分隔符）逐筆串接，之後由 decodeTabletMeta() 還原，
+ * 依 displayName 對應回牌位，讓正式匯入寫入 WorshipRecord.yangshangName／location。
+ */
+const MEMBER_LEVEL_TARGETS = ["allMembers", "householdMembers", "ancestors", "spirits", "tabletMeta"] as const;
+
+/**
+ * V24：正式家戶 Excel 為「合併儲存格、一戶多列」，且**每一列以「牌位類型」欄分類**
+ * （在世成員／歷代祖先／個人往生者(乙位正魂)），牌位名稱在「牌位顯示名稱」欄。
+ * 這些合成欄讓 forward-fill/分組後，成員／祖先／乙位正魂能各自串接、再由既有
+ * mapping（見 analyze route 的合成對應）流入 householdMembers／ancestors／spirits。
+ */
+export const TABLET_ROUTED_COLUMNS = {
+  members: "__tablet_routed_members__",
+  ancestors: "__tablet_routed_ancestors__",
+  spirits: "__tablet_routed_spirits__",
+  /** 每筆牌位的陽上姓名＋安奉地（base64 JSON），依 displayName 對應回牌位。 */
+  meta: "__tablet_routed_meta__",
+} as const;
+
+/** V24：一筆牌位的隨附資料（陽上姓名／安奉地），依 displayName 對應回 WorshipRecord。 */
+export type TabletMeta = {
+  type: "ancestor" | "spirit";
+  displayName: string;
+  /** 陽上姓名——原文保留，不刪除、不重組。 */
+  yangshang: string;
+  /** 安奉地／牌位地址——原文保留，不改寫；空白時維持空字串（下游視為待補）。 */
+  address: string;
+};
+
+/** 以 base64 編碼一筆牌位隨附資料（避開頓號/逗號/換行等 splitMultiValue 分隔符）。 */
+function encodeTabletMeta(meta: TabletMeta): string {
+  return Buffer.from(JSON.stringify(meta), "utf8").toString("base64");
+}
+
+/**
+ * 還原同一戶串接後的牌位隨附資料。輸入是 forwardFillAndGroupHouseholdRows 串接出來的
+ * 「b64、b64、b64」字串（每列一筆牌位、以頓號串接）。回傳每筆 TabletMeta，無法解析者略過。
+ */
+export function decodeTabletMeta(raw: unknown): TabletMeta[] {
+  const out: TabletMeta[] = [];
+  for (const token of splitMultiValue(raw)) {
+    try {
+      const parsed = JSON.parse(Buffer.from(token, "base64").toString("utf8")) as Partial<TabletMeta>;
+      if (parsed && typeof parsed.displayName === "string" && (parsed.type === "ancestor" || parsed.type === "spirit")) {
+        out.push({
+          type: parsed.type,
+          displayName: parsed.displayName,
+          yangshang: typeof parsed.yangshang === "string" ? parsed.yangshang : "",
+          address: typeof parsed.address === "string" ? parsed.address : "",
+        });
+      }
+    } catch {
+      // 非本系統編碼的 token（例如向下相容的舊資料）——略過，不影響其他筆。
+    }
+  }
+  return out;
+}
+
+/** 找出原始資料列中，標題（去空白）等於指定名稱的實際欄位 key。 */
+function findColumnByLabel(rows: Record<string, unknown>[], label: string): string | undefined {
+  for (const row of rows) {
+    const hit = Object.keys(row).find((k) => k.trim() === label);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** 找出原始資料列中，標題（去空白）符合條件的實際欄位 key（用於模糊比對，例如含「陽上」）。 */
+function findColumnKeyByPredicate(
+  rows: Record<string, unknown>[],
+  predicate: (label: string) => boolean
+): string | undefined {
+  for (const row of rows) {
+    const hit = Object.keys(row).find((k) => predicate(k.trim()));
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** 判斷「牌位類型」值屬於哪一類；非牌位（在世成員）回 "member"。 */
+export function classifyTabletType(rawType: unknown): "ancestor" | "spirit" | "member" {
+  const t = String(rawType ?? "").trim();
+  if (!t) return "member";
+  if (t.includes("歷代祖先")) return "ancestor";
+  if (t.includes("個人往生者") || t.includes("乙位正魂") || t.includes("往生")) return "spirit";
+  return "member";
+}
+
+/**
+ * 若原始檔含「牌位類型」欄，為每一列標註三個合成欄：依牌位類型把「牌位顯示名稱／姓名」
+ * 路由到成員／歷代祖先／乙位正魂。之後既有的分組串接會自動把同一戶各列合併。
+ * 回傳是否啟用了牌位類型路由（供 analyze route 決定是否加入合成對應）。
+ */
+export function annotateTabletRoutedColumns(rows: Record<string, unknown>[]): boolean {
+  const typeCol = findColumnByLabel(rows, "牌位類型");
+  if (!typeCol) return false;
+  const tabletNameCol = findColumnByLabel(rows, "牌位顯示名稱");
+  const personNameCol = findColumnByLabel(rows, "姓名");
+  /**
+   * 陽上姓名／安奉地為選填。安奉地**只**認標題含「安奉」的欄（安奉地／安奉位置），
+   * **不**用一般「地址」欄遞補——避免把家戶地址誤寫成牌位地址（專案既有規則：
+   * 牌位地址不得被家戶地址自動覆蓋）。
+   */
+  const yangshangCol = findColumnKeyByPredicate(rows, (label) => label.includes("陽上"));
+  const addressCol = findColumnKeyByPredicate(rows, (label) => label.includes("安奉"));
+  for (const row of rows) {
+    const kind = classifyTabletType(row[typeCol]);
+    const tabletName = tabletNameCol ? String(row[tabletNameCol] ?? "").trim() : "";
+    const personName = personNameCol ? String(row[personNameCol] ?? "").trim() : "";
+    // 牌位顯示名稱優先作為牌位名稱；在世成員一律用姓名。
+    const displayName = tabletName || personName;
+    row[TABLET_ROUTED_COLUMNS.ancestors] = kind === "ancestor" ? displayName : "";
+    row[TABLET_ROUTED_COLUMNS.spirits] = kind === "spirit" ? displayName : "";
+    row[TABLET_ROUTED_COLUMNS.members] = kind === "member" ? personName || displayName : "";
+    if ((kind === "ancestor" || kind === "spirit") && displayName) {
+      const meta: TabletMeta = {
+        type: kind,
+        displayName,
+        yangshang: yangshangCol ? String(row[yangshangCol] ?? "").trim() : "",
+        address: addressCol ? String(row[addressCol] ?? "").trim() : "",
+      };
+      row[TABLET_ROUTED_COLUMNS.meta] = encodeTabletMeta(meta);
+    } else {
+      row[TABLET_ROUTED_COLUMNS.meta] = "";
+    }
+  }
+  return true;
+}
 
 function isBlankCell(v: unknown): boolean {
   if (v === null || v === undefined) return true;

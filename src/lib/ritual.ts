@@ -631,12 +631,28 @@ export async function createUniversalSalvationEntry(
   let resolvedTabletAddress = input.tabletAddress ?? null;
   if ((resolvedTabletAddress == null || resolvedTabletAddress.trim() === "") && AUTO_ADDRESS_CATS.has(input.category)) {
     const hh = await client.household.findUnique({ where: { id: householdId }, select: { address: true } });
+    /**
+     * V25：牌位地址帶入順序＝本次輸入 → **信眾個人地址（Member.address）** → 家戶地址。
+     * 個人往生者（乙位正魂）與某位成員綁定（worshipRecordId → memberId，或 linkedItemMemberId），
+     * 故先取該成員的個人地址；歷代祖先為家戶層級、無單一成員，devoteeAddress 保持 null。
+     * 取到的值只作為**建立當下**的預設，寫入後即為 tabletAddress 快照，不再變動。
+     */
+    let devoteeAddress: string | null = null;
+    let linkedMemberId: string | null = input.linkedItemMemberId ?? null;
+    if (!linkedMemberId && input.worshipRecordId) {
+      const wr = await client.worshipRecord.findUnique({ where: { id: input.worshipRecordId }, select: { memberId: true } });
+      linkedMemberId = wr?.memberId ?? null;
+    }
+    if (linkedMemberId) {
+      const m = await client.member.findUnique({ where: { id: linkedMemberId }, select: { id: true } });
+      devoteeAddress = m ? ((m as unknown as { address: string | null }).address ?? null) : null;
+    }
     resolvedTabletAddress = resolveTabletAddress({
       inputAddress: input.tabletAddress,
       sameEntryAddress: null, // 新建沒有同一筆既有 entry
       dedicatedTabletAddress: null, // 現行 schema 無牌位專用地址欄
       householdAddress: hh?.address ?? null,
-      devoteeAddress: null, // 現行 schema Member 無獨立地址欄
+      devoteeAddress, // V25：信眾個人地址（Member.address）優先於家戶地址
     });
   }
 

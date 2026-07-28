@@ -102,6 +102,9 @@ export default function CreateDevoteeModal({ onClose, onCreated, registerQuerySu
   const [householdAddress, setHouseholdAddress] = useState("");
   const [overwriteHousehold, setOverwriteHousehold] = useState(false);
 
+  // ---- V25：信眾個人通訊地址（Member.address），與家戶地址完全獨立 ----
+  const [personalAddress, setPersonalAddress] = useState("");
+
   // ---- 模式 B：新家戶 ----
   const [newHouseholdName, setNewHouseholdName] = useState("");
   const [newHouseholdContact, setNewHouseholdContact] = useState("");
@@ -219,6 +222,8 @@ export default function CreateDevoteeModal({ onClose, onCreated, registerQuerySu
     setMobile("");
     setEmail("");
     setNotes("");
+    // V25：個人地址屬於「這一位」信眾，連續新增下一位時清空（家戶地址保留）。
+    setPersonalAddress("");
     setLiveDuplicates([]);
     setLiveDupDismissed(false);
     setBirthday(createEmptyBirthdayValue());
@@ -238,6 +243,8 @@ export default function CreateDevoteeModal({ onClose, onCreated, registerQuerySu
       mobile: mobile.trim() || null,
       email: email.trim() || null,
       notes: notes.trim() || null,
+      // V25：信眾個人通訊地址 → 建立後直接寫入 Member.address（不寫 Household.address）。
+      personalAddress: personalAddress.trim() || null,
       birthdayType: birthday.birthdayType,
       // ⚠️ 一律送出明確的布林值。後端用 `=== true` 嚴格比較，送出字串
       // （例如 "false"）會被判定為已確認而跳過比對。
@@ -622,11 +629,22 @@ export default function CreateDevoteeModal({ onClose, onCreated, registerQuerySu
             />
           </div>
           <div>
-            <label className={labelClass}>地址</label>
+            <label className={labelClass}>家戶共用地址（全戶共用，非個人地址）</label>
             <input
               className={touchInputClass}
               value={householdAddress}
               onChange={(e) => setHouseholdAddress(e.target.value)}
+            />
+          </div>
+          {/* V25：信眾個人通訊地址（Member.address）。建立後直接寫本人，與家戶地址獨立；
+              留空時畫面會 fallback 顯示家戶地址（僅顯示，不寫回個人）。 */}
+          <div>
+            <label className={labelClass}>個人通訊地址（只屬於本人，可與家戶地址不同）</label>
+            <input
+              className={touchInputClass}
+              value={personalAddress}
+              onChange={(e) => setPersonalAddress(e.target.value)}
+              placeholder={householdAddress.trim() ? "留空則顯示家戶地址" : "尚未填寫個人地址"}
             />
           </div>
 

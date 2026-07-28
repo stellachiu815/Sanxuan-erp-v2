@@ -207,6 +207,18 @@ model Member {
   // 加在 Member（DevoteeProfile 是 1 對 1 延伸表，不重複建立同性質欄位）。
   birthHour String?
 
+  /// V25：信眾**個人**通訊地址（正式信眾 Excel 的「通訊地址」為最高權威來源）。
+  ///
+  /// ⚠️ 與 Household.address（家戶共用地址）**完全獨立**，兩者不得互相覆蓋：
+  ///   - 正式信眾 Excel 只能寫這裡（Member.address），永遠不寫 Household.address。
+  ///   - 正式家戶 Excel 只能寫 Household.address，永遠不寫 Member.address。
+  ///   - 同一戶不同成員可以各自有不同的個人地址。
+  ///
+  /// 顯示規則：信眾個人畫面優先顯示 Member.address；為 null 時才「僅顯示」
+  /// fallback 家戶地址（見 src/lib/personalAddress.ts），**不得把家戶地址
+  /// 寫回 Member.address**。空白為 null（Excel 空白不覆蓋既有正確值）。
+  address String?
+
   notes String? @db.Text
 
   worshipRecords           WorshipRecord[]

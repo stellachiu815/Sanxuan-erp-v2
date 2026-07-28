@@ -25,3 +25,4 @@ next-env.d.ts
 yarn.lock
 .pnp.*
 .yarn/
+scripts/data/*.json

@@ -22,6 +22,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { recordVersion } from "@/lib/recordVersion";
+import { displayPersonalAddress } from "@/lib/personalAddress";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import {
   createWorshipRecordInTransaction,
@@ -85,9 +86,13 @@ export async function buildSoulTabletPreview(
     displayName: `${member.name} 乙位正魂`,
     householdId: member.householdId,
     householdName: member.household.name,
-    // 預填家戶地址是**快捷**，不是規則。指令七：不得強制使用家戶地址，
-    // 也不得把牌位地址誤存為亡者生前居住地址。
-    suggestedLocation: member.household.address ?? null,
+    // V25：牌位地址帶入順序＝個人地址 → 家戶地址（快捷預填，非規則；使用者可改）。
+    // 個人往生者（乙位正魂）與某位成員綁定，故優先帶入該成員的個人地址；空白才用家戶地址。
+    // tabletAddress 一旦建立即為快照，之後不受此影響（見牌位建立流程）。
+    suggestedLocation: displayPersonalAddress(
+      (member as unknown as { address: string | null }).address,
+      member.household.address
+    ),
     householdAddress: member.household.address ?? null,
     yangshangSuggestions: suggestions,
     createdAtPreview: new Date(),

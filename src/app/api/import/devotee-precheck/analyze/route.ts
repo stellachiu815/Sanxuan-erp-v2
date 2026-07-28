@@ -25,6 +25,8 @@ import { Buffer } from "node:buffer";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
 import { parseSpreadsheetBuffer, suggestColumnMapping, saveFieldMapping, getTargetFields } from "@/lib/smartImport";
+import { applyCanonicalDevoteeHouseholdMapping } from "@/lib/importFieldSuggestion";
+import { annotateTabletRoutedColumns, TABLET_ROUTED_COLUMNS } from "@/lib/devoteeImportNormalize";
 import { analyzeDevoteeImport, DEVOTEE_IMPORT_KIND, MAX_UPLOAD_FILE_BYTES, hasAllowedUploadExtension } from "@/lib/devoteeImportBatch";
 
 export async function POST(request: Request) {
@@ -85,7 +87,37 @@ export async function POST(request: Request) {
   }
 
   const suggested = await suggestColumnMapping(DEVOTEE_IMPORT_KIND, columns);
-  const mapping = { ...suggested, ...manualMapping };
+  /**
+   * V24 根因修正：正式家戶七欄為固定格式，其標題列一律對應到固定目標 key，不受
+   * 「舊的欄位對應記憶（remembered）」或先前誤選影響。先前 bug＝某次測試把
+   * 「家戶成員／歷代祖先／乙位正魂」存成錯誤記憶後，正式檔沿用錯誤記憶，成員／牌位
+   * 對應不到 householdMembers／ancestors／spirits，預覽全部顯示 0 並被擋。
+   * 使用者**這次**手動改過的欄（manualMapping 有值）仍尊重其選擇，不覆蓋。
+   */
+  const mapping = applyCanonicalDevoteeHouseholdMapping(columns, { ...suggested, ...manualMapping }, manualMapping);
+
+  /**
+   * V24 牌位遺失根因修正：正式家戶檔為「合併儲存格、一戶多列」，每一列以「牌位類型」
+   * 分類（在世成員／歷代祖先／個人往生者(乙位正魂)），牌位名稱在「牌位顯示名稱」。
+   * 先前分組只串接姓名 → 牌位（歷代祖先／乙位正魂）從未被路由 → 預覽全為 0。
+   *
+   * 這裡標註每列的合成路由欄，並在有「牌位類型」時，讓成員／祖先／乙位正魂一律
+   * 由這三個合成欄提供（覆蓋其他來源欄對這三個目標的對應，避免雙重來源衝突）。
+   */
+  const tabletRouted = annotateTabletRoutedColumns(rows);
+  if (tabletRouted) {
+    for (const col of Object.keys(mapping)) {
+      const t = mapping[col];
+      if (t === "householdMembers" || t === "ancestors" || t === "spirits" || t === "allMembers") {
+        mapping[col] = null;
+      }
+    }
+    mapping[TABLET_ROUTED_COLUMNS.members] = "householdMembers";
+    mapping[TABLET_ROUTED_COLUMNS.ancestors] = "ancestors";
+    mapping[TABLET_ROUTED_COLUMNS.spirits] = "spirits";
+    // 牌位隨附資料（陽上姓名／安奉地）：逐筆串接後由 decodeTabletMeta() 還原寫入 WorshipRecord。
+    mapping[TABLET_ROUTED_COLUMNS.meta] = "tabletMeta";
+  }
 
   // 使用者這次手動調整過的欄位對應，存成記憶，下次上傳同樣欄位名稱的檔案可以直接帶出。
   for (const [col, target] of Object.entries(manualMapping)) {

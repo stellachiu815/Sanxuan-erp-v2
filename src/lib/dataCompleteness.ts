@@ -30,12 +30,14 @@ export function resolveTabletAddress(sources: {
   householdAddress?: string | null;
   devoteeAddress?: string | null;
 }): string | null {
+  // V25：牌位地址帶入優先序＝本次輸入 → 同筆既有 → 牌位專用 → **信眾個人地址** → 家戶地址。
+  // 依正式規則「Excel／輸入 → Member.address → Household.address」，個人地址必須排在家戶地址之前。
   const ordered = [
     sources.inputAddress,
     sources.sameEntryAddress,
     sources.dedicatedTabletAddress,
-    sources.householdAddress,
     sources.devoteeAddress,
+    sources.householdAddress,
   ];
   for (const a of ordered) {
     const t = (a ?? "").trim();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { useOperator } from "@/lib/operatorClient";
 
@@ -265,6 +265,13 @@ export default function DevoteeImportWizard() {
   const [commitPreview, setCommitPreview] = useState<CommitPreview | null>(null);
   const [commitPreviewError, setCommitPreviewError] = useState<string | null>(null);
   const [loadingCommitPreview, setLoadingCommitPreview] = useState(false);
+  /**
+   * V24.2：確認匯入頁的「當前請求識別碼」。每次呼叫 loadCommitPreview 都自增，
+   * 只有識別碼仍是最新的請求，其結果才會寫入畫面狀態。用來防止：
+   *   - React Strict Mode／使用者連點造成的重複請求，舊請求覆蓋新狀態；
+   *   - 慢請求回來時已切換 batch，把過期資料或 loading 狀態蓋回去。
+   */
+  const commitPreviewReqRef = useRef(0);
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
@@ -364,22 +371,30 @@ export default function DevoteeImportWizard() {
 
   async function loadCommitPreview() {
     if (!batchId || !operatorUserId) return;
+    // 已在載入中就不再重複發送（避免連點／重複進入第四步重打同一 batch）。
+    if (loadingCommitPreview) return;
+    const reqId = ++commitPreviewReqRef.current;
     setLoadingCommitPreview(true);
     setCommitPreviewError(null);
+    setCommitPreview(null);
     try {
       const res = await fetch(
         `/api/import/devotee-precheck/${batchId}/commit-preview?operatorUserId=${encodeURIComponent(operatorUserId)}`
       );
       const data = await res.json();
+      // 有更新的請求（或已切換 batch）就丟棄本次結果，不覆蓋較新的狀態。
+      if (commitPreviewReqRef.current !== reqId) return;
       if (!res.ok) {
         setCommitPreviewError(data.error ?? "載入確認匯入資訊失敗");
         return;
       }
       setCommitPreview(data);
     } catch {
+      if (commitPreviewReqRef.current !== reqId) return;
       setCommitPreviewError("無法連線到伺服器，請稍後再試");
     } finally {
-      setLoadingCommitPreview(false);
+      // 只有最新請求才負責關閉 loading，避免過期請求把 loading 錯誤地關掉或維持。
+      if (commitPreviewReqRef.current === reqId) setLoadingCommitPreview(false);
     }
   }
 
@@ -996,7 +1011,18 @@ export default function DevoteeImportWizard() {
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第四步：確認匯入</h3>
           {loadingCommitPreview && <p className="text-xs text-ink-faint">載入中…</p>}
-          {commitPreviewError && <p className="text-xs text-blossom-300">{commitPreviewError}</p>}
+          {commitPreviewError && !loadingCommitPreview && (
+            <div className="flex flex-col gap-2 rounded-2xl bg-blossom-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-blossom-300">{commitPreviewError}</p>
+              <button
+                type="button"
+                onClick={() => loadCommitPreview()}
+                className="min-h-9 rounded-full border border-blossom-200 px-4 text-xs text-ink-soft sm:w-auto"
+              >
+                重試
+              </button>
+            </div>
+          )}
           {commitPreview && (
             <>
               <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:gap-3">

@@ -1,5 +1,5 @@
 import { applyMapping } from "@/lib/smartImport";
-import { normalizeName, toNullableText, splitMultiValue, toHalfWidthDigits } from "@/lib/devoteeImportNormalize";
+import { normalizeName, toNullableText, splitMultiValue, toHalfWidthDigits, decodeTabletMeta, type TabletMeta } from "@/lib/devoteeImportNormalize";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——單列（＝一戶）資料驗證。
@@ -47,8 +47,16 @@ export type NormalizedDevoteeRow = {
   raw: Record<string, unknown>;
   household: NormalizedHouseholdFields;
   memberNames: string[]; // 家戶成員，拆解後、已去除同列重複
-  ancestorNames: string[]; // 歷代祖先，拆解後、已去除同列重複
-  spiritNames: string[]; // 乙位正魂，拆解後、已去除同列重複
+  ancestorNames: string[]; // 歷代祖先，拆解後、已去除同列重複（已濾除無效牌位）
+  spiritNames: string[]; // 乙位正魂，拆解後、已去除同列重複（已濾除無效牌位）
+  /** V24：略過的無效牌位（只有模糊類型標籤、且無牌位姓名／地址／陽上）。原始內容保留供查核，不影響家戶匯入。 */
+  skippedTablets: { type: "ANCESTOR_LINE" | "INDIVIDUAL"; original: string }[];
+  /**
+   * V24：每筆牌位（歷代祖先／乙位正魂）的隨附資料——陽上姓名＋安奉地，依 displayName 對應。
+   * 正式匯入時寫入 WorshipRecord.yangshangName／location（陽上原文保留、安奉地不改寫）。
+   * 家戶檔沒有這些欄位時為空陣列，不影響匯入。
+   */
+  tabletMeta: TabletMeta[];
   /** 缺少必填欄位——對應「資料不完整」狀態 */
   missingFieldErrors: string[];
   /** 欄位內容看不懂——對應「格式錯誤」狀態 */
@@ -149,40 +157,73 @@ export function normalizeAndValidateDevoteeRow(
 
   const name = normalizeName(mapped.householdName);
   if (!name) {
-    missingFieldErrors.push("缺少必填欄位「戶名」");
+    // V24：戶名空白不阻擋——仍建立家戶，標示待補（原始資料先進入 ERP，之後逐筆補正）。
+    warnings.push("此戶尚無戶名，將建立家戶並標示「待補戶名」");
   }
 
   const contactName = toNullableText(mapped.primaryContact);
   const address = toNullableText(mapped.address);
 
   /**
-   * V12.6 驗收修正：成員／牌位的來源有兩種格式，優先採用正式檔案的
-   * 「所有成員」混合欄，沒有時才退回舊格式的三個獨立欄位（向下相容，
-   * 舊檔案不需要重做）。
+   * V24 正式格式：以「家戶成員／歷代祖先／乙位正魂」三個獨立欄為**正式來源（優先）**；
+   * 找不到時才退回舊格式「所有成員」混合欄（向下相容）。**不得再把「所有成員」當必填。**
    */
   let memberNames: string[];
   let ancestorNames: string[];
   let spiritNames: string[];
 
-  const allMembersRaw = mapped.allMembers;
-  const hasAllMembers = splitMultiValue(allMembersRaw).length > 0;
+  const threeMembers = dedupeKeepOrder(splitMultiValue(mapped.householdMembers));
+  const threeAncestors = dedupeKeepOrder(splitMultiValue(mapped.ancestors));
+  const threeSpirits = dedupeKeepOrder(splitMultiValue(mapped.spirits));
+  const hasThreeColumn = threeMembers.length + threeAncestors.length + threeSpirits.length > 0;
 
-  if (hasAllMembers) {
-    // 正式格式：一欄混合，依名稱內容分類
-    const classified = classifyAllMembers(allMembersRaw);
+  if (hasThreeColumn) {
+    memberNames = threeMembers;
+    ancestorNames = threeAncestors;
+    spiritNames = threeSpirits;
+  } else {
+    // 向下相容：舊格式「所有成員」混合欄，依名稱內容分類。
+    const classified = classifyAllMembers(mapped.allMembers);
     memberNames = classified.memberNames;
     ancestorNames = classified.ancestorNames;
     spiritNames = classified.spiritNames;
-  } else {
-    // 舊格式：三個獨立欄位
-    memberNames = dedupeKeepOrder(splitMultiValue(mapped.householdMembers));
-    ancestorNames = dedupeKeepOrder(splitMultiValue(mapped.ancestors));
-    spiritNames = dedupeKeepOrder(splitMultiValue(mapped.spirits));
   }
 
-  // 三種資料全部都沒有，才算「這一列沒有任何成員資料」。
+  /**
+   * V24：略過「只有模糊類型標籤、且無牌位姓名／地址／陽上」的無效牌位子紀錄，
+   * 只略過該筆牌位，不影響家戶與其他有效資料。牌位姓名／地址／陽上三者任一有實質內容即保留。
+   * （家戶七欄不提供陽上；地址以家戶地址為準；牌位姓名＝去掉類型字後仍有內容。）
+   */
+  const skippedTablets: { type: "ANCESTOR_LINE" | "INDIVIDUAL"; original: string }[] = [];
+  const hasTabletName = (original: string, keyword: string) => original.replace(keyword, "").trim().length > 0;
+  ancestorNames = ancestorNames.filter((n) => {
+    if (hasTabletName(n, "歷代祖先") || address) return true;
+    skippedTablets.push({ type: "ANCESTOR_LINE", original: n });
+    return false;
+  });
+  spiritNames = spiritNames.filter((n) => {
+    if (hasTabletName(n, "乙位正魂") || address) return true;
+    skippedTablets.push({ type: "INDIVIDUAL", original: n });
+    return false;
+  });
+  if (skippedTablets.length > 0) {
+    warnings.push(`略過無效牌位資料 ${skippedTablets.length} 筆（僅有模糊類型標籤、無姓名/地址/陽上）：${skippedTablets.map((t) => t.original).join("、")}`);
+  }
+
+  /**
+   * V24（指令六）：主要聯絡人須成為可搜尋的家戶成員（Member），避免只存文字卻漏建成員。
+   *   - 已列在「家戶成員」名單 → 不重複建立（依姓名去重，沿用既有成員比對再防重）。
+   *   - 未列在名單 → 補入成員清單（實質姓名，非猜測），其餘欄位待之後補正，不刪除原始內容。
+   * 仍保留 Household.contactName 文字，兩者並存。
+   */
+  const contact = normalizeName(mapped.primaryContact);
+  if (contact && !memberNames.includes(contact) && !ancestorNames.includes(contact) && !spiritNames.includes(contact)) {
+    memberNames.push(contact);
+  }
+
+  // V24：家戶成員與牌位全空 → **不阻擋**，改為警告；仍建立家戶並標示待補成員。
   if (memberNames.length === 0 && ancestorNames.length === 0 && spiritNames.length === 0) {
-    missingFieldErrors.push("缺少必填欄位「所有成員」");
+    warnings.push("此戶尚無家戶成員與牌位資料，將建立家戶並標示「待補成員」");
   }
 
   /**
@@ -219,6 +260,12 @@ export function normalizeAndValidateDevoteeRow(
 
   const household: NormalizedHouseholdFields = { code, name, contactName, address };
 
+  /**
+   * V24：牌位隨附資料（陽上姓名／安奉地）。只保留仍在有效牌位名單內的筆（略過的無效牌位不帶）。
+   */
+  const validTabletNames = new Set([...ancestorNames, ...spiritNames]);
+  const tabletMeta = decodeTabletMeta(mapped.tabletMeta).filter((m) => validTabletNames.has(m.displayName));
+
   return {
     rowNumber,
     raw,
@@ -226,6 +273,8 @@ export function normalizeAndValidateDevoteeRow(
     memberNames,
     ancestorNames,
     spiritNames,
+    skippedTablets,
+    tabletMeta,
     missingFieldErrors,
     formatErrors,
     warnings,
