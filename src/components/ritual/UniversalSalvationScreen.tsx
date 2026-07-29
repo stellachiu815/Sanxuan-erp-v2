@@ -36,6 +36,13 @@ type Props = {
   debtCreditorDefaultAll?: boolean;
   /** 信眾入口的「本人」；提供時「只本人」預設只勾這位。 */
   currentMemberId?: string | null;
+  /**
+   * V27：普渡牌位／明細有任何新增／修改／刪除時通知外層（共用報名編輯器）。
+   * 外層據此重新載入「已報名項目」與確認預檢，避免兩邊資料來源不同步
+   * （tablet 編輯器改的是 record.universalSalvation.entries，已報名項目讀的是
+   * listRegisteredItems——不主動刷新就會一邊有、一邊沒有）。
+   */
+  onRecordChanged?: () => void;
 };
 
 /**
@@ -60,6 +67,7 @@ export default function UniversalSalvationScreen({
   existingRitualRecordId,
   debtCreditorDefaultAll = false,
   currentMemberId = null,
+  onRecordChanged,
 }: Props) {
   const router = useRouter();
   const [record, setRecord] = useState<RecordJSON | null>(initialRecord ?? null);
@@ -237,6 +245,8 @@ export default function UniversalSalvationScreen({
   function handleUpdated(nextRecord: RecordJSON) {
     setRecord(nextRecord);
     setToastTick((tick) => tick + 1);
+    // V27：通知外層重新載入「已報名項目」與確認預檢（資料來源同步）。
+    onRecordChanged?.();
   }
 
   if (loading) {

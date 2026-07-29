@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import React, { useEffect, useState, type KeyboardEvent } from "react";
 import {
   inputClass,
   labelClass,
@@ -39,8 +39,9 @@ type Props = {
   requireTabletAddress?: boolean;
 };
 
-/** 已加入陽上人的既有值（相容舊單一 yangshangName）。 */
-function initialNames(entry: EntryJSON): string[] {
+/** 已加入陽上人的既有值（相容舊單一 yangshangName）。四種牌位共用；
+ *  同時作為 useState 初值與 V27 entry 變動時同步 state 的唯一推導來源。 */
+export function initialNames(entry: EntryJSON): string[] {
   if (entry.yangshangNames && entry.yangshangNames.length > 0) return entry.yangshangNames;
   return entry.yangshangName ? [entry.yangshangName] : [];
 }
@@ -70,6 +71,22 @@ export default function EntryRow({
   const [submitting, setSubmitting] = useState<"save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPrintItems, setShowPrintItems] = useState(false);
+
+  /**
+   * V27（Root Cause B）：`useState(initialNames(entry))` 只在首次 mount 求值。
+   * 當 entry 由 API 重新載入或更新（新增後 record 刷新、儲存後回傳更新版、
+   * 重新進入編輯器重取資料）時，本地 state 不會自動跟上，導致「陽上人（列印）」
+   * 停在舊值／空值不回填。這個 effect 在 entry 參考變動且**非編輯中**時，把最新
+   * 的既有值同步進來（相容舊單一 yangshangName）；編輯中則不覆蓋，避免蓋掉尚未
+   * 儲存的輸入。entry 參考只會在 record 真的被替換時改變，不會造成重繪迴圈。
+   */
+  useEffect(() => {
+    if (editing) return;
+    setDisplayName(entry.displayName);
+    setYangshangNames(initialNames(entry));
+    setTabletAddress(entry.tabletAddress ?? "");
+    setNotes(entry.notes ?? "");
+  }, [entry, editing]);
 
   function cancelEdit() {
     setEditing(false);

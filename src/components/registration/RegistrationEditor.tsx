@@ -69,6 +69,8 @@ function RegistrationEditorInner({ overview }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // V27：普渡牌位／明細變動時遞增，觸發「已報名項目」重新載入（兩邊資料來源同步）。
+  const [registeredItemsRefreshKey, setRegisteredItemsRefreshKey] = useState(0);
 
   const checkConfirmable = useCallback(async () => {
     try {
@@ -190,7 +192,10 @@ function RegistrationEditorInner({ overview }: Props) {
       ) : (
         <>
           {/* ── V14：已報名項目（多項目架構）── */}
-          <RegisteredItemsPanel ritualRecordId={overview.ritualRecordId} />
+          <RegisteredItemsPanel
+            ritualRecordId={overview.ritualRecordId}
+            refreshKey={registeredItemsRefreshKey}
+          />
 
           {/* ── 成員（所有活動共用） ── */}
           <ParticipantSelector
@@ -218,6 +223,14 @@ function RegistrationEditorInner({ overview }: Props) {
                */
               debtCreditorDefaultAll={!overview.returnMemberId}
               currentMemberId={overview.returnMemberId}
+              /**
+               * V27：牌位／明細任何變動 → 重新載入已報名項目＋重跑確認預檢，
+               * 讓「已報名項目」「確認報名」與 tablet 編輯器三者資料一致。
+               */
+              onRecordChanged={() => {
+                setRegisteredItemsRefreshKey((k) => k + 1);
+                void checkConfirmable();
+              }}
             />
           )}
 
