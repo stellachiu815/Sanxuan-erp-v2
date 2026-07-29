@@ -1503,6 +1503,13 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       // entry，退回成員姓名（memberId 綁定）。
       subjectName = linked?.displayName ?? r.customName ?? memberName ?? "姓名待補";
       displayLabel = `${displayDebtCreditorName(categoryName)}｜${subjectName}`;
+      // V27 修正：累世冤親債主與其他三種牌位一致——一律從連結 entry 帶出既有陽上人／
+      // 牌位地址。先前這裡漏掉，導致 completenessGate 讀到空的 yangshangNames，
+      // 明明 entry 已存有陽上人（例如全戶加入時由本戶固定陽上人帶入），確認報名卻
+      // 被誤判「缺陽上人」而永遠無法確認；已報名項目也看不到陽上／地址。
+      // 純讀取既有資料，不新增欄位、不寫入、不改架構。
+      yangshangNames = linkedYangshang;
+      tabletAddress = linked?.tabletAddress ?? null;
     } else if (kind === "SPONSOR") {
       // 贊普／隨喜贊普：顯示「類別｜實際姓名」。舊資料存「本人」或空 → 讀時以 member 關聯補實名
       //（唯讀，不寫入）；仍找不到 → 顯示「姓名待補」，絕不顯示「本人」。

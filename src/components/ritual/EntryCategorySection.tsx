@@ -35,9 +35,33 @@ type Props = {
   debtCreditorNames?: string[];
 };
 
-/** 超拔祖先／乙位正魂才有多位陽上人與每筆牌位地址（指令二）。 */
-function categorySupportsYangshang(category: EntryCategory): boolean {
-  return category === "ANCESTOR_LINE" || category === "INDIVIDUAL_SOUL";
+/**
+ * V27：四類牌位的陽上人／地址顯示與確認要求設定。
+ *
+ * - showYangshang：四類牌位都可查看／增修既有陽上人（重新開啟即回填 entry.yangshangNames）。
+ * - showTabletAddress：牌位地址欄＋同步家戶永久名單——僅歷代祖先／乙位正魂（維持原行為）。
+ * - requireYangshang／requireTabletAddress：與既有 completenessGate 規則一致，僅用於畫面
+ *   「尚缺欄位」提示（真正的確認驗證仍由伺服器 checkUniversalSalvationItem 判斷）：
+ *     歷代祖先／乙位正魂 → 需陽上人＋地址；累世冤親債主 → 只需陽上人；無緣子女 → 皆非必填。
+ */
+type CategoryYangshangConfig = {
+  showYangshang: boolean;
+  showTabletAddress: boolean;
+  requireYangshang: boolean;
+  requireTabletAddress: boolean;
+};
+function categoryYangshangConfig(category: EntryCategory): CategoryYangshangConfig {
+  switch (category) {
+    case "ANCESTOR_LINE":
+    case "INDIVIDUAL_SOUL":
+      return { showYangshang: true, showTabletAddress: true, requireYangshang: true, requireTabletAddress: true };
+    case "DEBT_CREDITOR":
+      return { showYangshang: true, showTabletAddress: false, requireYangshang: true, requireTabletAddress: false };
+    case "UNBORN_CHILD":
+      return { showYangshang: true, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false };
+    default:
+      return { showYangshang: false, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false };
+  }
 }
 
 /**
@@ -68,7 +92,7 @@ export default function EntryCategorySection({
   individualSoulOptions = [],
   debtCreditorNames = [],
 }: Props) {
-  const supportsYangshang = categorySupportsYangshang(category);
+  const yangshangConfig = categoryYangshangConfig(category);
   async function postEntry(payload: {
     displayName: string;
     yangshangName?: string | null;
@@ -117,7 +141,10 @@ export default function EntryCategorySection({
             householdAddress={householdAddress}
             householdYangshangNames={householdYangshangNames}
             onAddToHouseholdYangshang={onAddToHouseholdYangshang}
-            supportsYangshang={supportsYangshang}
+            showYangshang={yangshangConfig.showYangshang}
+            showTabletAddress={yangshangConfig.showTabletAddress}
+            requireYangshang={yangshangConfig.requireYangshang}
+            requireTabletAddress={yangshangConfig.requireTabletAddress}
           />
         ))}
       </div>

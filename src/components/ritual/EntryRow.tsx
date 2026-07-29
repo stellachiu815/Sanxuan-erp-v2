@@ -25,8 +25,18 @@ type Props = {
   /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」的回呼。 */
   householdYangshangNames?: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
-  /** 超拔祖先／乙位正魂才顯示陽上人與地址欄。 */
-  supportsYangshang?: boolean;
+  /**
+   * V27：四類牌位（歷代祖先／乙位正魂／累世冤親債主／無緣子女）都可查看並增修
+   * 既有陽上人——重新開啟時直接以 entry.yangshangNames（相容舊 yangshangName）
+   * 回填 YangshangEditor，儲存仍寫回同一筆 UniversalSalvationEntry.yangshangNames。
+   */
+  showYangshang?: boolean;
+  /** 牌位地址欄與「同步家戶永久名單」：僅歷代祖先／乙位正魂顯示（維持原行為）。 */
+  showTabletAddress?: boolean;
+  /** 確認前「尚缺」提示：是否要求陽上人（歷代祖先／乙位正魂／累世冤親債主為 true）。 */
+  requireYangshang?: boolean;
+  /** 確認前「尚缺」提示：是否要求牌位地址（僅歷代祖先／乙位正魂）。 */
+  requireTabletAddress?: boolean;
 };
 
 /** 已加入陽上人的既有值（相容舊單一 yangshangName）。 */
@@ -45,7 +55,10 @@ export default function EntryRow({
   householdAddress = null,
   householdYangshangNames = [],
   onAddToHouseholdYangshang,
-  supportsYangshang = false,
+  showYangshang = false,
+  showTabletAddress = false,
+  requireYangshang = false,
+  requireTabletAddress = false,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(entry.displayName);
@@ -86,8 +99,8 @@ export default function EntryRow({
             yangshangNames,
             tabletAddress: tabletAddress.trim() || null,
             notes: notes.trim() || null,
-            // V15R6.1：只有祖先／正魂需要、且依使用者勾選決定是否同步永久名單。
-            ...(supportsYangshang ? { syncToHousehold } : {}),
+            // V15R6.1：只有祖先／正魂顯示牌位地址時，才依使用者勾選同步永久名單。
+            ...(showTabletAddress ? { syncToHousehold } : {}),
           }),
         }
       );
@@ -150,18 +163,21 @@ export default function EntryRow({
             autoFocus
           />
         </div>
-        {supportsYangshang && (
+        {/* V27：四類牌位都可查看／增修既有陽上人（重新開啟時已由 initialNames 回填）。 */}
+        {showYangshang && (
+          <div>
+            <label className={labelClass}>陽上人（可多位）</label>
+            <YangshangEditor
+              value={yangshangNames}
+              onChange={setYangshangNames}
+              householdMemberNames={householdMemberNames}
+              householdYangshangNames={householdYangshangNames}
+              onAddToHouseholdYangshang={onAddToHouseholdYangshang}
+            />
+          </div>
+        )}
+        {showTabletAddress && (
           <>
-            <div>
-              <label className={labelClass}>陽上人（可多位）</label>
-              <YangshangEditor
-                value={yangshangNames}
-                onChange={setYangshangNames}
-                householdMemberNames={householdMemberNames}
-                householdYangshangNames={householdYangshangNames}
-                onAddToHouseholdYangshang={onAddToHouseholdYangshang}
-              />
-            </div>
             <div>
               <label className={labelClass}>牌位地址</label>
               <div className="flex gap-2">
@@ -249,10 +265,10 @@ export default function EntryRow({
             const names = initialNames(entry);
             const missing: string[] = [];
             if (!entry.displayName || !entry.displayName.trim()) missing.push("牌位姓名");
-            if (supportsYangshang) {
-              if (names.length === 0) missing.push("陽上人");
-              if (!entry.tabletAddress || !entry.tabletAddress.trim()) missing.push("牌位地址");
-            }
+            // V27：依各牌位實際確認規則提示（歷代祖先/乙位正魂需陽上人＋地址；
+            // 累世冤親債主只需陽上人；無緣子女兩者皆非必填）。
+            if (requireYangshang && names.length === 0) missing.push("陽上人");
+            if (requireTabletAddress && (!entry.tabletAddress || !entry.tabletAddress.trim())) missing.push("牌位地址");
             if (missing.length === 0) return null;
             return (
               <div className="mt-1 rounded-lg bg-yolk-50 px-3 py-2 text-xs text-ink">

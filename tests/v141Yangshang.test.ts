@@ -136,14 +136,17 @@ test("4/5. 每筆 entry 陽上人與地址獨立（EntryRow 以自身 entry 初�
   const row = R("src/components/ritual/EntryRow.tsx");
   assert.equal(row.includes("initialNames(entry)"), true);
   assert.equal(row.includes("entry.tabletAddress"), true);
-  // 陽上人編輯器與地址欄只在超拔祖先／乙位正魂顯示
-  assert.equal(row.includes("supportsYangshang"), true);
+  // V27：陽上人編輯器由 showYangshang 控制（四類牌位皆可回填/增修）。
+  assert.equal(row.includes("showYangshang"), true);
   assert.equal(row.includes("<YangshangEditor"), true);
 });
 
-test("超拔祖先／乙位正魂支援陽上人；冤親債主／無緣子女不強加", () => {
+test("V27：四類牌位皆可回填陽上人；地址欄僅歷代祖先/乙位正魂；require 依既有確認規則", () => {
   const sec = R("src/components/ritual/EntryCategorySection.tsx");
-  assert.equal(/ANCESTOR_LINE[\s\S]*INDIVIDUAL_SOUL/.test(sec) || sec.includes('category === "ANCESTOR_LINE" || category === "INDIVIDUAL_SOUL"'), true);
+  // 四種 case 都 showYangshang: true。
+  assert.equal(/ANCESTOR_LINE[\s\S]*?INDIVIDUAL_SOUL[\s\S]*?showYangshang: true, showTabletAddress: true, requireYangshang: true, requireTabletAddress: true/.test(sec), true);
+  assert.equal(/DEBT_CREDITOR[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: true, requireTabletAddress: false/.test(sec), true);
+  assert.equal(/UNBORN_CHILD[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false/.test(sec), true);
 });
 
 test("YangshangEditor：家戶勾選＋手動新增＋去重＋移除", () => {
