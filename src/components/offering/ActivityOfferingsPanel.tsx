@@ -57,6 +57,41 @@ function toDateInput(iso: string | null): string {
 
 const CLAIM_ACTIVE_STATUSES = new Set(["ACTIVE", "REFUND_PENDING"]);
 
+// ── V26.3 供品認捐取消 UX：名單篩選（只調整顯示/查詢，不刪任何資料）──
+type ClaimFilter = "ALL" | "ACTIVE" | "UNPAID" | "PAID" | "CANCELLED";
+
+/** 篩選按鈕（順序＝畫面呈現順序）；預設「進行中」。 */
+const CLAIM_FILTERS: { value: ClaimFilter; label: string }[] = [
+  { value: "ALL", label: "全部" },
+  { value: "ACTIVE", label: "進行中" },
+  { value: "UNPAID", label: "未收款" },
+  { value: "PAID", label: "已收款" },
+  { value: "CANCELLED", label: "已取消" },
+];
+
+/**
+ * 依篩選判斷某筆認捐是否顯示。已取消/退款相關（CANCELLED／REFUND_PENDING／
+ * REFUNDED）一律歸在「已取消」，預設「進行中」不顯示——但認捐資料本身永遠保留，
+ * 只是不列在預設名單（需求一、二、四）。
+ */
+function matchesClaimFilter(
+  claim: { status: string; paymentStatus: string },
+  filter: ClaimFilter
+): boolean {
+  switch (filter) {
+    case "ALL":
+      return true;
+    case "ACTIVE":
+      return claim.status === "ACTIVE";
+    case "UNPAID":
+      return claim.status === "ACTIVE" && (claim.paymentStatus === "UNPAID" || claim.paymentStatus === "PARTIAL");
+    case "PAID":
+      return claim.status === "ACTIVE" && (claim.paymentStatus === "PAID" || claim.paymentStatus === "WAIVED");
+    case "CANCELLED":
+      return claim.status === "CANCELLED" || claim.status === "REFUND_PENDING" || claim.status === "REFUNDED";
+  }
+}
+
 export default function ActivityOfferingsPanel({
   templeEventId,
   activityType,
@@ -182,6 +217,7 @@ function OfferingCard({
   const isFloral = offering.offeringType.behaviorKind === "FLORAL";
   const [claims, setClaims] = useState<OfferingClaimJSON[] | null>(null);
   const [panel, setPanel] = useState<"none" | "edit" | "add" | "list">("none");
+  const [claimFilter, setClaimFilter] = useState<ClaimFilter>("ACTIVE"); // 預設：進行中
 
   async function loadClaims() {
     if (isFloral) return;
@@ -204,6 +240,9 @@ function OfferingCard({
   const totalDue = activeClaims.reduce((s, c) => s + Number(c.amountDue), 0);
   const totalPaid = activeClaims.reduce((s, c) => s + Number(c.amountPaid), 0);
   const totalUnpaid = activeClaims.reduce((s, c) => s + Number(c.amountUnpaid), 0);
+
+  // V26.3：依目前篩選決定名單顯示哪些認捐（不影響上方數量統計）。
+  const displayedClaims = (claims ?? []).filter((c) => matchesClaimFilter(c, claimFilter));
 
   const unit = offeringUnitLabel[offering.offeringType.unit] ?? "";
   const effPrice = effectiveUnitPrice(offering);
@@ -316,10 +355,31 @@ function OfferingCard({
           <p className="mb-3 text-sm text-ink-soft">
             應有 {offering.quantity}／已認捐 {claimedQty}／尚缺 {remaining}
           </p>
+
+          {/* V26.3：名單篩選（預設「進行中」，切到「已取消」才看到取消紀錄） */}
+          <div className="mb-3 flex flex-wrap gap-2">
+            {CLAIM_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setClaimFilter(f.value)}
+                className={`rounded-full px-3 py-1 text-xs transition ${
+                  claimFilter === f.value ? "bg-ink-soft text-cream-50" : "bg-cream-100 text-ink-soft hover:bg-cream-200"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           {claims === null && <p className="text-sm text-ink-faint">載入中…</p>}
-          {claims !== null && claims.length === 0 && <p className="text-sm text-ink-faint">目前還沒有認捐紀錄。</p>}
+          {claims !== null && displayedClaims.length === 0 && (
+            <p className="text-sm text-ink-faint">
+              {claimFilter === "ACTIVE" ? "目前沒有進行中的認捐紀錄。" : "目前沒有符合此篩選的認捐紀錄。"}
+            </p>
+          )}
           <div className="flex flex-col gap-3">
-            {(claims ?? []).map((claim) => (
+            {displayedClaims.map((claim) => (
               <ClaimRow key={claim.id} claim={claim} unit={unit} onChanged={afterClaimChange} />
             ))}
           </div>

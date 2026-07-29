@@ -401,3 +401,41 @@ test("後端：修改活動單價不回頭改既有認捐（認捐讀存在 clai
   // 修改活動供品價格的函式不觸碰既有 OfferingClaim；認捐金額一律用 claim.unitPrice 快照重算。
   assert.ok(/直接讀存在 claim 上的 unitPrice\/amountDue 快照/.test(src), "歷史金額用快照，不受活動單價調整影響");
 });
+
+// ============================================================
+// V26.3「供品認捐取消 UX」：名單篩選（不刪資料，只調整顯示/查詢）
+// ============================================================
+
+test("名單提供 全部/進行中/未收款/已收款/已取消 五個篩選，預設進行中", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  for (const label of ["全部", "進行中", "未收款", "已收款", "已取消"]) {
+    assert.ok(panel.includes(`label: "${label}"`), `篩選含「${label}」`);
+  }
+  assert.ok(/useState<ClaimFilter>\("ACTIVE"\)/.test(panel), "預設篩選＝進行中(ACTIVE)");
+});
+
+test("進行中/未收款/已收款只含 ACTIVE；已取消含 CANCELLED/REFUND_PENDING/REFUNDED（取消紀錄保留可查）", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/case "ACTIVE":\s*return claim\.status === "ACTIVE";/.test(panel), "進行中只含 ACTIVE");
+  assert.ok(/case "CANCELLED":\s*return claim\.status === "CANCELLED" \|\| claim\.status === "REFUND_PENDING" \|\| claim\.status === "REFUNDED";/.test(panel), "已取消含三種取消/退款狀態");
+});
+
+test("名單依篩選顯示（displayedClaims），預設進行中不會列出已取消", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/displayedClaims = \(claims \?\? \[\]\)\.filter\(\(c\) => matchesClaimFilter\(c, claimFilter\)\)/.test(panel), "以 matchesClaimFilter 篩選名單");
+  assert.ok(/displayedClaims\.map/.test(panel), "只渲染符合篩選的認捐");
+});
+
+test("取消後即時更新數量：取消走 onChanged→afterClaimChange→loadClaims 重新計算已認捐/剩餘，不需整頁重整", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/async function cancelClaim\(\)[\s\S]*?onChanged\(\);/.test(panel), "取消成功後呼叫 onChanged");
+  assert.ok(/async function afterClaimChange\(\) \{\s*await loadClaims\(\);/.test(panel), "afterClaimChange 重新載入認捐（即時更新統計）");
+  // 已認捐/剩餘由 ACTIVE||REFUND_PENDING 的 activeClaims 計算，取消未收款(→CANCELLED)後即被排除。
+  assert.ok(/CLAIM_ACTIVE_STATUSES = new Set\(\["ACTIVE", "REFUND_PENDING"\]\)/.test(panel), "數量統計基準為 ACTIVE/REFUND_PENDING");
+});
+
+test("已收款不得直接取消：沿用既有後端 cancelOfferingClaim（已收→REFUND_PENDING 走退款流程）", () => {
+  const src = readSrc("src/lib/offeringClaims.ts");
+  assert.ok(/const hasBeenPaid = Number\(existing\.amountPaid\) > 0;/.test(src), "以已收金額判斷");
+  assert.ok(/hasBeenPaid \? "REFUND_PENDING" : "CANCELLED"/.test(src), "已收款轉 REFUND_PENDING、未收款才直接 CANCELLED");
+});
