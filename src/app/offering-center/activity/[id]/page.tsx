@@ -100,7 +100,7 @@ export default async function OfferingActivityPage({ params }: { params: Promise
             從供品種類庫加入這個活動需要的供品，各活動彼此獨立設定，互不影響。
           </p>
           <div className="mt-5">
-            <ActivityOfferingsPanel templeEventId={id} initialOfferings={initialOfferings} allOfferingTypes={initialTypes} />
+            <ActivityOfferingsPanel templeEventId={id} activityType={event.activityType} initialOfferings={initialOfferings} allOfferingTypes={initialTypes} />
           </div>
         </section>
 

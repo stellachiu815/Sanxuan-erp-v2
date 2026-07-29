@@ -1,5 +1,98 @@
 import { formatFormalLunarDate } from "@/lib/chineseNumerals";
 
+// ============================================================
+// 〇、供品管理適用活動範圍（V26 需求「一、十一、十二」）
+// ============================================================
+//
+// 供品管理**只**適用於：四位主祀神明聖壽（各自獨立 ActivityType）＋宮慶。
+// 花果認捐（behaviorKind=FLORAL 的供品）掛在某個活動之下，靠「該活動確實有
+// 供品設定」納入，不需要獨立活動類型。
+//
+// ⚠️ 中元普渡（UNIVERSAL_SALVATION）、各式燈（年度／光明／太歲／全家）、
+// 祭改（PURIFICATION）、補庫（STORAGE_REPAYMENT）、補印（REPRINT）一律**排除**，
+// 不得因為 TempleEvent 存在就自動列入供品管理（先前 /offering-center 誤將
+// 中元普渡列入，即因為此清單一度包含 UNIVERSAL_SALVATION，本輪修正）。
+
+/** 供品管理「核心」活動類型：一律顯示（讓管理者可進入設定當次供品），即使尚未設定任何供品。 */
+export const OFFERING_ACTIVITY_TYPES = [
+  "TEMPLE_CELEBRATION", // 宮慶
+  "GUANDI_BIRTHDAY", // 關聖帝君聖壽
+  "XUANTIAN_BIRTHDAY", // 玄天上帝聖壽
+  "YAOCHI_BIRTHDAY", // 瑤池金母聖壽
+  "ZHONGTAN_BIRTHDAY", // 中壇元帥聖壽
+] as const;
+
+/** 明確**不得**出現在供品管理的活動類型（即使有殘留資料也不列入）。 */
+export const OFFERING_EXCLUDED_ACTIVITY_TYPES = [
+  "UNIVERSAL_SALVATION", // 中元普渡（本輪修正的錯誤來源）
+  "ANNUAL_LANTERN", // 年度燈
+  "GUANGMING_LANTERN", // 光明燈
+  "TAISUI_LANTERN", // 太歲燈
+  "FAMILY_LANTERN", // 全家燈
+  "PURIFICATION", // 祭改
+  "STORAGE_REPAYMENT", // 補庫
+  "REPRINT", // 補印
+] as const;
+
+/** 是否為「核心」供品活動類型（四主祀聖壽＋宮慶）。 */
+export function isOfferingActivityType(activityType: string): boolean {
+  return (OFFERING_ACTIVITY_TYPES as readonly string[]).includes(activityType);
+}
+
+/** 是否為「明確排除」的活動類型（中元普渡／各式燈／祭改／補庫／補印）。 */
+export function isExcludedFromOffering(activityType: string): boolean {
+  return (OFFERING_EXCLUDED_ACTIVITY_TYPES as readonly string[]).includes(activityType);
+}
+
+// ============================================================
+// 〇之二、活動預設供品模板（V26.1「供品活動模板」）
+// ============================================================
+//
+// 建立四主祀神明聖壽／宮慶活動時，自動建立這些預設供品，使用者不需要再
+// 手動「新增供品→選擇供品→設定」。刻意沿用既有 OfferingType（以 name 對應
+// src/lib/offeringTypes.ts 的 DEFAULT_OFFERING_TYPES 既有種類）與
+// ActivityOffering，**不建立第二套模板系統**。
+//
+// quantity=null 代表沿用該 OfferingType 目前的 defaultQuantity（壽桃麵塔
+// 目前 3、散壽桃麵目前 5）；宮慶的福壽龜依需求明確帶入「大福壽龜 1 隻、
+// 小福壽龜 6 隻」（也正好等於它們的 defaultQuantity）。建立後皆可自由修改。
+
+export type OfferingTemplateEntry = {
+  /** 對應 OfferingType.name（既有供品種類，不新增第二套）。 */
+  offeringName: string;
+  /** 當次數量；null = 沿用 OfferingType.defaultQuantity。 */
+  quantity: number | null;
+};
+
+/** 四位主祀神明聖壽共用模板：壽桃麵塔＋散壽桃麵（數量皆沿用預設）。 */
+const BIRTHDAY_OFFERING_TEMPLATE: OfferingTemplateEntry[] = [
+  { offeringName: "壽桃麵塔", quantity: null },
+  { offeringName: "散壽桃麵", quantity: null },
+];
+
+/** 活動類型 → 預設供品模板。沒有列在這裡的活動類型一律沒有預設供品。 */
+export const OFFERING_ACTIVITY_TEMPLATES: Record<string, OfferingTemplateEntry[]> = {
+  GUANDI_BIRTHDAY: BIRTHDAY_OFFERING_TEMPLATE,
+  XUANTIAN_BIRTHDAY: BIRTHDAY_OFFERING_TEMPLATE,
+  YAOCHI_BIRTHDAY: BIRTHDAY_OFFERING_TEMPLATE,
+  ZHONGTAN_BIRTHDAY: BIRTHDAY_OFFERING_TEMPLATE,
+  // 宮慶：大福壽龜 1 隻、小福壽龜 6 隻、壽桃麵塔、散壽桃麵。
+  TEMPLE_CELEBRATION: [
+    { offeringName: "大福壽龜", quantity: 1 },
+    { offeringName: "小福壽龜", quantity: 6 },
+    { offeringName: "壽桃麵塔", quantity: null },
+    { offeringName: "散壽桃麵", quantity: null },
+  ],
+};
+
+/**
+ * 取得指定活動類型的預設供品模板。沒有模板的活動類型（普渡、各式燈、祭改…）
+ * 回傳空陣列——呼叫端據此不建立任何預設供品。
+ */
+export function getOfferingTemplate(activityType: string): OfferingTemplateEntry[] {
+  return OFFERING_ACTIVITY_TEMPLATES[activityType] ?? [];
+}
+
 /**
  * V10.1「供品認捐中心」核心業務規則（純函式、不 import Prisma / 不連線資料庫）。
  *

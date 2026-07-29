@@ -9,7 +9,7 @@ import {
   copyPurificationYearFromPrevious,
   type PurificationYearDiffItem,
 } from "@/lib/purification";
-import { copyActivityOfferingsForNewEvent } from "@/lib/activityOfferings";
+import { copyActivityOfferingsForNewEvent, seedDefaultActivityOfferings } from "@/lib/activityOfferings";
 
 import { DEFAULT_POCKET_UNIT_PRICE, resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
@@ -132,6 +132,12 @@ export async function createTempleEvent(
   });
 
   await seedChecklist(created.id, input.activityType, operatorName);
+
+  // V26.1「供品活動模板」：四主祀神明聖壽／宮慶全新建立時，自動建立預設供品，
+  // 使用者不必再手動新增（需求「一、二」）。沒有模板的活動類型（普渡/各式燈…）
+  // 是 no-op。這裡只在「全新建立」路徑呼叫——「複製去年活動」路徑另由
+  // copyActivityOfferingsForNewEvent() 沿用去年設定，不重覆補預設。
+  await seedDefaultActivityOfferings(created.id, input.activityType, operatorName);
 
   return { ok: true, data: { id: created.id } };
 }

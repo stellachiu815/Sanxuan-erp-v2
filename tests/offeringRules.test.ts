@@ -12,7 +12,16 @@ import {
   assertReprintPreservesAmounts,
   sumPaymentLedger,
   round2,
+  OFFERING_ACTIVITY_TYPES,
+  OFFERING_EXCLUDED_ACTIVITY_TYPES,
+  isOfferingActivityType,
+  isExcludedFromOffering,
+  getOfferingTemplate,
+  OFFERING_ACTIVITY_TEMPLATES,
 } from "../src/lib/offeringRules";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+const readSrc = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 // 以下測試對應 V10.1 需求「二十二、自動測試」條列的 25 個案例（在檔案裡以
 // 「案例 N」註明對應編號）。跟 DB 有關、無法脫離 Prisma 執行的整合行為
@@ -204,4 +213,191 @@ test("案例21：全年花果供品名單——依尚未認捐的日期過濾出
   const unclaimed = slots.filter((s) => !claimedKeys.has(`${s.lunarMonth}-${s.lunarDay}`));
   assert.equal(unclaimed.length, 21);
   assert.ok(!unclaimed.some((s) => s.lunarMonth === 1 && s.lunarDay === 1));
+});
+
+// ============================================================
+// V26 供品管理適用活動範圍（需求「一、十一、十二」＋十五測試案例 1~6）
+// ============================================================
+
+test("案例2~6：四位主祀神明聖壽可出現在供品管理", () => {
+  assert.ok(isOfferingActivityType("GUANDI_BIRTHDAY"), "關聖帝君聖壽");
+  assert.ok(isOfferingActivityType("XUANTIAN_BIRTHDAY"), "玄天上帝聖壽");
+  assert.ok(isOfferingActivityType("YAOCHI_BIRTHDAY"), "瑤池金母聖壽");
+  assert.ok(isOfferingActivityType("ZHONGTAN_BIRTHDAY"), "中壇元帥聖壽");
+});
+
+test("案例6：宮慶可出現在供品管理", () => {
+  assert.ok(isOfferingActivityType("TEMPLE_CELEBRATION"));
+});
+
+test("案例1：中元普渡不得出現在供品管理（核心 bug）", () => {
+  assert.ok(!isOfferingActivityType("UNIVERSAL_SALVATION"), "中元普渡非供品核心活動");
+  assert.ok(isExcludedFromOffering("UNIVERSAL_SALVATION"), "中元普渡屬明確排除清單");
+});
+
+test("各式燈／祭改／補庫／補印一律排除於供品管理", () => {
+  for (const t of ["ANNUAL_LANTERN", "GUANGMING_LANTERN", "TAISUI_LANTERN", "FAMILY_LANTERN", "PURIFICATION", "STORAGE_REPAYMENT", "REPRINT"]) {
+    assert.ok(!isOfferingActivityType(t), `${t} 非供品核心活動`);
+    assert.ok(isExcludedFromOffering(t), `${t} 屬明確排除清單`);
+  }
+});
+
+test("核心供品活動類型恰為四主祀聖壽＋宮慶（五種），且不含中元普渡", () => {
+  assert.deepEqual(
+    [...OFFERING_ACTIVITY_TYPES].sort(),
+    ["GUANDI_BIRTHDAY", "TEMPLE_CELEBRATION", "XUANTIAN_BIRTHDAY", "YAOCHI_BIRTHDAY", "ZHONGTAN_BIRTHDAY"].sort()
+  );
+  assert.ok(!(OFFERING_ACTIVITY_TYPES as readonly string[]).includes("UNIVERSAL_SALVATION"));
+  assert.ok((OFFERING_EXCLUDED_ACTIVITY_TYPES as readonly string[]).includes("UNIVERSAL_SALVATION"));
+});
+
+test("供品管理首頁查詢：使用核心供品活動類型、且不再硬列 UNIVERSAL_SALVATION／無條件 OTHER", () => {
+  const page = readSrc("src/app/offering-center/page.tsx");
+  assert.ok(/OFFERING_ACTIVITY_TYPES/.test(page), "改用共用的核心供品活動類型集合");
+  // 舊 bug：where.in 硬列 UNIVERSAL_SALVATION 與無條件 OTHER。
+  assert.ok(!/"UNIVERSAL_SALVATION"/.test(page), "首頁查詢不得再硬列中元普渡");
+  // OTHER 僅在確實有供品設定時才列入（花果認捐等）。
+  assert.ok(/activityType: "OTHER", activityOfferings: \{ some: \{\} \}/.test(page), "OTHER 僅在有供品設定時列入");
+});
+
+// ── 既有正式架構仍在（避免重建第二套；需求「六、十三」） ──
+test("既有供品/認捐/收款/財務資料表仍存在（沿用同一套，不建第二套）", () => {
+  const schema = readSrc("prisma/schema.prisma");
+  for (const model of ["model OfferingType", "model ActivityOffering", "model FloralOfferingSlot", "model OfferingClaim", "model OfferingPayment"]) {
+    assert.ok(schema.includes(model), `${model} 存在`);
+  }
+  // 認捐含應收/已收/未收、退款/沖銷、收據狀態欄位（財務串接與取消不刪紀錄）。
+  assert.ok(/amountDue\s+Decimal/.test(schema) && /amountPaid\s+Decimal/.test(schema) && /amountUnpaid\s+Decimal/.test(schema), "應收/已收/未收欄位齊備");
+  assert.ok(/refundedAmount\s+Decimal/.test(schema) && /model OfferingPayment[\s\S]*?kind\s+OfferingPaymentKind/.test(schema), "退款/沖銷以獨立收款紀錄保存，不刪除");
+});
+
+// ── 權限：READONLY 不得建立/收款；認捐建立只產生應收，收款另走 recordPayment（需求「八、九」） ──
+test("READONLY 無任何供品寫入權限，只能查看歷史", () => {
+  const perms = readSrc("src/lib/permissions.ts");
+  assert.ok(/READONLY: \["viewFullHistory"\]/.test(perms), "READONLY 僅 viewFullHistory，無 createClaim/recordPayment 等寫入");
+});
+
+test("認捐建立走 createClaim 權限；收款是獨立的 recordPayment 動作（建立不自動計入已收）", () => {
+  const createRoute = readSrc("src/app/api/temple-events/[id]/offering-claims/route.ts");
+  assert.ok(/assertOfferingPermissionForOperator\(await readOperatorUserId\(request\), "createClaim"\)/.test(createRoute), "建立認捐檢查 createClaim 權限");
+  const payRoute = readSrc("src/app/api/offering-claims/[id]/payments/route.ts");
+  assert.ok(/assertOfferingPermissionForOperator\(await readOperatorUserId\(request\), "recordPayment"\)/.test(payRoute), "收款檢查 recordPayment 權限（與建立分離）");
+});
+
+// ============================================================
+// V26.1「供品活動模板」：建立活動自動建立預設供品
+// ============================================================
+
+test("四位主祀神明聖壽模板 = 壽桃麵塔＋散壽桃麵（數量沿用預設）", () => {
+  for (const t of ["GUANDI_BIRTHDAY", "XUANTIAN_BIRTHDAY", "YAOCHI_BIRTHDAY", "ZHONGTAN_BIRTHDAY"]) {
+    const tpl = getOfferingTemplate(t);
+    assert.deepEqual(
+      tpl.map((e) => e.offeringName),
+      ["壽桃麵塔", "散壽桃麵"],
+      `${t} 應有壽桃麵塔＋散壽桃麵`
+    );
+    // 數量沿用預設（null 由 addActivityOffering 帶入 OfferingType.defaultQuantity）。
+    assert.ok(tpl.every((e) => e.quantity === null), `${t} 數量皆沿用預設`);
+  }
+});
+
+test("宮慶模板 = 大福壽龜(1)＋小福壽龜(6)＋壽桃麵塔＋散壽桃麵", () => {
+  const tpl = getOfferingTemplate("TEMPLE_CELEBRATION");
+  assert.deepEqual(
+    tpl.map((e) => e.offeringName),
+    ["大福壽龜", "小福壽龜", "壽桃麵塔", "散壽桃麵"]
+  );
+  const byName = Object.fromEntries(tpl.map((e) => [e.offeringName, e.quantity]));
+  assert.equal(byName["大福壽龜"], 1, "大福壽龜預設 1 隻");
+  assert.equal(byName["小福壽龜"], 6, "小福壽龜預設 6 隻");
+  assert.equal(byName["壽桃麵塔"], null, "壽桃麵塔沿用預設");
+  assert.equal(byName["散壽桃麵"], null, "散壽桃麵沿用預設");
+});
+
+test("沒有模板的活動類型（普渡/各式燈/祭改/其他）回傳空陣列，不建立任何預設供品", () => {
+  for (const t of ["UNIVERSAL_SALVATION", "ANNUAL_LANTERN", "PURIFICATION", "STORAGE_REPAYMENT", "OTHER", "REPRINT"]) {
+    assert.deepEqual(getOfferingTemplate(t), [], `${t} 無預設供品模板`);
+  }
+});
+
+test("模板只涵蓋核心供品活動類型（四聖壽＋宮慶），與 OFFERING_ACTIVITY_TYPES 一致", () => {
+  const templateKeys = Object.keys(OFFERING_ACTIVITY_TEMPLATES).sort();
+  assert.deepEqual(templateKeys, [...OFFERING_ACTIVITY_TYPES].sort());
+});
+
+test("模板引用的供品名稱都存在於預設供品種類（DEFAULT_OFFERING_TYPES）", () => {
+  const offeringTypes = readSrc("src/lib/offeringTypes.ts");
+  const names = new Set<string>();
+  for (const t of Object.values(OFFERING_ACTIVITY_TEMPLATES)) for (const e of t) names.add(e.offeringName);
+  for (const name of names) {
+    assert.ok(offeringTypes.includes(`name: "${name}"`), `DEFAULT_OFFERING_TYPES 含「${name}」`);
+  }
+});
+
+test("createTempleEvent 全新建立會呼叫 seedDefaultActivityOfferings；複製去年路徑不重覆補預設", () => {
+  const src = readSrc("src/lib/templeEvents.ts");
+  // 全新建立路徑（seedChecklist 之後）呼叫 seed。
+  assert.ok(
+    /await seedChecklist\(created\.id[\s\S]*?await seedDefaultActivityOfferings\(created\.id, input\.activityType/.test(src),
+    "createTempleEvent 建立後呼叫 seedDefaultActivityOfferings"
+  );
+  // 複製去年路徑用 copyActivityOfferingsForNewEvent 沿用去年設定，不呼叫 seed 預設。
+  assert.ok(/copyActivityOfferingsForNewEvent/.test(src), "複製去年活動沿用去年供品設定");
+});
+
+test("seedDefaultActivityOfferings 不重複建立：已存在即略過、沿用唯一鍵", () => {
+  const src = readSrc("src/lib/activityOfferings.ts");
+  assert.ok(/templeEventId_offeringTypeId:\s*{\s*templeEventId,\s*offeringTypeId/.test(src), "以唯一鍵查既有供品");
+  assert.ok(/if \(existing\) \{[\s\S]*?skippedCount \+= 1;[\s\S]*?continue;/.test(src), "已存在則略過不重建");
+});
+
+test("提供舊活動補齊 API：POST offerings/seed-defaults", () => {
+  const route = readSrc("src/app/api/temple-events/[id]/offerings/seed-defaults/route.ts");
+  assert.ok(/export async function POST/.test(route), "seed-defaults 路由有 POST");
+  assert.ok(/seedDefaultActivityOfferings\(id, event\.activityType/.test(route), "呼叫 seeder 補齊");
+  assert.ok(/assertActivityPermissionForOperator[\s\S]*?"manageSettings"/.test(route), "需 manageSettings 權限");
+});
+
+// ============================================================
+// V26.2「供品管理」：分層畫面 + 完整認捐/收款/退款串接
+// ============================================================
+
+test("供品卡片顯示應收/已收/未收，且設定與認捐分層（編輯設定 / 新增認捐 / 認捐名單）", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  for (const label of ["應收", "已收", "未收", "編輯設定", "新增認捐", "認捐名單"]) {
+    assert.ok(panel.includes(label), `畫面包含「${label}」`);
+  }
+});
+
+test("編輯設定串接 PATCH activity-offering（活動層單價/日期/狀態）", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/method:\s*"PATCH"[\s\S]*?offerings\/\$\{offering\.id\}/.test(panel) || /offerings\/\$\{offering\.id\}`,\s*\{\s*method:\s*"PATCH"/.test(panel), "PATCH 活動供品設定");
+  assert.ok(/useDefaultPrice/.test(panel) && /claimStartDate/.test(panel) && /claimEndDate/.test(panel), "含使用預設單價/開放/截止");
+});
+
+test("新增認捐把當下有效單價存為 unitPrice 快照，未當場收費不寫已收", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/offering-claims`,\s*\{[\s\S]*?unitPrice:/.test(panel), "建立認捐帶 unitPrice 快照");
+  assert.ok(/chargeNow/.test(panel), "有『當場收費』切換");
+  assert.ok(/offering-claims\/\$\{data\.id\}\/payments/.test(panel), "當場收費才走既有 OfferingPayment 收款");
+});
+
+test("認捐名單提供 修改 / 收款(補收款) / 取消 / 退款沖銷，沿用既有 API", () => {
+  const panel = readSrc("src/components/offering/ActivityOfferingsPanel.tsx");
+  assert.ok(/offering-claims\/\$\{claim\.id\}`,\s*\{[\s\S]*?method:\s*"PATCH"/.test(panel), "修改走 PATCH claim");
+  assert.ok(/offering-claims\/\$\{claim\.id\}\/payments/.test(panel), "收款/補收款走 payments");
+  assert.ok(/offering-claims\/\$\{claim\.id\}\/cancel/.test(panel), "取消走 cancel");
+  assert.ok(/offering-claims\/\$\{claim\.id\}\/refund/.test(panel), "退款/沖銷走 refund");
+});
+
+test("後端：建立認捐存單價快照且不自動計為已收（amountPaid=0、amountUnpaid=amountDue）", () => {
+  const src = readSrc("src/lib/offeringClaims.ts");
+  assert.ok(/unitPrice,\s*[\s\S]*?amountDue,\s*[\s\S]*?amountPaid:\s*0,\s*[\s\S]*?amountUnpaid:\s*amountDue/.test(src), "建立認捐 amountPaid=0、未收=應收");
+  assert.ok(/computeAmountDue\(quantity, unitPrice/.test(src), "應收 = 數量 × 單價快照");
+});
+
+test("後端：修改活動單價不回頭改既有認捐（認捐讀存在 claim 上的 unitPrice 快照）", () => {
+  const src = readSrc("src/lib/offeringClaims.ts");
+  // 修改活動供品價格的函式不觸碰既有 OfferingClaim；認捐金額一律用 claim.unitPrice 快照重算。
+  assert.ok(/直接讀存在 claim 上的 unitPrice\/amountDue 快照/.test(src), "歷史金額用快照，不受活動單價調整影響");
 });

@@ -3,6 +3,8 @@ import BackButton from "@/components/navigation/BackButton";
 import { prisma } from "@/lib/prisma";
 import { activityTypeLabel } from "@/lib/labels";
 import { getCurrentRitualYear } from "@/lib/ritual";
+import { OFFERING_ACTIVITY_TYPES } from "@/lib/offeringRules";
+import type { ActivityType } from "@prisma/client";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -44,19 +46,19 @@ export const dynamic = "force-dynamic";
 export default async function OfferingCenterHomePage() {
   const currentYear = getCurrentRitualYear();
 
+  /**
+   * V26 修正：供品管理只顯示「真正有供品需求」的活動——
+   *   1) 四位主祀神明聖壽＋宮慶（OFFERING_ACTIVITY_TYPES）：一律顯示，讓管理者可進入設定當次供品。
+   *   2) 花果認捐等掛在「其他（OTHER）」活動上的供品：**僅在該活動確實有供品設定時**才列入。
+   * 中元普渡（UNIVERSAL_SALVATION）、各式燈、祭改、補庫、補印一律排除（不再因 TempleEvent
+   * 存在就自動列入；先前 in 清單誤含 UNIVERSAL_SALVATION／無條件含 OTHER 導致中元普渡出現）。
+   */
   const events = await prisma.templeEvent.findMany({
     where: {
-      activityType: {
-        in: [
-          "TEMPLE_CELEBRATION",
-          "GUANDI_BIRTHDAY",
-          "XUANTIAN_BIRTHDAY",
-          "YAOCHI_BIRTHDAY",
-          "ZHONGTAN_BIRTHDAY",
-          "UNIVERSAL_SALVATION",
-          "OTHER",
-        ],
-      },
+      OR: [
+        { activityType: { in: [...OFFERING_ACTIVITY_TYPES] as ActivityType[] } },
+        { activityType: "OTHER", activityOfferings: { some: {} } },
+      ],
     },
     include: { _count: { select: { activityOfferings: true, stoveMasterRegistrations: true } } },
     orderBy: [{ year: "desc" }, { activityType: "asc" }],

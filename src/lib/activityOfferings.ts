@@ -1,7 +1,7 @@
 import { ActivityOfferingStatus, OfferingClaimMode, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
-import { generateFloralOfferingSlots } from "@/lib/offeringRules";
+import { generateFloralOfferingSlots, getOfferingTemplate } from "@/lib/offeringRules";
 
 /**
  * V10.1「供品認捐中心」需求「二、活動供品設定」核心邏輯。
@@ -116,6 +116,84 @@ export async function addActivityOffering(
   });
 
   return { ok: true, data: { id: created.id } };
+}
+
+// ============================================================
+// V26.1「供品活動模板」：建立活動時自動建立預設供品
+// ============================================================
+
+export type SeedDefaultOfferingsResult = {
+  /** 這次實際新建立的預設供品數量。 */
+  createdCount: number;
+  /** 因為已經存在（不重複建立）而略過的數量。 */
+  skippedCount: number;
+  /** 模板需要、但目前找不到對應「啟用中」供品種類的名稱清單。 */
+  missingOfferingNames: string[];
+};
+
+/**
+ * 依活動類型的預設供品模板（src/lib/offeringRules.ts 的 getOfferingTemplate），
+ * 為活動一次建立預設供品。四主祀神明聖壽＝壽桃麵塔＋散壽桃麵；宮慶＝大福壽龜
+ * ＋小福壽龜＋壽桃麵塔＋散壽桃麵。
+ *
+ * 設計重點（對應 V26.1 需求「四、不得影響」）：
+ *   - 沿用既有 OfferingType（以 name 對應）與 addActivityOffering，後者本身
+ *     有 @@unique([templeEventId, offeringTypeId]) 唯一鍵保護——**已存在的供品
+ *     一律略過，絕不重複建立、絕不覆蓋既有數量/價格/認捐/收款**。
+ *   - 因此這支函式是冪等的：重複呼叫（例如舊活動「建立預設供品」補齊按鈕）
+ *     只會補上缺少的那幾筆，不會動到已有的。
+ *   - 沒有模板的活動類型（普渡、各式燈、祭改…）直接回傳零，不做任何事。
+ *
+ * 共用於兩個入口：createTempleEvent 全新建立完成後（自動），以及舊活動的
+ * 補齊按鈕（手動，POST /api/temple-events/[id]/offerings/seed-defaults）。
+ */
+export async function seedDefaultActivityOfferings(
+  templeEventId: string,
+  activityType: string,
+  operatorName?: string | null
+): Promise<SeedDefaultOfferingsResult> {
+  const template = getOfferingTemplate(activityType);
+  const result: SeedDefaultOfferingsResult = {
+    createdCount: 0,
+    skippedCount: 0,
+    missingOfferingNames: [],
+  };
+  if (template.length === 0) return result;
+
+  const event = await prisma.templeEvent.findUnique({ where: { id: templeEventId } });
+  if (!event) return result;
+
+  for (const entry of template) {
+    // 以名稱對應既有供品種類（只取啟用中的）。找不到就記錄下來，不中斷其他項目。
+    const offeringType = await prisma.offeringType.findFirst({
+      where: { name: entry.offeringName, isActive: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!offeringType) {
+      result.missingOfferingNames.push(entry.offeringName);
+      continue;
+    }
+
+    // 已存在同活動同供品 → 略過（不重複建立、不覆蓋既有設定）。
+    const existing = await prisma.activityOffering.findUnique({
+      where: { templeEventId_offeringTypeId: { templeEventId, offeringTypeId: offeringType.id } },
+    });
+    if (existing) {
+      result.skippedCount += 1;
+      continue;
+    }
+
+    // quantity=null → addActivityOffering 會自動沿用 OfferingType.defaultQuantity。
+    const res = await addActivityOffering(
+      templeEventId,
+      { offeringTypeId: offeringType.id, quantity: entry.quantity },
+      operatorName
+    );
+    if (res.ok) result.createdCount += 1;
+    else result.skippedCount += 1; // 極少數競態（同時被加入）視為略過，不當錯誤、不重複建立
+  }
+
+  return result;
 }
 
 export type UpdateActivityOfferingInput = Partial<AddActivityOfferingInput> & {
