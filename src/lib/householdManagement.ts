@@ -526,7 +526,7 @@ export async function searchHouseholds(params: {
         },
       },
       {
-        worshipRecords: { some: { displayName: { contains: q, mode: "insensitive" } } },
+        worshipRecords: { some: { deletedAt: null, displayName: { contains: q, mode: "insensitive" } } },
       },
     ];
     if (phoneQuery) {
@@ -545,7 +545,7 @@ export async function searchHouseholds(params: {
       take: pageSize,
       include: {
         members: { where: { deletedAt: null }, select: { id: true, name: true, role: true } },
-        worshipRecords: { select: { type: true } },
+        worshipRecords: { where: { deletedAt: null }, select: { type: true } },
       },
     }),
   ]);
@@ -710,17 +710,18 @@ export async function previewHouseholdMerge(targetId: string, sourceId: string):
 
   const suspectedDuplicates = await findSuspectedDuplicatesAcross({ householdIds: [targetId, sourceId] });
 
+  // V28：預覽只顯示有效（未封存）牌位；封存牌位仍會隨合併搬移（見下方 mergeHouseholds），但不列在待合併清單。
   const targetAncestorNames = new Set(
-    target.worshipRecords.filter((w) => w.type === "ANCESTOR_LINE").map((w) => w.displayName)
+    target.worshipRecords.filter((w) => !w.deletedAt && w.type === "ANCESTOR_LINE").map((w) => w.displayName)
   );
   const targetIndividualNames = new Set(
-    target.worshipRecords.filter((w) => w.type === "INDIVIDUAL").map((w) => w.displayName)
+    target.worshipRecords.filter((w) => !w.deletedAt && w.type === "INDIVIDUAL").map((w) => w.displayName)
   );
   const ancestorsToMerge = source.worshipRecords
-    .filter((w) => w.type === "ANCESTOR_LINE")
+    .filter((w) => !w.deletedAt && w.type === "ANCESTOR_LINE")
     .map((w) => ({ id: w.id, displayName: w.displayName, duplicate: targetAncestorNames.has(w.displayName) }));
   const individualsToMerge = source.worshipRecords
-    .filter((w) => w.type === "INDIVIDUAL")
+    .filter((w) => !w.deletedAt && w.type === "INDIVIDUAL")
     .map((w) => ({ id: w.id, displayName: w.displayName, duplicate: targetIndividualNames.has(w.displayName) }));
 
   const [activities, ritualRecords, paymentTransactions, receipts, additionalPrintItems, offeringClaims] =
@@ -1097,11 +1098,12 @@ export async function previewHouseholdSplit(
     remainingMembers: remainingMembers.map((m) => ({ id: m.id, name: m.name, role: m.role })),
     originalHeadWillMove: !!head && moveSet.has(head.id),
     willBecomeEmpty: remainingMembers.length === 0,
+    // V28：只列有效牌位供使用者選擇處理方式；封存牌位維持留在原戶（不搬移）。
     ancestors: household.worshipRecords
-      .filter((w) => w.type === "ANCESTOR_LINE")
+      .filter((w) => !w.deletedAt && w.type === "ANCESTOR_LINE")
       .map((w) => ({ id: w.id, displayName: w.displayName })),
     individuals: household.worshipRecords
-      .filter((w) => w.type === "INDIVIDUAL")
+      .filter((w) => !w.deletedAt && w.type === "INDIVIDUAL")
       .map((w) => ({ id: w.id, displayName: w.displayName })),
   };
 }
@@ -1512,11 +1514,122 @@ export async function transferHouseholdMembers(params: {
  * 只允許封存「目前沒有在職成員」的家戶——避免有人被封存的家戶「隱形」
  * 遺漏在畫面外（對應指令「十四」空家戶處理的精神：封存是給空家戶用的）。
  */
+// ============================================================
+// V28：單一成員封存/恢復、移出孤兒防護、家戶封存前檢查
+// ============================================================
+
+/** 封存（軟刪除）單一成員。不硬刪除；成員仍保留 householdId，不產生無歸屬孤兒。 */
+export async function archiveMember(memberId: string, operatorName: string | null) {
+  const member = await requireActiveMember(memberId);
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.member.update({
+      where: { id: memberId },
+      data: { deletedAt: new Date(), deletedByName: operatorName },
+    });
+    await recordVersion(
+      {
+        entityType: "Member",
+        entityId: memberId,
+        action: "DELETE",
+        beforeData: member,
+        afterData: u,
+        operatorName,
+        changeNote: "家戶管理：封存成員（軟刪除、保留歷史；活動/付款/收據/列印紀錄不變）",
+      },
+      tx
+    );
+    return u;
+  });
+  return { member: updated };
+}
+
+/** 恢復已封存成員。目標家戶仍須存在且未封存，避免恢復成孤兒。 */
+export async function restoreMember(memberId: string, operatorName: string | null) {
+  const member = await prisma.member.findFirst({ where: { id: memberId, deletedAt: { not: null } } });
+  if (!member) throw new HouseholdManagementError("找不到已封存的成員", 404);
+  const hh = await prisma.household.findFirst({ where: { id: member.householdId, deletedAt: null } });
+  if (!hh) throw new HouseholdManagementError("這位成員原本的家戶已封存，請先恢復家戶或改用轉移");
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.member.update({ where: { id: memberId }, data: { deletedAt: null, deletedByName: null } });
+    await recordVersion(
+      { entityType: "Member", entityId: memberId, action: "RESTORE", beforeData: member, afterData: u, operatorName },
+      tx
+    );
+    return u;
+  });
+  return { member: updated };
+}
+
+/** 孤兒防護「建立個人戶」：新建家戶並把該成員轉入（沿用既有 createHousehold＋transfer）。 */
+export async function moveMemberToNewPersonalHousehold(params: {
+  memberId: string;
+  householdCode?: string | null;
+  householdName?: string | null;
+  operatorName: string | null;
+  operatorUserId?: string | null;
+}) {
+  const member = await requireActiveMember(params.memberId);
+  const name = (params.householdName ?? "").trim() || `${member.name}（個人戶）`;
+  const { household } = await createHousehold(
+    { id: params.householdCode?.trim() || undefined, name },
+    params.operatorName
+  );
+  await transferHouseholdMembers({
+    memberIds: [params.memberId],
+    targetHouseholdId: household.id,
+    operatorName: params.operatorName,
+    operatorUserId: params.operatorUserId,
+  });
+  return { household };
+}
+
+export type HouseholdArchivePreview = {
+  householdId: string;
+  activeMemberCount: number;
+  draftActivityCount: number;
+  unpaidClaimCount: number;
+  unpaidAmount: number;
+  mergedFromCount: number;
+  canArchive: boolean;
+  blockers: string[];
+};
+
+/** 家戶封存前檢查（在戶成員／未完成活動／未收款／被合併來源）。純讀取。 */
+export async function previewHouseholdArchive(householdId: string): Promise<HouseholdArchivePreview> {
+  await requireActiveHousehold(householdId);
+  const [activeMemberCount, draftActivityCount, unpaidClaims, mergedFromCount] = await Promise.all([
+    prisma.member.count({ where: { householdId, deletedAt: null } }),
+    prisma.ritualRecord.count({ where: { householdId, deletedAt: null, status: "DRAFT" } }),
+    prisma.offeringClaim.findMany({
+      where: { sponsorHouseholdId: householdId, deletedAt: null, status: "ACTIVE" },
+      select: { amountUnpaid: true },
+    }),
+    prisma.household.count({ where: { mergedIntoHouseholdId: householdId } }),
+  ]);
+  const unpaidList = unpaidClaims.filter((c) => Number(c.amountUnpaid) > 0);
+  const unpaidAmount = Math.round(unpaidList.reduce((s, c) => s + Number(c.amountUnpaid), 0) * 100) / 100;
+  const blockers: string[] = [];
+  if (activeMemberCount > 0) blockers.push(`仍有 ${activeMemberCount} 位在戶成員：請先轉移、拆分或封存成員`);
+  if (draftActivityCount > 0) blockers.push(`有 ${draftActivityCount} 筆未完成（草稿）活動報名：請先完成或取消`);
+  if (unpaidList.length > 0) blockers.push(`有 ${unpaidList.length} 筆未收款（合計 ${unpaidAmount} 元）：請先處理收款`);
+  return {
+    householdId,
+    activeMemberCount,
+    draftActivityCount,
+    unpaidClaimCount: unpaidList.length,
+    unpaidAmount,
+    mergedFromCount,
+    canArchive: blockers.length === 0,
+    blockers,
+  };
+}
+
 export async function archiveHousehold(householdId: string, reason: string | null, operatorName: string | null) {
   const household = await requireActiveHousehold(householdId);
-  const activeMemberCount = await prisma.member.count({ where: { householdId, deletedAt: null } });
-  if (activeMemberCount > 0) {
-    throw new HouseholdManagementError("這個家戶目前還有成員，請先將成員轉移或拆分後才能封存");
+  // V28：封存前完整檢查——有任何阻擋資料即不得封存，回傳明確原因供畫面引導處理。
+  const preview = await previewHouseholdArchive(householdId);
+  if (!preview.canArchive) {
+    throw new HouseholdManagementError(`目前無法封存這個家戶：${preview.blockers.join("；")}`);
   }
 
   const archived = await prisma.$transaction(async (tx) => {

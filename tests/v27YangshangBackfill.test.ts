@@ -18,11 +18,25 @@ const readSrc = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
  */
 
 // ── 完整度規則（純函式，沙盒可跑）：四種牌位對陽上人的要求 ──
-test("US_YUANQIN：有陽上人→可確認；真的沒有→仍應阻擋（不誤放行）", () => {
+test("US_YUANQIN：不要求陽上人——有無陽上人都視為完整（累世冤親債主以報名者姓名建立）", () => {
   assert.equal(checkUniversalSalvationItem("US_YUANQIN", { yangshangNames: ["周財寶"] }).complete, true);
   const empty = checkUniversalSalvationItem("US_YUANQIN", { yangshangNames: [] });
-  assert.equal(empty.complete, false);
-  assert.deepEqual(empty.missing.map((m) => m.field), ["yangshang"]);
+  assert.equal(empty.complete, true, "US_YUANQIN 陽上人為空仍完整（不再要求）");
+  assert.deepEqual(empty.missing, []);
+});
+
+// V27.1 規則差異回歸：US_YUANQIN 不要求陽上人；US_ANCESTOR／US_ZHENGHUN(乙位正魂/亡者) 仍要求。
+test("A/B/C：US_YUANQIN 空陽上人可過；US_ANCESTOR、US_ZHENGHUN 空陽上人仍擋", () => {
+  // A：US_YUANQIN yangshangNames=[] → 通過。
+  assert.equal(checkUniversalSalvationItem("US_YUANQIN", { yangshangNames: [] }).complete, true);
+  // B：US_ANCESTOR yangshangNames=[] → 阻擋（缺陽上人）。
+  const anc = checkUniversalSalvationItem("US_ANCESTOR", { yangshangNames: [], tabletAddress: "台北市A路" });
+  assert.equal(anc.complete, false);
+  assert.ok(anc.missing.some((m) => m.field === "yangshang"), "B 缺項含 yangshang");
+  // C：US_ZHENGHUN（個人乙位正魂／亡者）yangshangNames=[] → 阻擋。
+  const zheng = checkUniversalSalvationItem("US_ZHENGHUN", { yangshangNames: [], tabletAddress: "台北市A路" });
+  assert.equal(zheng.complete, false);
+  assert.ok(zheng.missing.some((m) => m.field === "yangshang"), "C 缺項含 yangshang");
 });
 
 test("US_ANCESTOR／US_ZHENGHUN：陽上人齊全即可確認（回填後不再擋）", () => {

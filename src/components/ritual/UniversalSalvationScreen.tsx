@@ -88,6 +88,8 @@ export default function UniversalSalvationScreen({
   const [individualSoulOptions, setIndividualSoulOptions] = useState<WorshipOptionJSON[]>([]);
   const [debtCreditorNames, setDebtCreditorNames] = useState<string[]>([]);
   const [yangshangCandidates, setYangshangCandidates] = useState<string[]>([]);
+  /** V27.2：固定選項載入失敗時的提示（避免帶入清單靜默空白）。 */
+  const [optionsNotice, setOptionsNotice] = useState<string | null>(null);
   /** V14.2「全戶加入累世冤親債主」：本戶成員、US_YUANQIN 項目 id、勾選狀態。 */
   const [members, setMembers] = useState<PickerMember[]>([]);
   const [yuanqinItemTypeId, setYuanqinItemTypeId] = useState<string | null>(null);
@@ -121,7 +123,17 @@ export default function UniversalSalvationScreen({
         `/api/households/${householdId}/registration-options`
       );
       const data = await res.json();
-      if (!res.ok) return;
+      if (!res.ok) {
+        // V27.2：不再靜默吞掉失敗。這條 API 失敗時（多半是尚未選操作人員或無普渡
+        // 檢視權限），歷代祖先／乙位正魂的「帶入」清單會整個空掉、看起來像資料
+        // 不見了。改為顯示明確提示，讓行政人員知道要先選操作人員再重新整理。
+        setOptionsNotice(
+          `無法載入本戶固定選項（歷代祖先／乙位正魂「帶入」清單）：${data?.error ?? `HTTP ${res.status}`}。` +
+            `請先於上方選擇操作人員（需具普渡檢視權限）後重新整理。`
+        );
+        return;
+      }
+      setOptionsNotice(null);
       setAncestorOptions(Array.isArray(data?.ancestors) ? data.ancestors : []);
       setIndividualSoulOptions(Array.isArray(data?.individualSouls) ? data.individualSouls : []);
       setDebtCreditorNames(Array.isArray(data?.debtCreditorNames) ? data.debtCreditorNames : []);
@@ -129,7 +141,7 @@ export default function UniversalSalvationScreen({
       setMembers(Array.isArray(data?.members) ? data.members : []);
       setYuanqinItemTypeId(typeof data?.yuanqinItemTypeId === "string" ? data.yuanqinItemTypeId : null);
     } catch {
-      /* 取不到不影響報名；只是少了固定選項的便利 */
+      setOptionsNotice("無法載入本戶固定選項：網路連線問題，請稍後重新整理。");
     }
   }, [householdId]);
 
@@ -318,6 +330,9 @@ export default function UniversalSalvationScreen({
         <p className="mt-1 text-sm text-ink-faint">
           依歷代祖先、個人乙位正魂、冤親債主、無緣子女分類登記，可分別新增／編輯／刪除。
         </p>
+        {optionsNotice && (
+          <p className="mt-3 rounded-xl bg-blossom-50 px-4 py-2.5 text-sm text-ink-soft">⚠️ {optionsNotice}</p>
+        )}
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {CATEGORY_SECTIONS.map((section) => (
             <EntryCategorySection
@@ -329,7 +344,7 @@ export default function UniversalSalvationScreen({
               tone={section.tone}
               addMode={section.addMode}
               fixedDisplayName={section.fixedDisplayName}
-              entries={detail.entries.filter((e) => e.category === section.category)}
+              entries={detail.entries.filter((e) => e.category === section.category && !e.deletedAt)}
               onRecordUpdated={handleUpdated}
               householdAddress={householdAddress}
               ancestorOptions={ancestorOptions}

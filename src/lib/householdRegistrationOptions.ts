@@ -84,7 +84,8 @@ async function loadWorshipOptions(
   const [worship, entries] = await Promise.all([
     worshipType
       ? prisma.worshipRecord.findMany({
-          where: { householdId, type: worshipType },
+          // V28：帶入選項只列有效（未封存）永久牌位，封存者不再帶入未來年度。
+          where: { householdId, type: worshipType, deletedAt: null },
           orderBy: { createdAt: "asc" },
           select: { id: true, displayName: true, yangshangName: true, location: true },
         })

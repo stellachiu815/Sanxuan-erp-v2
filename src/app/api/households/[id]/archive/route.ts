@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
-import { archiveHousehold, toHouseholdApiError } from "@/lib/householdManagement";
+import { archiveHousehold, previewHouseholdArchive, toHouseholdApiError } from "@/lib/householdManagement";
+
+/**
+ * V28：家戶封存前檢查。
+ * GET /api/households/F00009/archive
+ *   → { canArchive, blockers[], activeMemberCount, draftActivityCount, unpaidClaimCount, unpaidAmount, mergedFromCount }
+ * 讓畫面在按下「封存家戶」前先顯示阻擋原因與處理入口。純讀取。
+ */
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "archiveHousehold");
+    if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
+    const preview = await previewHouseholdArchive(id);
+    return NextResponse.json({ success: true, data: preview });
+  } catch (e) {
+    const { status, error } = toHouseholdApiError(e);
+    return NextResponse.json({ success: false, error }, { status });
+  }
+}
 
 /**
  * V12.1「家戶管理中心」指令「十四、空家戶處理」。

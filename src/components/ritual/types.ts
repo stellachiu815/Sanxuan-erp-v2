@@ -30,6 +30,8 @@ export type EntryJSON = {
   tabletAddress: string | null;
   notes: string | null;
   sortOrder: number;
+  /** V27.1：軟刪除時間戳（伺服器只回 null 的，畫面再加一道防線）。 */
+  deletedAt?: string | null;
 };
 
 export type DetailJSON = {

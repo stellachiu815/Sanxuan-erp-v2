@@ -80,9 +80,9 @@ test("普渡・乙位正魂：同祖先規則", () => {
   assert.deepEqual(r.missing.map((m) => m.field), ["tabletAddress"]);
 });
 
-test("普渡・冤親：需陽上人（地址非必填不擋）", () => {
+test("普渡・冤親：不要求陽上人（以報名者姓名建立；地址非必填）", () => {
   assert.equal(checkUniversalSalvationItem("US_YUANQIN", { yangshangNames: ["張三"] }).complete, true);
-  assert.equal(checkUniversalSalvationItem("US_YUANQIN", {}).complete, false);
+  assert.equal(checkUniversalSalvationItem("US_YUANQIN", {}).complete, true);
 });
 
 test("普渡・白米：需認購人＋重量", () => {

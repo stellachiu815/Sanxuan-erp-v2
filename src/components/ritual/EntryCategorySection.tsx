@@ -11,6 +11,7 @@ import EntryRow from "./EntryRow";
 import YangshangEditor from "./YangshangEditor";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
 import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON, WorshipOptionJSON } from "./types";
+import { buildWorshipPickList } from "./worshipPickList";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type Props = {
@@ -299,8 +300,8 @@ function SurnameAddForm({
         <div>
           <p className="mb-1 text-xs text-ink-faint">本戶歷代祖先（點選直接帶入，含既有陽上人／地址）</p>
           <div className="flex flex-wrap gap-1.5">
-            {ancestorOptions.map((opt) => {
-              const already = entries.some((e) => e.displayName === opt.displayName);
+            {buildWorshipPickList(ancestorOptions, entries).map((opt) => {
+              const already = opt.already;
               return (
                 <button
                   key={opt.displayName}
@@ -522,8 +523,8 @@ function NameAddForm({
         <div>
           <p className="mb-1 text-xs text-ink-faint">本戶乙位正魂（點選直接帶入，含既有陽上人／地址）</p>
           <div className="flex flex-wrap gap-1.5">
-            {individualSoulOptions.map((opt) => {
-              const already = entries.some((e) => e.displayName === opt.displayName);
+            {buildWorshipPickList(individualSoulOptions, entries).map((opt) => {
+              const already = opt.already;
               return (
                 <button
                   key={opt.displayName}

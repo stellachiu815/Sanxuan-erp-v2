@@ -194,7 +194,8 @@ export async function updateDevoteeBase(
     input.isDeceased === true && existingMember.isDeceased === false;
 
   const existingSoulTablet = await prisma.worshipRecord.findFirst({
-    where: { memberId, type: "INDIVIDUAL" },
+    // V28：封存的乙位正魂不算現存，避免辭世提示被已封存資料抑制。
+    where: { memberId, type: "INDIVIDUAL", deletedAt: null },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
@@ -277,7 +278,7 @@ export async function listRetainedDataAfterUndoDeceased(memberId: string): Promi
   const retained: string[] = [];
 
   const soulTablets = await prisma.worshipRecord.count({
-    where: { memberId, type: "INDIVIDUAL" },
+    where: { memberId, type: "INDIVIDUAL", deletedAt: null },
   });
   if (soulTablets > 0) retained.push(`乙位正魂 ${soulTablets} 筆`);
 

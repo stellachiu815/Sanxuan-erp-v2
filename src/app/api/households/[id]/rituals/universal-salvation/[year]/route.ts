@@ -38,6 +38,7 @@ export async function GET(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
+  // GET 保持純讀取：不在載入時執行任何 backfill/repair/create/update。
   const record = await getUniversalSalvationRecord(householdId, year);
   if (!record) {
     return NextResponse.json(

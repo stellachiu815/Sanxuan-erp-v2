@@ -215,8 +215,9 @@ export async function buildUniversalSalvationJoinPreview(
   worshipRecordId: string,
   now: Date = new Date()
 ): Promise<UniversalSalvationJoinPreview | null> {
-  const record = await prisma.worshipRecord.findUnique({
-    where: { id: worshipRecordId },
+  const record = await prisma.worshipRecord.findFirst({
+    // V28：封存的牌位不可再加入普渡。
+    where: { id: worshipRecordId, deletedAt: null },
   });
   if (!record) return null;
 
@@ -268,8 +269,9 @@ export async function joinUniversalSalvation(params: {
   year: number;
   operatorName: string;
 }): Promise<JoinUniversalSalvationResult> {
-  const record = await prisma.worshipRecord.findUnique({
-    where: { id: params.worshipRecordId },
+  const record = await prisma.worshipRecord.findFirst({
+    // V28：封存的牌位不可再加入普渡。
+    where: { id: params.worshipRecordId, deletedAt: null },
   });
   if (!record) return { ok: false, error: "找不到這筆牌位資料" };
 
@@ -432,7 +434,7 @@ export async function buildAncestorLinePreview(
     include: {
       members: { where: { deletedAt: null }, orderBy: { createdAt: "asc" }, take: 1 },
       worshipRecords: {
-        where: { type: "ANCESTOR_LINE" },
+        where: { type: "ANCESTOR_LINE", deletedAt: null },
         orderBy: { createdAt: "desc" },
       },
     },

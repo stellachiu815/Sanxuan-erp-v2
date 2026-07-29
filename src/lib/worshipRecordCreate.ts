@@ -77,7 +77,7 @@ export async function getYangshangSuggestions(
 
   // 4. 最近使用過的陽上人（本戶既有牌位上填過的）
   const recent = await prisma.worshipRecord.findMany({
-    where: { householdId, yangshangName: { not: null } },
+    where: { householdId, yangshangName: { not: null }, deletedAt: null },
     orderBy: { createdAt: "desc" },
     take: 10,
     select: { yangshangName: true },
@@ -125,7 +125,8 @@ export async function findWorshipDuplicates(params: {
 }): Promise<WorshipDuplicate[]> {
   const name = params.displayName.trim();
   const existing = await prisma.worshipRecord.findMany({
-    where: { householdId: params.householdId, type: params.type },
+    // V28：只跟有效牌位比對重複；已封存者不算現行重複。
+    where: { householdId: params.householdId, type: params.type, deletedAt: null },
     orderBy: { createdAt: "desc" },
   });
 
@@ -166,7 +167,8 @@ export async function findWorshipDuplicates(params: {
  */
 export async function findExistingSoulTablet(memberId: string) {
   return prisma.worshipRecord.findFirst({
-    where: { memberId, type: "INDIVIDUAL" },
+    // V28：封存的乙位正魂不再視為現存，允許重新建立。
+    where: { memberId, type: "INDIVIDUAL", deletedAt: null },
     orderBy: { createdAt: "asc" },
   });
 }

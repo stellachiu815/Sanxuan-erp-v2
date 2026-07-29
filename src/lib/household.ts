@@ -83,7 +83,8 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
     where: { id, deletedAt: null },
     include: {
       members: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
-      worshipRecords: { orderBy: { createdAt: "asc" } },
+      // V28：只帶出「有效（未封存）」的祭祀永久資料；封存區由 listArchivedWorshipRecords 另查。
+      worshipRecords: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
       activities: { orderBy: { createdAt: "desc" } },
     },
   });

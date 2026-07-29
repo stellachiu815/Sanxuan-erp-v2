@@ -1,0 +1,30 @@
+import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import { assertDevoteePermissionForOperator } from "@/lib/operator";
+import { readOperatorUserId } from "@/lib/requestOperator";
+import { restoreWorshipRecord } from "@/lib/worshipRecordManagement";
+
+/**
+ * V28：恢復一筆已封存的祭祀永久資料。
+ *
+ * POST /api/households/F00009/worship/<worshipId>/restore
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; worshipId: string }> }
+) {
+  const { id: householdId, worshipId } = await params;
+
+  const check = await assertDevoteePermissionForOperator(await readOperatorUserId(request), "updateProfile");
+  if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
+
+  const belongs = await prisma.worshipRecord.findFirst({ where: { id: worshipId, householdId }, select: { id: true } });
+  if (!belongs) return NextResponse.json({ success: false, error: "找不到這筆祭祀資料" }, { status: 404 });
+
+  const result = await restoreWorshipRecord(worshipId, check.operator.name);
+  if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: result.status });
+
+  revalidatePath(`/household/${householdId}`);
+  return NextResponse.json({ success: true, data: result.data });
+}

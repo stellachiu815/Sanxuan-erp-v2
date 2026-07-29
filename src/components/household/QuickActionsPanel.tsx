@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import AddMemberModal from "./AddMemberModal";
 import EditHouseholdModal from "./EditHouseholdModal";
 import WorshipRecordWizard from "./WorshipRecordWizard";
+import WorshipRecordManageModal from "./WorshipRecordManageModal";
+import MemberManageModal from "./MemberManageModal";
 import AssignHeadModal from "./AssignHeadModal";
 import ArchiveHouseholdDialog from "./ArchiveHouseholdDialog";
 import MergeHouseholdWizard from "./MergeHouseholdWizard";
@@ -21,6 +23,8 @@ type ModalKind =
   | "editHousehold"
   | "addMember"
   | "addWorship"
+  | "manageWorship"
+  | "manageMembers"
   | "versionHistory"
   | "assignHead"
   | "archiveHousehold"
@@ -41,7 +45,15 @@ type Props = {
     notes: string | null;
   };
   members: { id: string; name: string; role: string }[];
-  worshipRecords: { id: string; type: "ANCESTOR_LINE" | "INDIVIDUAL"; displayName: string }[];
+  worshipRecords: {
+    id: string;
+    type: "ANCESTOR_LINE" | "INDIVIDUAL";
+    displayName: string;
+    /** V28：管理祭祀資料（編輯）需要完整欄位；其他既有用途只用到前三個。 */
+    location?: string | null;
+    yangshangName?: string | null;
+    notes?: string | null;
+  }[];
   /** V6.0：從搜尋結果帶進來的成員 id（已在 page.tsx 驗證過屬於這一戶），
    *  帶進「歷年紀錄」連結，時間軸頁面才能預設切到這位成員視角。 */
   focusedMemberId?: string | null;
@@ -228,6 +240,26 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
 
             <button
               type="button"
+              onClick={() => setOpenModal("manageMembers")}
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-sage-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-sage-100"
+            >
+              <span className="text-2xl">👥</span>
+              <span className="text-sm text-ink">管理成員（封存／移戶）</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("manageWorship")}
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-blossom-50 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-blossom-100"
+            >
+              <span className="text-2xl">🗂</span>
+              <span className="text-sm text-ink">管理祭祀資料（編輯／封存）</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setOpenModal("assignHead")}
               className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-yolk-50 px-4 py-5 text-center
                          shadow-soft transition hover:bg-yolk-100"
@@ -360,6 +392,30 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
           operatorUserId={operatorUser?.id ?? null}
           onClose={() => setOpenModal(null)}
           onCreated={handleSuccess}
+        />
+      )}
+      {openModal === "manageWorship" && (
+        <WorshipRecordManageModal
+          householdId={householdId}
+          records={worshipRecords.map((w) => ({
+            id: w.id,
+            type: w.type,
+            displayName: w.displayName,
+            location: w.location ?? null,
+            yangshangName: w.yangshangName ?? null,
+            notes: w.notes ?? null,
+          }))}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {openModal === "manageMembers" && (
+        <MemberManageModal
+          householdId={householdId}
+          householdName={household.name}
+          members={members}
+          onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
         />
       )}
       {openModal === "assignHead" && (

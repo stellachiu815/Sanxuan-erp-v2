@@ -205,6 +205,9 @@ export default async function HouseholdPage({
                 id: w.id,
                 type: w.type,
                 displayName: w.displayName,
+                location: w.location,
+                yangshangName: w.yangshangName,
+                notes: w.notes,
               }))}
             />
           </div>

@@ -1,5 +1,7 @@
 import type { DbClient } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { normalizeTabletText } from "@/lib/tabletIdentity";
+import { resolveYangshangNames } from "@/lib/yangshang";
 
 /**
  * V15R6.1：把普渡編輯頁新增／修改的「歷代祖先／乙位正魂」牌位，同步寫入該家戶的
@@ -66,14 +68,15 @@ export async function syncEntryToHouseholdWorshipRecord(
   let target =
     input.existingWorshipRecordId
       ? await tx.worshipRecord.findFirst({
-          where: { id: input.existingWorshipRecordId, householdId: input.householdId, type: worshipType },
+          // V28：只對應「有效（未封存）」永久牌位；封存的牌位不被年度同步復用/覆寫。
+          where: { id: input.existingWorshipRecordId, householdId: input.householdId, type: worshipType, deletedAt: null },
         })
       : null;
 
   // 2) 否則以 (type ＋ 標準化姓名 ＋ 標準化地址) 比對本戶既有牌位（同名不同址＝不同牌位）。
   if (!target) {
     const candidates = await tx.worshipRecord.findMany({
-      where: { householdId: input.householdId, type: worshipType },
+      where: { householdId: input.householdId, type: worshipType, deletedAt: null },
     });
     const key = `${normalizeTabletText(name)}::${normalizeTabletText(location)}`;
     target =
@@ -102,4 +105,85 @@ export async function syncEntryToHouseholdWorshipRecord(
     tx
   );
   return created.id;
+}
+
+/**
+ * V27.1：把「家戶永久牌位（WorshipRecord）」已有、但本年度普渡草稿卻缺少的陽上人，
+ * 補入該年度的祖先／正魂 entry。
+ *
+ * 背景：建立時的帶入（auto-draft／沿用去年／手動選取）都會帶陽上人；但若某筆牌位
+ * 是在「永久名單尚未有陽上人」時就建進本年度草稿，之後永久名單才補上陽上人，該年度
+ * 草稿因冪等被跳過而不會回頭更新，導致確認報名一直卡在「缺陽上人」。
+ *
+ * 安全原則（對應需求）：
+ *   - 只補「本年度 entry 陽上人為空」的牌位；**不覆蓋**已有值（含使用者手動輸入）。
+ *   - 只在**永久名單確有陽上人**時才補；永久名單沒有 → 不動、不猜測（維持顯示缺少）。
+ *   - 對應永久牌位：優先用 entry.worshipRecordId；否則以（type＋正規化姓名＋正規化地址）比對。
+ *   - 只處理歷代祖先（ANCESTOR_LINE）與乙位正魂（INDIVIDUAL_SOUL）。
+ *   - 冪等：補過即為非空，之後再進來是 no-op。
+ *
+ * 回傳補入筆數。呼叫時機：進入本年度普渡編輯器載入資料時（僅具編輯權限者觸發）。
+ */
+export async function backfillYearAncestorYangshangFromHousehold(
+  householdId: string,
+  year: number,
+  operatorName?: string | null
+): Promise<{ filled: number }> {
+  const record = await prisma.ritualRecord.findFirst({
+    where: { householdId, year, activityType: "UNIVERSAL_SALVATION", deletedAt: null },
+    include: { universalSalvation: { include: { entries: { where: { deletedAt: null } } } } },
+  });
+  if (!record?.universalSalvation) return { filled: 0 };
+
+  const targets = record.universalSalvation.entries.filter(
+    (e) =>
+      (e.category === "ANCESTOR_LINE" || e.category === "INDIVIDUAL_SOUL") &&
+      (e.yangshangNames?.length ?? 0) === 0 &&
+      !(e.yangshangName && e.yangshangName.trim())
+  );
+  if (targets.length === 0) return { filled: 0 };
+
+  const { recordVersion } = await import("@/lib/recordVersion");
+  let filled = 0;
+
+  for (const e of targets) {
+    const worshipType = e.category === "ANCESTOR_LINE" ? "ANCESTOR_LINE" : "INDIVIDUAL";
+    // 對應永久牌位：優先來源 ID，否則姓名＋地址比對（同名不同址＝不同牌位）。
+    let wr =
+      e.worshipRecordId != null
+        ? await prisma.worshipRecord.findFirst({ where: { id: e.worshipRecordId, householdId, type: worshipType, deletedAt: null } })
+        : null;
+    if (!wr) {
+      const candidates = await prisma.worshipRecord.findMany({ where: { householdId, type: worshipType, deletedAt: null } });
+      const key = `${normalizeTabletText(e.displayName)}::${normalizeTabletText(e.tabletAddress)}`;
+      wr =
+        candidates.find(
+          (w) => `${normalizeTabletText(w.displayName)}::${normalizeTabletText(w.location)}` === key
+        ) ?? null;
+    }
+    const names = resolveYangshangNames(null, wr?.yangshangName ?? null);
+    if (names.length === 0) continue; // 永久名單也沒有陽上人 → 不猜、不動（維持顯示缺少）
+
+    await prisma.$transaction(async (tx) => {
+      const after = await tx.universalSalvationEntry.update({
+        where: { id: e.id },
+        data: { yangshangNames: names, yangshangName: names[0] },
+      });
+      await recordVersion(
+        {
+          entityType: "UniversalSalvationEntry",
+          entityId: e.id,
+          action: "UPDATE",
+          beforeData: e,
+          afterData: after,
+          operatorName,
+          changeNote: "自家戶永久名單補入陽上人（本年度草稿原缺，永久名單有值）",
+        },
+        tx
+      );
+    });
+    filled += 1;
+  }
+
+  return { filled };
 }

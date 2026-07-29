@@ -918,7 +918,7 @@ export async function getCommitPreview(batchId: string): Promise<CommitPreviewRe
       select: { householdId: true, name: true },
     }),
     prisma.worshipRecord.findMany({
-      where: { householdId: { in: codes } },
+      where: { householdId: { in: codes }, deletedAt: null },
       select: { householdId: true, type: true, displayName: true },
     }),
   ]);
@@ -1197,7 +1197,7 @@ export async function commitDevoteeImport(
           tx.household.findMany({ where: { id: { in: codes }, NOT: { deletedAt: null } }, select: { id: true, name: true } }),
           tx.householdCodeAlias.findMany({ where: { oldCode: { in: codes } }, include: { household: true } }),
           tx.member.findMany({ where: { householdId: { in: codes }, deletedAt: null }, select: { id: true, name: true, householdId: true } }),
-          tx.worshipRecord.findMany({ where: { householdId: { in: codes } }, select: { householdId: true, type: true, displayName: true } }),
+          tx.worshipRecord.findMany({ where: { householdId: { in: codes }, deletedAt: null }, select: { householdId: true, type: true, displayName: true } }),
         ]);
       const activeByCode = new Map(existingActive.map((h) => [h.id, h]));
       const archivedByCode = new Map(archivedRows.map((h) => [h.id, h]));

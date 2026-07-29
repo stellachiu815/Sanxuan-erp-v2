@@ -37,7 +37,9 @@ export async function fetchUniversalSalvation(
     // 用相對路徑組 URL 時需要 base，取當前頁面來源
     const url = new URL(input, window.location.origin);
     if (operatorUserId) url.searchParams.set("operatorUserId", operatorUserId);
-    return fetch(url.pathname + url.search, init);
+    // 進入編輯器一律讀取最新 DB 狀態：關閉瀏覽器快取，避免拿到舊快照
+    // （例如牌位剛建立/清理後，畫面卻沿用先前的登記明細，看不到既有牌位）。
+    return fetch(url.pathname + url.search, { ...init, cache: "no-store" });
   }
 
   // 非 GET：把 operatorUserId 併進 JSON body

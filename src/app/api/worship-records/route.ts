@@ -42,7 +42,7 @@ export async function GET(request: Request) {
   const [suggestions, existing] = await Promise.all([
     getYangshangSuggestions(householdId),
     prisma.worshipRecord.findMany({
-      where: { householdId },
+      where: { householdId, deletedAt: null },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

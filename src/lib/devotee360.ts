@@ -102,7 +102,7 @@ async function getBasicAndHousehold(memberId: string) {
           // V12「信眾資料中心正式建置」指令「四」：編輯頁需要顯示並可新增
           // 歷代祖先／乙位正魂（既有的 WorshipRecord），跟既有 /household/[id]
           // 頁面顯示的資料來源完全相同，不重複建立第二份查詢邏輯以外的資料。
-          worshipRecords: { orderBy: { createdAt: "asc" } },
+          worshipRecords: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
         },
       },
     },

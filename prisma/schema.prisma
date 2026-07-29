@@ -293,10 +293,18 @@ model WorshipRecord {
 
   universalSalvationEntries UniversalSalvationEntry[]
 
+  // V28：家戶祭祀永久資料的封存（軟刪除，沿用既有 deletedAt/deletedByName 慣例，
+  // 不建第二套刪除架構）。deletedAt 非 null＝已封存：一律排除於「有效資料」查詢與
+  // 「未來普渡帶入」，但封存區仍可查詢並恢復；封存只影響未來帶入，不回溯已建立的
+  // 年度報名/列印快照/收款/收據/帳務。
+  deletedAt     DateTime?
+  deletedByName String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([householdId])
+  @@index([deletedAt])
   @@map("worship_records")
 }
 

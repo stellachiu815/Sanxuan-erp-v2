@@ -57,11 +57,64 @@ test("Confirm 與畫面同源：US_YUANQIN 也從連結 entry 帶出 yangshangNa
   assert.ok(/if \(key in TABLET_NAME_ITEM_CATEGORY\)[\s\S]*?yangshangNames = linkedYangshang;/.test(src), "其餘牌位帶出陽上人");
 });
 
-// ── V27.1：新增牌位提交錯誤不得被吞掉（非 JSON/HTTP 狀態/缺 record 都要明確） ──
-test("postEntry：非 JSON 回應安全解析、HTTP 狀態入錯誤訊息、缺 record 明確報錯、有診斷 log", () => {
-  const src = readSrc("src/components/ritual/EntryCategorySection.tsx");
-  assert.ok(/try \{\s*data = \(await res\.json\(\)\)[\s\S]*?\} catch \{/.test(src), "非 JSON 回應不讓 res.json() 例外吞掉狀態");
-  assert.ok(/if \(!res\.ok\) \{[\s\S]*?HTTP \$\{res\.status\}/.test(src), "失敗訊息帶 HTTP 狀態");
-  assert.ok(/if \(!data\.record\)[\s\S]*?回應資料異常/.test(src), "成功但缺 record 也明確報錯，不靜默");
-  assert.ok(/console\.error\("\[V27\.1\] 新增牌位提交失敗"/.test(src), "暫時性可移除診斷 log（Console/Network 可查真正原因）");
+// ── 已移除 DEBUG_US_ENTRY 暫時診斷：確認程式碼不再殘留 ──
+test("已移除 DEBUG_US_ENTRY 暫時診斷碼", () => {
+  const route = readSrc("src/app/api/households/[id]/rituals/universal-salvation/[year]/entries/route.ts");
+  const lib = readSrc("src/lib/ritual.ts");
+  assert.ok(!/DEBUG_US_ENTRY/.test(route) && !/DEBUG_US_ENTRY/.test(lib), "DEBUG_US_ENTRY 已清除");
+});
+
+// ── V27.1：永久名單 → 本年度草稿 陽上人補入（安全護欄） ──
+test("backfill：只補空、只從永久名單有值、祖先與正魂皆處理、不覆蓋不猜測", () => {
+  const src = readSrc("src/lib/householdWorshipSync.ts");
+  // 只挑「本年度 entry 陽上人為空」且舊單一欄位也空的祖先/正魂。
+  assert.ok(/category === "ANCESTOR_LINE" \|\| e\.category === "INDIVIDUAL_SOUL"/.test(src), "涵蓋歷代祖先與乙位正魂");
+  assert.ok(/\(e\.yangshangNames\?\.length \?\? 0\) === 0/.test(src), "只補陽上人為空的 entry");
+  assert.ok(/!\(e\.yangshangName && e\.yangshangName\.trim\(\)\)/.test(src), "舊單一 yangshangName 也空才算真的缺（相容舊欄位）");
+  // 永久名單沒有陽上人 → 不動、不猜。
+  assert.ok(/if \(names\.length === 0\) continue;/.test(src), "永久名單無值則不補、不猜測");
+  // 對應永久牌位：優先 worshipRecordId，否則姓名＋地址比對。
+  assert.ok(/e\.worshipRecordId != null[\s\S]*?worshipRecord\.findFirst/.test(src), "優先以 worshipRecordId 對應永久牌位");
+  // 只寫 yangshangNames/yangshangName，不動其他欄位（不覆蓋手動輸入的其他資料）。
+  assert.ok(/data: \{ yangshangNames: names, yangshangName: names\[0\] \}/.test(src), "只補陽上人欄位");
+});
+
+test("確認驗證＝伺服器 DB（listRegisteredItems），非 editor state；完整度回復原 active 過濾、無診斷", () => {
+  const confirm = readSrc("src/app/api/registrations/[ritualRecordId]/confirm/route.ts");
+  assert.ok(/checkRitualRecordCompleteness\(ritualRecordId\)/.test(confirm), "確認預檢用 record 完整度（DB）");
+  const gate = readSrc("src/lib/completenessGate.ts");
+  assert.ok(/const items = await listRegisteredItems\(ritualRecordId\)/.test(gate), "完整度讀 DB items，不讀 editor state");
+  assert.ok(!/DEBUG_CONFIRM/.test(gate) && !/DEBUG_COMPLETENESS/.test(gate), "所有 DEBUG 診斷已移除");
+  // active 過濾回復原狀（僅排除已取消/唯讀相容；軟刪除於查詢層濾除）——無額外佔位過濾。
+  assert.ok(/const active = items\.filter\(\(it\) => it\.status !== "CANCELLED" && !it\.readOnlyLegacy\)/.test(gate), "回復原 active 過濾");
+  assert.ok(!/UNFILLED_TABLET_SENTINELS/.test(gate), "已移除先前的佔位哨兵過濾");
+});
+
+test("US_YUANQIN 規則差異：不再要求陽上人；US_ANCESTOR/US_ZHENGHUN 仍要求", () => {
+  const rules = readSrc("src/lib/dataCompleteness.ts");
+  assert.ok(/case "US_YUANQIN":[\s\S]*?return build\(\[\]\);/.test(rules), "US_YUANQIN 無必填欄位（不要求陽上人）");
+  assert.ok(/case "US_ANCESTOR":[\s\S]*?case "US_ZHENGHUN":[\s\S]*?has\(d\.yangshangNames\), "yangshang"/.test(rules), "US_ANCESTOR/US_ZHENGHUN 仍要求陽上人");
+});
+
+test("Bug 1：軟刪除 entry 不顯示——server 只回 deletedAt:null、client 全取代、畫面再加防線", () => {
+  const lib = readSrc("src/lib/ritual.ts");
+  assert.ok(/entries: \{\s*where: \{ deletedAt: null \}/.test(lib), "getUniversalSalvationRecord entries 只回 deletedAt:null");
+  const screen = readSrc("src/components/ritual/UniversalSalvationScreen.tsx");
+  assert.ok(/detail\.entries\.filter\(\(e\) => e\.category === section\.category && !e\.deletedAt\)/.test(screen), "畫面再加 deletedAt 防線");
+  // client 以新 response 全取代（setRecord），不 merge 舊 entries。
+  assert.ok(/setRecord\(data\.record \?\? data\)/.test(screen) && /setRecord\(nextRecord\)/.test(screen), "收到新 response 全取代，不 merge");
+});
+
+test("GET [year]：保持純讀取——不在載入時執行 backfill/repair/create/update", () => {
+  const route = readSrc("src/app/api/households/[id]/rituals/universal-salvation/[year]/route.ts");
+  assert.ok(!/backfillYearAncestorYangshangFromHousehold/.test(route), "GET 不再觸發陽上人 backfill");
+  assert.ok(/GET 保持純讀取[\s\S]*?const record = await getUniversalSalvationRecord/.test(route), "GET 僅 getUniversalSalvationRecord 讀取");
+});
+
+// ── V27.1 item repair 已回退：確認程式與觸發點皆已移除 ──
+test("item repair 已回退：repairTabletEntryItemsForRecord 與 GET 觸發皆不存在", () => {
+  const lib = readSrc("src/lib/registrationItemRegistration.ts");
+  const route = readSrc("src/app/api/registrations/[ritualRecordId]/items/route.ts");
+  assert.ok(!/repairTabletEntryItemsForRecord/.test(lib), "lib 內已無 repair 函式");
+  assert.ok(!/repairTabletEntryItemsForRecord/.test(route), "items route 已無 repair 觸發");
 });

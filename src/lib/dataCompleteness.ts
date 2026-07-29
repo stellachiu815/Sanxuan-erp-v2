@@ -146,8 +146,11 @@ export function checkUniversalSalvationItem(itemKey: string, d: UniversalSalvati
         [has(d.yangshangNames), "yangshang", FIELD_LABEL.yangshang],
         [has(d.tabletAddress), "tabletAddress", FIELD_LABEL.tabletAddress],
       ]);
-    case "US_YUANQIN": // 冤親：陽上人（地址若需要——非必填，故不擋）
-      return build([[has(d.yangshangNames), "yangshang", FIELD_LABEL.yangshang]]);
+    case "US_YUANQIN":
+      // 累世冤親債主：**不要求陽上人**。此項目本身即以在世報名者姓名建立（displayName
+      // 已是報名者姓名），畫面流程也未設計成需要另填陽上人，不得要求重複填寫同一姓名。
+      // 地址非必填。故無必填欄位、一律視為完整。
+      return build([]);
     case "US_RICE": // 白米：認購人＋重量（重量須 > 0）
       return build([
         [has(d.purchaserName), "purchaser", FIELD_LABEL.purchaser],
