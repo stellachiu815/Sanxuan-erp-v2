@@ -10,15 +10,14 @@ import { join } from "node:path";
  */
 const readSrc = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-// ── Root Cause B：entry 由 API 更新時同步 state（非只在 mount 的 useState 初值）──
-test("EntryRow：useEffect 在 entry 變動且非編輯中時同步 state（相容舊 yangshangName）", () => {
+// ── V27.1 回歸修正：EntryRow 只在 mount 以 initialNames 回填，不再用 effect 覆蓋 render state ──
+test("EntryRow：四類回填由 mount 的 useState(initialNames) 完成；已移除會抖動的 entry 同步 effect", () => {
   const src = readSrc("src/components/ritual/EntryRow.tsx");
-  assert.ok(
-    /useEffect\(\(\) => \{\s*if \(editing\) return;[\s\S]*?setYangshangNames\(initialNames\(entry\)\);[\s\S]*?\}, \[entry, editing\]\)/.test(src),
-    "entry 變動同步 effect：依賴 [entry, editing]、編輯中不覆蓋、以 initialNames 推導"
-  );
-  assert.ok(/useState<string\[\]>\(initialNames\(entry\)\)/.test(src), "mount 初值也用 initialNames（單一來源）");
-  assert.ok(/export function initialNames\(entry: EntryJSON\): string\[\]/.test(src), "initialNames 可供單元測試");
+  assert.ok(/useState<string\[\]>\(initialNames\(entry\)\)/.test(src), "mount 以 initialNames 回填（四類共用）");
+  assert.ok(/export function initialNames\(entry: EntryJSON\): string\[\]/.test(src), "initialNames 可供單元測試/渲染測試");
+  // 不得再存在 d411768 的 [entry, editing] 同步 effect（回歸點）。
+  assert.ok(!/\}, \[entry, editing\]\)/.test(src), "已移除 [entry, editing] 同步 effect（避免新增/刷新循環抖動）");
+  assert.ok(!/useEffect\s*\(/.test(src), "EntryRow 不再實際呼叫 useEffect(");
 });
 
 // ── Root Cause A：牌位變動 → 已報名項目/確認預檢重新載入 ──
@@ -56,4 +55,13 @@ test("Confirm 與畫面同源：US_YUANQIN 也從連結 entry 帶出 yangshangNa
   const src = readSrc("src/lib/registrationItemRegistration.ts");
   assert.ok(/key === "US_YUANQIN"[\s\S]*?yangshangNames = linkedYangshang;/.test(src), "累世冤親債主帶出陽上人");
   assert.ok(/if \(key in TABLET_NAME_ITEM_CATEGORY\)[\s\S]*?yangshangNames = linkedYangshang;/.test(src), "其餘牌位帶出陽上人");
+});
+
+// ── V27.1：新增牌位提交錯誤不得被吞掉（非 JSON/HTTP 狀態/缺 record 都要明確） ──
+test("postEntry：非 JSON 回應安全解析、HTTP 狀態入錯誤訊息、缺 record 明確報錯、有診斷 log", () => {
+  const src = readSrc("src/components/ritual/EntryCategorySection.tsx");
+  assert.ok(/try \{\s*data = \(await res\.json\(\)\)[\s\S]*?\} catch \{/.test(src), "非 JSON 回應不讓 res.json() 例外吞掉狀態");
+  assert.ok(/if \(!res\.ok\) \{[\s\S]*?HTTP \$\{res\.status\}/.test(src), "失敗訊息帶 HTTP 狀態");
+  assert.ok(/if \(!data\.record\)[\s\S]*?回應資料異常/.test(src), "成功但缺 record 也明確報錯，不靜默");
+  assert.ok(/console\.error\("\[V27\.1\] 新增牌位提交失敗"/.test(src), "暫時性可移除診斷 log（Console/Network 可查真正原因）");
 });

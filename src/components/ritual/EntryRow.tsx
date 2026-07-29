@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, type KeyboardEvent } from "react";
+import React, { useState, type KeyboardEvent } from "react";
 import {
   inputClass,
   labelClass,
@@ -72,21 +72,17 @@ export default function EntryRow({
   const [error, setError] = useState<string | null>(null);
   const [showPrintItems, setShowPrintItems] = useState(false);
 
-  /**
-   * V27（Root Cause B）：`useState(initialNames(entry))` 只在首次 mount 求值。
-   * 當 entry 由 API 重新載入或更新（新增後 record 刷新、儲存後回傳更新版、
-   * 重新進入編輯器重取資料）時，本地 state 不會自動跟上，導致「陽上人（列印）」
-   * 停在舊值／空值不回填。這個 effect 在 entry 參考變動且**非編輯中**時，把最新
-   * 的既有值同步進來（相容舊單一 yangshangName）；編輯中則不覆蓋，避免蓋掉尚未
-   * 儲存的輸入。entry 參考只會在 record 真的被替換時改變，不會造成重繪迴圈。
-   */
-  useEffect(() => {
-    if (editing) return;
-    setDisplayName(entry.displayName);
-    setYangshangNames(initialNames(entry));
-    setTabletAddress(entry.tabletAddress ?? "");
-    setNotes(entry.notes ?? "");
-  }, [entry, editing]);
+  // V27.1 回歸修正：移除 d411768 引入的「entry 變動同步 effect」（原依賴 entry 與 editing）。
+  //
+  // 那個 effect 會在**每次 entry 參考變動**時重設本地 state。由於新增/儲存後
+  // handleUpdated 會用整包新 record（每個 entry 都是新物件）取代舊 record，於是
+  // 全部 EntryRow 的 entry 參考都改變、effect 同時觸發並以 initialNames 重新
+  // 建構陣列重設 state，在新增/刷新循環中造成祖先／正魂列 render state 抖動，
+  // 使**新加入的歷代祖先無法穩定顯示**（609a870 只在 mount 求值一次、穩定）。
+  //
+  // 四類陽上人回填仍保留：由下方 `useState(initialNames(entry))` 於 mount 完成；
+  // 重新進入編輯器＝重新 mount，一樣會回填。讀取列顯示本就直接讀 entry（prop 驅動）。
+  // 不再於 render 後用 effect 覆蓋 state，因此也不會蓋掉使用者尚未儲存的輸入。
 
   function cancelEdit() {
     setEditing(false);
