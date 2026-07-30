@@ -38,7 +38,9 @@ export async function GET(
     return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
   }
 
-  // GET 保持純讀取：不在載入時執行任何 backfill/repair/create/update。
+  // GET 保持純讀取：不在載入時執行任何 backfill/repair/create/update（含牌位 item 自癒）。
+  // 不變式「有效 Entry ⇒ 必有有效 item」由各正式寫入交易（createUniversalSalvationEntry／
+  // removeRegisteredItem／deleteUniversalSalvationEntry／重新帶入恢復）各自保證，不靠 GET 自癒。
   const record = await getUniversalSalvationRecord(householdId, year);
   if (!record) {
     return NextResponse.json(

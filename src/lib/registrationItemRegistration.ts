@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { Prisma, ActivityType, RitualRecordStatus } from "@prisma/client";
+import type { Prisma, ActivityType, RitualRecordStatus, UniversalSalvationEntryCategory } from "@prisma/client";
 import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 import { upsertLanternRegistrationInTransaction } from "@/lib/lanternRegistration";
 import {
@@ -1132,9 +1132,11 @@ export async function ensureLinkedTabletItem(
 
   const already = await tx.ritualRegistrationItem.findUnique({
     where: { universalSalvationEntryId: params.entryId },
-    select: { id: true },
+    select: { id: true, status: true, deletedAt: true, amountPaid: true },
   });
-  if (already) return;
+
+  // 已有「有效」item（未軟刪且未取消）→ 冪等，維持原行為不動。
+  if (already && already.deletedAt === null && already.status !== "CANCELLED") return;
 
   const itemType = await tx.registrationItemType.findUnique({
     where: { key: itemKey },
@@ -1146,10 +1148,38 @@ export async function ensureLinkedTabletItem(
   const unit = tabletUnitPriceFor(itemKey, prices);
   const amountDue = unit !== null ? Math.round(unit * 100) / 100 : 0;
 
+  /**
+   * V27.5：牌位計價項目的「正式初始化」欄位——**新建與恢復（reactivate）共用同一組**，
+   * 確保 restore 後每個欄位都與第一次建立一致（修正先前 reactivate 只改 status/deletedAt、
+   * 導致 amountUnpaid 停在 0 的財務不一致）。
+   *
+   * restore 只保留「既有付款（amountPaid，及其連動的收據／付款分錄——那是獨立資料表，本函式
+   * 不觸碰）」與「既有列印紀錄（printCount/printedAt，本函式不覆寫）」；其餘 status/amountDue/
+   * amountUnpaid/quantity/feeChoice 一律重算為與新建相同。amountUnpaid = amountDue − amountPaid。
+   */
+  const initData = (paid: number) => ({
+    registrationItemTypeId: itemType.id,
+    memberId: params.memberId ?? null,
+    quantity: 1,
+    amountDue,
+    amountPaid: paid,
+    amountUnpaid: Math.max(0, Math.round((amountDue - paid) * 100) / 100),
+    feeChoice: null,
+    status: params.status,
+    universalSalvationEntryId: params.entryId,
+    deletedAt: null,
+    deletedByName: null,
+  });
+
+  // 恢復同一筆（先前被取消／軟刪）：走與新建完全相同的初始化，只保留既有付款。
+  if (already) {
+    await tx.ritualRegistrationItem.update({ where: { id: already.id }, data: initData(Number(already.amountPaid)) });
+    return;
+  }
+
   // V15R5 重複計價修正：實際牌位（entry）與計價項目一律 **1:1**。建立 entry 時，
   // **優先連結一筆既有、尚未連結任何 entry 的同類佔位項目**（來源＝報名對話框的 0 元佔位），
-  // 只補上連結、成員與年度單價，**不新增第二筆**——避免同一牌位同時出現「實際牌位名稱」
-  // 與「牌位資料待確認」兩筆收費資料。找不到可重用佔位時才新建。
+  // 只補上連結、成員與年度單價，**不新增第二筆**。找不到可重用佔位時才新建。
   const placeholder = await tx.ritualRegistrationItem.findFirst({
     where: {
       ritualRecordId: params.ritualRecordId,
@@ -1162,34 +1192,68 @@ export async function ensureLinkedTabletItem(
     select: { id: true, amountPaid: true },
   });
   if (placeholder) {
-    // 已收款的佔位不覆蓋金額（保護收款快照），只補連結；未收款才帶入年度單價。
     const paid = Number(placeholder.amountPaid);
-    await tx.ritualRegistrationItem.update({
-      where: { id: placeholder.id },
-      data: {
-        universalSalvationEntryId: params.entryId,
-        memberId: params.memberId ?? undefined,
-        quantity: 1,
-        status: params.status,
-        ...(paid === 0 ? { amountDue, amountUnpaid: amountDue } : {}),
-      },
-    });
+    if (paid === 0) {
+      await tx.ritualRegistrationItem.update({ where: { id: placeholder.id }, data: initData(0) });
+    } else {
+      // 已收款佔位：保護收款快照，只補連結／成員／狀態，不覆蓋金額。
+      await tx.ritualRegistrationItem.update({
+        where: { id: placeholder.id },
+        data: { universalSalvationEntryId: params.entryId, memberId: params.memberId ?? undefined, quantity: 1, status: params.status },
+      });
+    }
     return;
   }
 
   await tx.ritualRegistrationItem.create({
-    data: {
-      ritualRecordId: params.ritualRecordId,
-      registrationItemTypeId: itemType.id,
-      memberId: params.memberId ?? null,
-      quantity: 1,
-      amountDue,
-      amountPaid: 0,
-      amountUnpaid: amountDue,
-      status: params.status,
-      universalSalvationEntryId: params.entryId,
-    },
+    data: { ritualRecordId: params.ritualRecordId, ...initData(0) },
   });
+}
+
+const RECONCILE_TABLET_CATEGORIES: UniversalSalvationEntryCategory[] = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
+
+/**
+ * V27.5：修復歷史不一致「有效 Entry 卻無有效 item」的**一次性工具**。
+ *
+ * ⚠️ 僅供「一次性資料修復」或「明確的管理端 POST 動作」呼叫，**絕不可由 GET／重整／純查看
+ * 觸發**（GET 一律純讀取）。日常的不變式一致性改由各正式寫入交易保證：
+ * createUniversalSalvationEntry／removeRegisteredItem／deleteUniversalSalvationEntry／重新帶入恢復。
+ *
+ * 針對某 RitualRecord 內所有有效牌位 Entry，若其計價項目缺失（沒有 item，或 item 已取消／
+ * 軟刪）→ 用官方建立函式 `ensureLinkedTabletItem`（冪等、與正式建立共用初始化）建立或
+ * 恢復**同一筆**。只補不刪、健康資料零寫入。回傳修復筆數。
+ */
+export async function reconcileTabletItemsForRecord(ritualRecordId: string): Promise<{ healed: number }> {
+  const record = await prisma.ritualRecord.findUnique({
+    where: { id: ritualRecordId },
+    select: { id: true, year: true, status: true, deletedAt: true, universalSalvation: { select: { id: true } } },
+  });
+  if (!record || record.deletedAt || !record.universalSalvation) return { healed: 0 };
+
+  const entries = await prisma.universalSalvationEntry.findMany({
+    where: { universalSalvationId: record.universalSalvation.id, deletedAt: null, category: { in: RECONCILE_TABLET_CATEGORIES } },
+    select: { id: true, category: true, registrationItem: { select: { status: true, deletedAt: true } } },
+  });
+  const needing = entries.filter(
+    (e) => !e.registrationItem || e.registrationItem.deletedAt !== null || e.registrationItem.status === "CANCELLED"
+  );
+  if (needing.length === 0) return { healed: 0 };
+
+  let healed = 0;
+  for (const e of needing) {
+    await prisma.$transaction((tx) =>
+      ensureLinkedTabletItem(tx, {
+        ritualRecordId: record.id,
+        entryId: e.id,
+        category: e.category,
+        year: record.year,
+        status: record.status,
+        memberId: null,
+      })
+    );
+    healed += 1;
+  }
+  return { healed };
 }
 
 /** V14.2：牌位 entry 被刪除／取消時，同步取消其連結的計價項目（未收款才取消）。 */
@@ -1612,7 +1676,18 @@ export async function removeRegisteredItem(
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const item = await prisma.ritualRegistrationItem.findUnique({
     where: { id: registrationItemId },
-    select: { id: true, deletedAt: true, status: true, amountPaid: true, printCount: true, printedAt: true },
+    select: {
+      id: true,
+      deletedAt: true,
+      status: true,
+      amountPaid: true,
+      printCount: true,
+      printedAt: true,
+      // V27.5：牌位類項目取消時，要同步軟刪其對應的 UniversalSalvationEntry，
+      // 避免留下「名冊有效、已報名已取消」的不一致（見下方 transaction）。
+      universalSalvationEntryId: true,
+      registrationItemType: { select: { key: true } },
+    },
   });
   if (!item) return { ok: false, status: 404, error: "找不到這個報名項目" };
   if (item.deletedAt || item.status === "CANCELLED") return { ok: true }; // 冪等
@@ -1622,14 +1697,23 @@ export async function removeRegisteredItem(
   if (item.printCount > 0 || item.printedAt) {
     return { ok: false, status: 409, error: "此項目已列印，不得直接取消；如需作廢請依既有補印／作廢流程處理" };
   }
-  await prisma.ritualRegistrationItem.update({
-    where: { id: registrationItemId },
-    data: {
-      status: "CANCELLED",
-      amountUnpaid: 0,
-      deletedAt: new Date(),
-      deletedByName: operatorName ?? null,
-    },
+
+  // V27.5：牌位類（US_ANCESTOR／US_ZHENGHUN／US_YUANQIN／US_WUYUAN）項目與其
+  // UniversalSalvationEntry 是 1:1。取消 item 時**在同一 transaction 內**同步軟刪對應 Entry，
+  // 使「登記名冊」與「已報名項目」保持一致（不再出現名冊有、已報名沒有）。兩者同時成功或同時失敗。
+  const TABLET_ITEM_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN"]);
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.ritualRegistrationItem.update({
+      where: { id: registrationItemId },
+      data: { status: "CANCELLED", amountUnpaid: 0, deletedAt: now, deletedByName: operatorName ?? null },
+    });
+    if (item.universalSalvationEntryId && TABLET_ITEM_KEYS.has(item.registrationItemType.key)) {
+      await tx.universalSalvationEntry.updateMany({
+        where: { id: item.universalSalvationEntryId, deletedAt: null },
+        data: { deletedAt: now, deletedByName: operatorName ?? null },
+      });
+    }
   });
   return { ok: true };
 }

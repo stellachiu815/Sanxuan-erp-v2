@@ -105,9 +105,11 @@ test("Bug 1：軟刪除 entry 不顯示——server 只回 deletedAt:null、clie
   assert.ok(/setRecord\(data\.record \?\? data\)/.test(screen) && /setRecord\(nextRecord\)/.test(screen), "收到新 response 全取代，不 merge");
 });
 
-test("GET [year]：保持純讀取——不在載入時執行 backfill/repair/create/update", () => {
+test("GET [year]：保持純讀取——不在載入時執行 backfill/repair/reconcile/create/update", () => {
   const route = readSrc("src/app/api/households/[id]/rituals/universal-salvation/[year]/route.ts");
-  assert.ok(!/backfillYearAncestorYangshangFromHousehold/.test(route), "GET 不再觸發陽上人 backfill");
+  assert.ok(!/backfillYearAncestorYangshangFromHousehold/.test(route), "GET 不觸發陽上人 backfill");
+  // V27.5：GET 絕不呼叫牌位 item 自癒（reconcile）；不變式改由正式寫入交易保證。
+  assert.ok(!/reconcileTabletItemsForRecord/.test(route), "GET 不觸發 reconcile 寫入");
   assert.ok(/GET 保持純讀取[\s\S]*?const record = await getUniversalSalvationRecord/.test(route), "GET 僅 getUniversalSalvationRecord 讀取");
 });
 

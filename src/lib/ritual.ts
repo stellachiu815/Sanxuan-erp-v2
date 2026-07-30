@@ -9,6 +9,7 @@ import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTable
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import { syncEntryToHouseholdWorshipRecord, isSyncableWorshipCategory } from "@/lib/householdWorshipSync";
+import { normalizeTabletText } from "@/lib/tabletIdentity";
 
 /**
  * V2.0「祭祀資料核心」的業務邏輯統一寫在這裡（route.ts 只負責解析請求/回傳，
@@ -657,7 +658,64 @@ export async function createUniversalSalvationEntry(
   }
 
   const universalSalvationId = existing.universalSalvation.id;
+
+  const yangshangFirst = input.yangshangNames && input.yangshangNames.length > 0 ? input.yangshangNames[0] : input.yangshangName ?? null;
+
   const run = async (tx: DbClient) => {
+    // V27.5：重新報名恢復——若本 record 已有「軟刪」的同一牌位 Entry（同分類＋正規化姓名＋
+    // 正規化地址），優先恢復同一筆，不新增重複 Entry／item。對應「取消項目→Entry 同步軟刪」，
+    // 使用者再次帶入時可原地復原。恢復後 item 由 ensureLinkedTabletItem 還原為 DRAFT。
+    const softDeletedTwins = await tx.universalSalvationEntry.findMany({
+      where: { universalSalvationId, category: input.category, deletedAt: { not: null } },
+      select: { id: true, displayName: true, tabletAddress: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const nameKey = normalizeTabletText(input.displayName);
+    const fullKey = `${nameKey}::${normalizeTabletText(resolvedTabletAddress)}`;
+    // 先以（姓名＋地址）精準比對；同名同址＝同一牌位。
+    let twin = softDeletedTwins.find(
+      (e) => `${normalizeTabletText(e.displayName)}::${normalizeTabletText(e.tabletAddress)}` === fullKey
+    );
+    // 退一步：若地址曾漂移（例如自動帶入來源不同），但**只有一筆**同名軟刪 Entry → 視為同一牌位，
+    // 恢復同一筆並更新為本次地址，避免每次重新報名都新增重複 Entry（正魂／祖先第二輪消失的主因）。
+    if (!twin) {
+      const sameName = softDeletedTwins.filter((e) => normalizeTabletText(e.displayName) === nameKey);
+      if (sameName.length === 1) twin = sameName[0];
+    }
+    if (twin) {
+      const restored = await tx.universalSalvationEntry.update({
+        where: { id: twin.id },
+        data: {
+          deletedAt: null,
+          deletedByName: null,
+          // 更新為本次輸入內容（陽上人／地址／備註）；不動 sortOrder/建立時間。
+          yangshangName: yangshangFirst,
+          yangshangNames: input.yangshangNames ?? [],
+          tabletAddress: resolvedTabletAddress,
+          notes: input.notes ?? null,
+        },
+      });
+      await recordVersion(
+        { entityType: "UniversalSalvationEntry", entityId: restored.id, action: "RESTORE", afterData: restored, operatorName, changeNote: "重新報名：恢復先前取消的牌位 Entry" },
+        tx
+      );
+      // 恢復同一筆計價項目為 DRAFT（ensureLinkedTabletItem 內建：已取消/軟刪 item → 恢復 DRAFT，不新增重複）。
+      await ensureLinkedTabletItem(tx, {
+        ritualRecordId: existing.id,
+        entryId: restored.id,
+        category: input.category,
+        year,
+        status: existing.status,
+        memberId: input.linkedItemMemberId ?? null,
+      });
+      // 列印物件冪等（已存在則不重建）。
+      await ensureTabletPrintObjects(
+        { ritualRecordId: existing.id, householdId, sourceEntryId: restored.id, printName: input.displayName, memberId: input.linkedItemMemberId ?? null, activityId: existing.templeEventId ?? null },
+        tx
+      );
+      return;
+    }
+
     const created = await tx.universalSalvationEntry.create({
       data: {
         universalSalvationId,
