@@ -100,6 +100,50 @@ export type PersonSheetRow = {
   formatErrors: string[];
 };
 
+/**
+ * V29 校正模式專用：常見欄名別名 → parsePersonSheet 認得的正式欄名。
+ * **只用於信眾資料校正模式**（見 analyze route），完整匯入與 parsePersonSheet 本身行為不變。
+ */
+const PERSON_COLUMN_ALIASES: { canonical: string; aliases: string[] }[] = [
+  { canonical: "姓名", aliases: ["姓名", "信眾姓名"] },
+  { canonical: "家戶編號", aliases: ["家戶編號", "戶號", "家戶號"] },
+  { canonical: "性別", aliases: ["性別"] },
+  { canonical: "國曆生日", aliases: ["國曆生日", "生日", "出生日期"] },
+  { canonical: "農曆生日", aliases: ["農曆生日"] },
+  { canonical: "身分證字號", aliases: ["身分證字號", "身分證"] },
+  { canonical: "手機", aliases: ["手機", "行動電話"] },
+  { canonical: "電話", aliases: ["電話", "市話", "聯絡電話"] },
+  { canonical: "Email", aliases: ["Email", "電子郵件", "e-mail", "email"] },
+  { canonical: "通訊地址", aliases: ["通訊地址", "地址"] },
+  { canonical: "身份", aliases: ["身份", "身分", "稱謂", "role"] },
+  { canonical: "牌位地址", aliases: ["牌位地址"] },
+];
+
+/**
+ * 把每一列的欄名別名補寫成正式欄名（去空白、去大小寫差異比對），讓 parsePersonSheet 能解析。
+ * 不刪除原欄位、不覆蓋既有正式欄名；只在正式欄名缺值時，從別名補上。
+ */
+export function remapPersonSheetAliases(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+  return rows.map((row) => {
+    const byNorm = new Map<string, unknown>();
+    for (const [k, v] of Object.entries(row)) byNorm.set(norm(String(k)), v);
+    const out: Record<string, unknown> = { ...row };
+    for (const { canonical, aliases } of PERSON_COLUMN_ALIASES) {
+      const existing = out[canonical];
+      if (existing !== undefined && String(existing).trim() !== "") continue;
+      for (const a of aliases) {
+        const v = byNorm.get(norm(a));
+        if (v !== undefined && String(v).trim() !== "") {
+          out[canonical] = v;
+          break;
+        }
+      }
+    }
+    return out;
+  });
+}
+
 function cell(raw: Record<string, unknown>, ...keys: string[]): unknown {
   for (const k of keys) {
     if (raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== "") return raw[k];

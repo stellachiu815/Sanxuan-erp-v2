@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useOperator } from "@/lib/operatorClient";
-import DevoteeCorrectionPanel, { type CorrectionSelection, type CorrRow } from "@/components/system-center/DevoteeCorrectionPanel";
+import DevoteeCorrectionPanel, { type CorrectionSelection, type CorrRow, type CandidateInfo } from "@/components/system-center/DevoteeCorrectionPanel";
 import type { FieldDiff } from "@/lib/devoteeImportFieldDiff";
 
 /**
@@ -73,6 +73,8 @@ type PlannedMember = {
   matchedMemberId?: string | null;
   fieldDiffs?: FieldDiff[];
   rowCategory?: "IDENTICAL" | "SAFE_UPDATE" | "NEEDS_REVIEW";
+  /** V29 同名多人候選（待確認時供手動挑選）。 */
+  reviewCandidates?: CandidateInfo[];
 };
 
 type RowPlan = {
@@ -285,6 +287,8 @@ export default function DevoteeImportWizard() {
   const [corrections, setCorrections] = useState<CorrectionSelection[]>([]);
   // V29：信眾資料校正模式（true＝只用信眾 Excel、略過家戶分析與寫入）。
   const [correctionMode, setCorrectionMode] = useState(false);
+  // V29：校正模式 Excel 總筆數（供預覽頁最上方統計；來自 analyze correctionDebug）。
+  const [correctionExcelTotal, setCorrectionExcelTotal] = useState(0);
   /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
   const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
@@ -363,6 +367,10 @@ export default function DevoteeImportWizard() {
       setRows(data.rows ?? []);
       setPersonInfo({ fileName: data.personFileName ?? null, rowCount: data.personRowCount ?? 0 });
       setSheetPrep(data.sheetPreparation ?? null);
+      // V29 校正模式：Excel 總筆數（用於預覽頁最上方配對統計）。
+      setCorrectionExcelTotal(
+        data.correctionDebug?.personRawRowCount ?? data.correctionDebug?.parsedPersonRows ?? (data.rows?.length ?? 0)
+      );
       setFilterKey("ALL");
       setVisibleCount(20);
       // 尚未確認的成員數＝所有 REVIEW 且沒有 resolution 的成員
@@ -814,9 +822,10 @@ export default function DevoteeImportWizard() {
                   rowCategory: m.rowCategory,
                   fieldDiffs: m.fieldDiffs,
                   matchedFields: m.candidates[0]?.matchedFields,
+                  reviewCandidates: m.reviewCandidates,
                 })),
               }));
-            return <DevoteeCorrectionPanel rows={corrRows} onChange={setCorrections} />;
+            return <DevoteeCorrectionPanel rows={corrRows} excelTotalCount={correctionExcelTotal} onChange={setCorrections} />;
           })()}
           {/* V12.8：合併儲存格前處理說明 */}
           {sheetPrep && sheetPrep.mergedRowCount > 0 && (

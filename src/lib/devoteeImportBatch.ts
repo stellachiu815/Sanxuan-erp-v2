@@ -25,6 +25,7 @@ import {
 } from "@/lib/devoteeImportMemberMatch";
 import { setPrimaryContact } from "@/lib/householdPrimaryContact";
 import { toCalendarDateKey } from "@/lib/devoteeDuplicates";
+import { lunarToSolar, getZodiacByLunarYear } from "@/lib/lunar";
 import {
   computeFieldDiffs,
   classifyRow,
@@ -364,6 +365,11 @@ export type MemberCorrectionInput = {
   memberName: string;
   correctionMode: CorrectionMode;
   selectedFields: CorrectableField[];
+  /**
+   * V29 同名多人：使用者**手動挑選**的候選成員 id。只有 REVIEW（同名多筆）時才需要；
+   * 名字唯一時留空（以 matchedMemberId 為準）。系統絕不自動代選。
+   */
+  selectedMemberId?: string | null;
 };
 
 export type PlannedMember = {
@@ -389,6 +395,30 @@ export type PlannedMember = {
   matchedMemberId?: string | null;
   fieldDiffs?: FieldDiff[];
   rowCategory?: RowCategory;
+  /**
+   * V29 校正（同名多人）：所有同名候選的參考資訊，供使用者「手動」挑選正確的人。
+   * **絕不自動選其中一位**。家戶名稱僅供辨識參考，校正不依賴、不修改家戶。
+   * 只有 action==="REVIEW" 且因同名多筆時才有值。
+   */
+  reviewCandidates?: CorrectionCandidate[];
+};
+
+/** V29 校正：同名多人時，每位候選的畫面參考資訊（唯讀，不作為寫入依據）。 */
+export type CorrectionCandidate = {
+  memberId: string;
+  name: string;
+  /** 農曆生日（yyyy 年 M 月 D 日，閏月標註），缺資料為 null */
+  lunarBirthLabel: string | null;
+  /** 國曆生日（yyyy-MM-dd），缺資料為 null */
+  solarBirthLabel: string | null;
+  /** 聯絡電話（DevoteeProfile.mobile），缺資料為 null */
+  mobile: string | null;
+  /** 個人通訊地址（Member.address），缺資料為 null */
+  address: string | null;
+  /** 所屬家戶名稱（僅供辨識參考） */
+  householdName: string | null;
+  /** Excel 值 vs 這位候選 DB 現值的逐欄差異——使用者手動挑選此候選後，供勾選校正欄位。 */
+  fieldDiffs: FieldDiff[];
 };
 
 export type AnalyzedDevoteeRow = {
@@ -421,23 +451,17 @@ export type AnalyzedDevoteeRow = {
 // ============================================================
 
 /**
- * V29 校正模式：由信眾（個人）Excel 依「家戶編號」分組合成家戶列（僅供成員比對/校正，家戶欄位不動）。
- * 無家戶編號的列略過（不猜測、不建立）——校正模式必須有家戶編號才能安全定位既有成員。
+ * V29 信眾個人資料校正：**以「一位信眾＝一列」**建立分析列，配對與更新一律以**姓名**為主，
+ * **完全不依賴家戶編號／Household**（家戶資料僅供畫面參考，不作必要條件、不修改）。
+ * 無家戶編號的列**不略過**——household.code 只作參考顯示。
  */
-function buildCorrectionNormalizedRows(personRows: PersonSheetRow[]): NormalizedDevoteeRow[] {
-  const byCode = new Map<string, PersonSheetRow[]>();
-  for (const p of personRows) {
-    if (!p.householdCode) continue;
-    const list = byCode.get(p.householdCode) ?? [];
-    list.push(p);
-    byCode.set(p.householdCode, list);
-  }
-  let rowNumber = 1;
-  return [...byCode.entries()].map(([code, persons]) => ({
-    rowNumber: rowNumber++,
+export function buildCorrectionNormalizedRows(personRows: PersonSheetRow[]): NormalizedDevoteeRow[] {
+  return personRows.map((p, i) => ({
+    rowNumber: i + 2,
     raw: {},
-    household: { code, name: code, contactName: null, address: null },
-    memberNames: [...new Set(persons.map((p) => p.name))],
+    // household 僅供畫面參考（可空）；校正不依賴、不修改家戶。
+    household: { code: p.householdCode ?? "", name: "", contactName: null, address: null },
+    memberNames: [p.name],
     ancestorNames: [],
     spiritNames: [],
     skippedTablets: [],
@@ -446,6 +470,38 @@ function buildCorrectionNormalizedRows(personRows: PersonSheetRow[]): Normalized
     formatErrors: [],
     warnings: [],
   }));
+}
+
+/** V29 校正：農曆生日（含閏月）換算國曆 yyyy-MM-dd；資料不完整或換算失敗回 null（不猜測）。 */
+export function correctionSolarFromLunar(p: {
+  solarBirthDate: string | null;
+  lunarBirthYear: number | null;
+  lunarBirthMonth: number | null;
+  lunarBirthDay: number | null;
+  lunarIsLeapMonth: boolean;
+}): string | null {
+  if (p.solarBirthDate) return p.solarBirthDate; // Excel 已有國曆 → 直接用
+  if (!(p.lunarBirthYear && p.lunarBirthMonth && p.lunarBirthDay)) return null; // 農曆不完整 → 不換算
+  try {
+    const d = lunarToSolar(p.lunarBirthYear, p.lunarBirthMonth, p.lunarBirthDay, p.lunarIsLeapMonth);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  } catch {
+    return null;
+  }
+}
+
+/** V29 校正：農曆生日顯示字串（yyyy 年 M 月 D 日，閏月標註）；資料不完整回 null。 */
+function formatLunarBirthLabel(
+  y: number | null,
+  m: number | null,
+  d: number | null,
+  isLeap: boolean
+): string | null {
+  if (!(y && m && d)) return null;
+  return `農曆 ${y} 年 ${isLeap ? "閏" : ""}${m} 月 ${d} 日`;
 }
 
 export async function analyzeDevoteeImport(
@@ -473,6 +529,14 @@ export async function analyzeDevoteeImport(
   rows: AnalyzedDevoteeRow[];
   /** V12.8：合併儲存格前處理的結果，供畫面說明「N 列合併成 M 戶」 */
   sheetPreparation: { excelRowCount: number; householdRowCount: number; mergedRowCount: number };
+  /** V29 追查用：校正模式各層筆數與實際欄名，供定位「哪一層變成 0」。 */
+  correctionDebug?: {
+    personRawRowCount: number;
+    parsedPersonRows: number;
+    withHouseholdCode: number;
+    normalizedRowCount: number;
+    sampleColumns: string[];
+  };
 }> {
   /**
    * V12.8：**所有驗證之前**先做合併儲存格前處理。
@@ -640,6 +704,138 @@ export async function analyzeDevoteeImport(
     list.push(m);
     existingByName.set(m.name, list);
   }
+  // V29 校正：memberId → 所屬家戶名稱（同名候選畫面辨識用，僅參考，不作寫入依據）。
+  const householdNameById = new Map<string, string | null>(
+    existingMembers.map((m) => [m.id, m.householdName])
+  );
+
+  /**
+   * V29 信眾個人資料校正——**以姓名為主、完全不依賴家戶**的成員計畫。
+   *   DB 同名 0 位 → CREATE（Excel 有、DB 無；commit 階段不新增任何 Member）。
+   *   DB 同名 1 位 → UPDATE，配對該成員，逐欄比對（可安全更新仍需使用者勾選）。
+   *   DB 同名 ≥2 位 → REVIEW，列出所有候選供**使用者手動挑選**，絕不自動選一位。
+   * 通訊地址寫 Member.address、聯絡電話寫 DevoteeProfile.mobile；nationalId/email 不處理。
+   */
+  function buildCorrectionMember(name: string, person: PersonSheetRow | null): PlannedMember {
+    const cands = existingByName.get(name) ?? [];
+    // Excel 端的值：聯絡電話→mobile；國曆生日缺→由農曆換算；nationalId/email 一律 null（不處理）。
+    const excelSolar = person ? correctionSolarFromLunar(person) : null;
+    const incoming: IncomingMember = {
+      name,
+      mobile: person ? person.mobile ?? person.phone ?? null : null,
+      email: null,
+      phone: person?.phone ?? null,
+      solarBirthDate: excelSolar,
+      lunarBirthYear: person?.lunarBirthYear ?? null,
+      lunarBirthMonth: person?.lunarBirthMonth ?? null,
+      lunarBirthDay: person?.lunarBirthDay ?? null,
+      lunarIsLeapMonth: person?.lunarIsLeapMonth ?? false,
+      address: person?.address ?? null,
+      gender: person?.gender ?? null,
+      role: person?.role ?? null,
+      nationalId: null,
+      tabletAddress: null,
+    };
+
+    // Excel 端逐欄值（供與任一候選 DB 現值比對）。nationalId/email 一律 null（不處理）。
+    const excelSide: ExcelSideValues = {
+      gender: incoming.gender,
+      solarBirthDate: incoming.solarBirthDate,
+      lunarBirthYear: incoming.lunarBirthYear,
+      lunarBirthMonth: incoming.lunarBirthMonth,
+      lunarBirthDay: incoming.lunarBirthDay,
+      lunarIsLeapMonth: incoming.lunarIsLeapMonth,
+      nationalId: null,
+      address: incoming.address,
+      role: incoming.role,
+      mobile: incoming.mobile,
+      email: null,
+    };
+    const diffAgainst = (dbFull: NonNullable<ReturnType<typeof existingFullById.get>>): FieldDiff[] =>
+      computeFieldDiffs(excelSide, {
+        gender: dbFull.gender,
+        solarBirthDate: dbFull.solarBirthDate ? toCalendarDateKey(dbFull.solarBirthDate) : null,
+        lunarBirthYear: dbFull.lunarBirthYear,
+        lunarBirthMonth: dbFull.lunarBirthMonth,
+        lunarBirthDay: dbFull.lunarBirthDay,
+        lunarIsLeapMonth: dbFull.lunarIsLeapMonth,
+        nationalId: dbFull.nationalId,
+        address: dbFull.address,
+        role: dbFull.role,
+        mobile: dbFull.mobile,
+        email: dbFull.email,
+      });
+
+    if (cands.length === 0) {
+      // Excel 有、DB 無 → 不新增 Member，只在畫面顯示。
+      return {
+        name,
+        action: "CREATE",
+        confidence: null,
+        reason: "Excel 有此姓名，資料庫查無同名信眾（不新增，僅顯示）。",
+        candidates: [],
+        personData: person ? incoming : null,
+        genderConflict: null,
+        matchedMemberId: null,
+        fieldDiffs: undefined,
+        rowCategory: undefined,
+      };
+    }
+
+    if (cands.length >= 2) {
+      // DB 同名多位 → 全部列為待確認，附各候選參考資訊，使用者手動挑選；不自動選一位。
+      const reviewCandidates: CorrectionCandidate[] = cands.map((c) => {
+        const full = existingFullById.get(c.id);
+        return {
+          memberId: c.id,
+          name: c.name,
+          lunarBirthLabel: full
+            ? formatLunarBirthLabel(full.lunarBirthYear, full.lunarBirthMonth, full.lunarBirthDay, full.lunarIsLeapMonth)
+            : null,
+          solarBirthLabel: full?.solarBirthDate ? toCalendarDateKey(full.solarBirthDate) : null,
+          mobile: full?.mobile ?? null,
+          address: full?.address ?? null,
+          householdName: householdNameById.get(c.id) ?? null,
+          fieldDiffs: full ? diffAgainst(full) : [],
+        };
+      });
+      return {
+        name,
+        action: "REVIEW",
+        confidence: null,
+        reason: `資料庫有 ${cands.length} 位同名信眾，請人工挑選正確的人後再校正（系統不自動配對）。`,
+        candidates: [],
+        personData: person ? incoming : null,
+        genderConflict: null,
+        matchedMemberId: null,
+        fieldDiffs: undefined,
+        rowCategory: "NEEDS_REVIEW",
+        reviewCandidates,
+      };
+    }
+
+    // DB 同名唯一 → 配對該成員，逐欄比對。可安全更新仍需使用者勾選才寫入。
+    const matched = cands[0];
+    const dbFull = existingFullById.get(matched.id);
+    let fieldDiffs: FieldDiff[] | undefined;
+    let rowCategory: RowCategory | undefined;
+    if (dbFull) {
+      fieldDiffs = diffAgainst(dbFull);
+      rowCategory = classifyRow(true, fieldDiffs); // 姓名唯一即安全配對；分類仍看逐欄結果
+    }
+    return {
+      name,
+      action: "UPDATE",
+      confidence: null,
+      reason: "資料庫有唯一同名信眾，已配對；請確認勾選要校正的欄位。",
+      candidates: [],
+      personData: person ? incoming : null,
+      genderConflict: null,
+      matchedMemberId: matched.id,
+      fieldDiffs,
+      rowCategory,
+    };
+  }
 
   /** 建立這一列的預計動作計畫（指令六）。純判斷，不寫入任何資料。 */
   function buildRowPlan(normalized: (typeof normalizedRows)[number], blockedReason: string | null): RowPlan {
@@ -676,6 +872,8 @@ export async function analyzeDevoteeImport(
     const targetHouseholdId = target?.id ?? code;
     const members: PlannedMember[] = normalized.memberNames.map((name) => {
       const person = lookupPerson(personLookup, code, name);
+      // V29 校正模式：走「以姓名為主、不依賴家戶」的獨立計畫（不進入家戶配對邏輯）。
+      if (correctionOnly) return buildCorrectionMember(name, person);
       const incoming: IncomingMember = {
         name,
         mobile: person?.mobile ?? null,
@@ -802,7 +1000,10 @@ export async function analyzeDevoteeImport(
   }
 
   const rowsToCreate = normalizedRows.map((normalized) => {
-    const codeCheck = inspectHouseholdCode(normalized.household.code || "");
+    // V29 校正模式：**完全不依賴家戶編號**，因此不檢查、不阻擋家戶編號格式（可為空白）。
+    const codeCheck = correctionOnly
+      ? { errors: [] as string[], warnings: [] as string[] }
+      : inspectHouseholdCode(normalized.household.code || "");
     const plan = buildRowPlan(normalized, codeCheck.errors[0] ?? null);
 
     /**
@@ -828,7 +1029,12 @@ export async function analyzeDevoteeImport(
 
     // V12.6 指令六：狀態分類。優先序＝格式錯誤 > 必填缺漏 > 疑似重複 > 可匯入。
     let status: ImportRowStatus;
-    if (codeCheck.errors.length > 0 || normalized.formatErrors.length > 0) {
+    if (correctionOnly) {
+      // V29 校正模式：**沒有任何自動寫入**——所有寫入都由使用者在校正面板逐欄勾選後才發生
+      // （同名多人也需人工挑選候選）。因此校正列一律 READY_TO_IMPORT，commit 只套用被勾選者；
+      // 「待確認／Excel有DB無」等分類由面板依 rowCategory／action 呈現，不靠 ImportRow.status。
+      status = "READY_TO_IMPORT";
+    } else if (codeCheck.errors.length > 0 || normalized.formatErrors.length > 0) {
       status = "FORMAT_ERROR";
     } else if (blockingMissing.length > 0) {
       status = "INCOMPLETE_DATA";
@@ -930,6 +1136,15 @@ export async function analyzeDevoteeImport(
           householdRowCount: normalizedRows.length,
           mergedRowCount: Math.max(0, rawRows.length - normalizedRows.length),
         },
+    correctionDebug: correctionOnly
+      ? {
+          personRawRowCount: personRawRows?.length ?? 0,
+          parsedPersonRows: personRows.length,
+          withHouseholdCode: personRows.filter((p) => !!p.householdCode).length,
+          normalizedRowCount: normalizedRows.length,
+          sampleColumns: personRawRows && personRawRows[0] ? Object.keys(personRawRows[0]).slice(0, 30) : [],
+        }
+      : undefined,
   };
 }
 
@@ -1400,6 +1615,13 @@ export async function commitDevoteeImport(
 
       // ── 第一輪：記憶體分類（Household 解析、成員／牌位分類），不寫入 ──
       for (const r of readyRows) {
+        // V29 校正模式：**完全不觸碰家戶**（不建立/不更新/不計數）。成員校正在第二輪以
+        // matchedMemberId 逐筆處理。這裡只登記這一列已納入本批。
+        if (correctionOnly) {
+          resolvedHouseholdIdByRowId.set(r.id, "");
+          importedRowIds.push(r.id);
+          continue;
+        }
         const code = r.household.code;
         const active = activeByCode.get(code);
         const alias = active ? undefined : aliasByOldCode.get(code);
@@ -1618,14 +1840,88 @@ export async function commitDevoteeImport(
             membersUpdated++;
             continue;
           }
+          // V29 校正模式（同名多人）：使用者手動挑選候選後，套用該候選的逐欄勾選校正。
+          // 系統**絕不自動代選**；沒有 selectedMemberId 就完全不動這一位。
+          if (correctionOnly && pm.action === "REVIEW" && pm.reviewCandidates?.length) {
+            const correction = correctionMap.get(`${r.id}::${pm.name}`);
+            const pickedId = correction?.selectedMemberId ?? null;
+            if (!correction || !pickedId) continue; // 未挑選 → 不動
+            const picked = pm.reviewCandidates.find((c) => c.memberId === pickedId);
+            if (!picked || !pm.personData) continue; // 挑選的 id 不在候選清單 → 拒絕（防呆）
+            const existing = await tx.member.findUnique({ where: { id: pickedId } });
+            if (!existing || existing.deletedAt || existing.name !== pm.name) continue; // 姓名須一致
+            const mode: CorrectionMode = correction.correctionMode ?? "FILL_BLANK_ONLY";
+            const writable = buildSelectedCorrections(picked.fieldDiffs, new Set(correction.selectedFields), mode);
+            const patch: Prisma.MemberUpdateInput = {};
+            const profilePatch: { mobile?: string; email?: string } = {};
+            for (const f of writable) {
+              if (isProfileField(f)) {
+                if (f === "mobile" && pm.personData.mobile) profilePatch.mobile = pm.personData.mobile;
+                if (f === "email" && pm.personData.email) profilePatch.email = pm.personData.email;
+                continue;
+              }
+              if (f === "gender" && pm.personData.gender) patch.gender = pm.personData.gender;
+              else if (f === "solarBirthDate") {
+                const s = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
+                if (s) patch.solarBirthDate = s;
+              } else if (f === "lunarBirth" && pm.personData.lunarBirthYear) {
+                patch.lunarBirthYear = pm.personData.lunarBirthYear;
+                patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
+                patch.lunarBirthDay = pm.personData.lunarBirthDay;
+                patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+              } else if (f === "address" && pm.personData.address) (patch as Record<string, unknown>).address = pm.personData.address;
+              else if (f === "role" && pm.personData.role) patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
+              // nationalId/email 不處理（校正規格：五、不處理）。
+            }
+            if (Object.keys(patch).length > 0) {
+              const after = await tx.member.update({ where: { id: pickedId }, data: patch });
+              pushAudit({
+                entityType: "Member",
+                entityId: pickedId,
+                action: "UPDATE",
+                beforeData: existing,
+                afterData: after,
+                changeNote: `信眾資料匯入預檢中心：同名多人人工挑選後校正（模式：${mode === "CORRECT_WITH_EXCEL" ? "以Excel校正錯值" : "只補空白"}；更新欄位：${Object.keys(patch).join("、")}）`,
+              });
+              membersUpdated++;
+            }
+            if (profilePatch.mobile !== undefined || profilePatch.email !== undefined) {
+              const profile = await tx.devoteeProfile.findUnique({ where: { memberId: pickedId } });
+              if (!profile) {
+                await tx.devoteeProfile.create({ data: { memberId: pickedId, ...profilePatch } });
+                membersUpdated++;
+              } else {
+                const beforeProfile = { mobile: profile.mobile, email: profile.email };
+                const afterProfile = await tx.devoteeProfile.update({ where: { memberId: pickedId }, data: profilePatch });
+                pushAudit({
+                  entityType: "Member",
+                  entityId: pickedId,
+                  action: "UPDATE",
+                  beforeData: beforeProfile,
+                  afterData: { mobile: afterProfile.mobile, email: afterProfile.email },
+                  changeNote: `信眾資料匯入預檢中心：DevoteeProfile 校正（同名多人挑選；${Object.keys(profilePatch).join("、")}）`,
+                });
+                membersUpdated++;
+              }
+            }
+            continue;
+          }
           if (pm.action === "UPDATE") {
-            const targetId = pm.candidates[0]?.memberId;
+            // V29 校正模式：以姓名為主，配對到的成員 id 存在 matchedMemberId（candidates 為空）。
+            // 完整匯入模式：沿用 candidates[0].memberId。
+            const targetId = pm.matchedMemberId ?? pm.candidates[0]?.memberId;
             if (!targetId || !pm.personData) continue;
-            // V29 交易保護：更新前再次驗證 memberId 仍存在、且家戶關聯未變（分析後被搬戶則不動）。
+            // V29 交易保護：更新前再次驗證 memberId 仍存在。
             const existing = await tx.member.findUnique({ where: { id: targetId } });
             if (!existing) continue;
-            const expectedHouseholdId = pm.candidates[0]?.householdId ?? null;
-            if (expectedHouseholdId && existing.householdId !== expectedHouseholdId) continue;
+            if (correctionOnly) {
+              // 校正模式**不依賴家戶**：改以「姓名一致」確保沒有更新到別人（分析後若改名則不動）。
+              if (existing.deletedAt || existing.name !== pm.name) continue;
+            } else {
+              // 完整匯入：驗證家戶關聯未變（分析後被搬戶則不動）。
+              const expectedHouseholdId = pm.candidates[0]?.householdId ?? null;
+              if (expectedHouseholdId && existing.householdId !== expectedHouseholdId) continue;
+            }
 
             const patch: Prisma.MemberUpdateInput = {};
             const profilePatch: { mobile?: string; email?: string } = {};

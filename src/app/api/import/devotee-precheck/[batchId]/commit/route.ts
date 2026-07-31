@@ -57,6 +57,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ bat
           selectedFields: (Array.isArray(c.selectedFields) ? c.selectedFields : []).filter(
             (f: unknown): f is CorrectableField => typeof f === "string" && fieldSet.has(f)
           ),
+          // V29 同名多人：使用者手動挑選的候選 memberId（唯一配對時留空）。
+          selectedMemberId: typeof c.selectedMemberId === "string" && c.selectedMemberId ? c.selectedMemberId : null,
         }))
         .filter((c: MemberCorrectionInput) => c.rowId && c.memberName && c.selectedFields.length > 0)
     : [];

@@ -25,6 +25,7 @@ import { Buffer } from "node:buffer";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
 import { parseSpreadsheetBuffer, suggestColumnMapping, saveFieldMapping, getTargetFields } from "@/lib/smartImport";
+import { remapPersonSheetAliases } from "@/lib/devoteeImportPersonSheet";
 import { applyCanonicalDevoteeHouseholdMapping } from "@/lib/importFieldSuggestion";
 import { annotateTabletRoutedColumns, TABLET_ROUTED_COLUMNS } from "@/lib/devoteeImportNormalize";
 import { analyzeDevoteeImport, DEVOTEE_IMPORT_KIND, MAX_UPLOAD_FILE_BYTES, hasAllowedUploadExtension } from "@/lib/devoteeImportBatch";
@@ -62,14 +63,39 @@ export async function POST(request: Request) {
     );
   }
 
+  // V29：信眾資料校正模式——上傳的檔案即為信眾（個人）Excel。
+  const correctionOnly = formData.get("correctionOnly") === "true";
+
   let columns: string[];
   let rows: Record<string, unknown>[];
+  // V29 校正模式：自動偵測標題列 + 欄名別名正規化後的信眾列（完整匯入不受影響）。
+  let correctionPersonRows: Record<string, unknown>[] = [];
+  let correctionDetectedColumns: string[] = [];
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     ({ columns, rows } = parseSpreadsheetBuffer(buffer));
+    if (correctionOnly) {
+      // 自動找出真正標題列（前面可有標題文字/空白列/合併儲存格），再把別名欄名補成正式欄名。
+      const detected = parseSpreadsheetBuffer(buffer, { autoDetectHeader: true });
+      correctionDetectedColumns = detected.columns;
+      correctionPersonRows = remapPersonSheetAliases(detected.rows);
+    }
   } catch (err) {
     console.error("信眾資料匯入預檢：讀取檔案失敗", err);
     return NextResponse.json({ error: "無法讀取這個檔案，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" }, { status: 400 });
+  }
+
+  // V29 校正模式：以「姓名」為配對主鍵，**完全不依賴家戶編號**。解析前只驗證能否辨識「姓名」欄；
+  // 不再要求家戶編號／戶號欄（家戶資料僅供畫面參考，非必要）。不得靜默回傳全 0。
+  if (correctionOnly) {
+    const withName = correctionPersonRows.filter((r) => String(r["姓名"] ?? "").trim() !== "").length;
+    const detected = correctionDetectedColumns.join("、") || "（未偵測到欄名）";
+    if (correctionPersonRows.length === 0 || withName === 0) {
+      return NextResponse.json(
+        { error: `校正模式無法辨識「姓名／信眾姓名」欄，請確認信眾 Excel 的標題列。實際偵測到的欄名：${detected}` },
+        { status: 400 }
+      );
+    }
   }
 
   if (columns.length === 0 || rows.length === 0) {
@@ -156,13 +182,12 @@ export async function POST(request: Request) {
     }
   }
 
-  // V29：信眾資料校正模式——上傳的檔案即為信眾（個人）Excel，略過家戶分析，只做成員逐欄比對/校正。
-  const correctionOnly = formData.get("correctionOnly") === "true";
-  const { batchId, summary, rows: analyzedRows, sheetPreparation } = await analyzeDevoteeImport(
+  // V29：校正模式改用「自動偵測標題＋別名正規化」後的信眾列（correctionPersonRows）；略過家戶分析。
+  const { batchId, summary, rows: analyzedRows, sheetPreparation, correctionDebug } = await analyzeDevoteeImport(
     fileName,
     correctionOnly ? [] : rows,
     mapping,
-    correctionOnly ? rows : personRows,
+    correctionOnly ? correctionPersonRows : personRows,
     correctionOnly
   );
 
@@ -173,6 +198,8 @@ export async function POST(request: Request) {
     personRowCount: personRows?.length ?? 0,
     // V12.8：合併儲存格前處理結果
     sheetPreparation,
+    // V29 追查用：校正模式各層筆數＋實際欄名（供定位 0 的來源）。
+    correctionDebug,
     columns,
     mapping,
     targetFields: getTargetFields(DEVOTEE_IMPORT_KIND),
