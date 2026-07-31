@@ -55,6 +55,16 @@ type Props = {
   onCreated: () => void;
 };
 
+/**
+ * V28.3：新增歷代祖先「輸入便利」——輸入若最後不是「歷代祖先」，自動補上（如「林姓」→「林姓歷代祖先」）；
+ * 已是「○歷代祖先」則不重複補。**僅本『新增歷代祖先牌位』精靈生效**，不影響編輯、列印、搜尋、匯入、既有資料。
+ */
+export function ensureAncestorLineName(name: string): string {
+  const n = name.trim();
+  if (!n) return n;
+  return n.endsWith("歷代祖先") ? n : `${n}歷代祖先`;
+}
+
 export default function WorshipRecordWizard({
   householdId,
   operatorUserId,
@@ -146,7 +156,8 @@ export default function WorshipRecordWizard({
           body: JSON.stringify({
             operatorUserId,
             householdId,
-            displayName: displayName.trim(),
+            // V28.3：新增歷代祖先便利補字（非「歷代祖先」結尾則補上，已是則不重複）。
+            displayName: ensureAncestorLineName(displayName),
             location: location.trim() || null,
             // 儲存的是**正規化後的姓名**，不含「叩薦」、不含任何稱謂
             yangshangName: normalizeYangshangName(yangshangName),
@@ -352,7 +363,7 @@ export default function WorshipRecordWizard({
                 <dl className="space-y-2 text-sm">
                   <div className="flex gap-3">
                     <dt className="w-20 shrink-0 text-ink-faint">名稱</dt>
-                    <dd className="text-ink">{displayName.trim()}</dd>
+                    <dd className="text-ink">{ensureAncestorLineName(displayName)}</dd>
                   </div>
                   <div className="flex gap-3">
                     <dt className="w-20 shrink-0 text-ink-faint">牌位地址</dt>
