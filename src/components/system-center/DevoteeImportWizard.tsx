@@ -373,7 +373,8 @@ export default function DevoteeImportWizard() {
           0
         )
       );
-      setStep(useCurrentMapping ? 3 : 2);
+      // V29：校正模式不需要家戶欄位對照（信眾 Excel 依中文欄名解析），直接進預覽與統計。
+      setStep(useCurrentMapping || correctionMode ? 3 : 2);
     } catch {
       setAnalyzeError("無法連線到伺服器，請稍後再試");
     } finally {
@@ -634,7 +635,7 @@ export default function DevoteeImportWizard() {
             支援 .xlsx、.xls、.csv，單次僅能上傳一個檔案，檔案大小上限 10MB。上傳後不會立即寫入任何正式資料。
           </p>
           <div>
-            <label className="mb-1 block text-xs text-ink-soft">① 家戶 Excel（必要）</label>
+            <label className="mb-1 block text-xs text-ink-soft">{correctionMode ? "① 信眾資料 Excel（必要）" : "① 家戶 Excel（必要）"}</label>
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
@@ -643,7 +644,8 @@ export default function DevoteeImportWizard() {
             />
           </div>
 
-          {/* V12.6 指令四／五：可選的第二份個人資料 Excel */}
+          {/* V12.6 指令四／五：可選的第二份個人資料 Excel（校正模式下 ① 即為信眾 Excel，故隱藏此選填欄） */}
+          {!correctionMode && (
           <div className="rounded-2xl bg-mist-50 p-4">
             <label className="mb-1 block text-xs text-ink-soft">② 個人資料 Excel（選填）</label>
             <input
@@ -663,6 +665,7 @@ export default function DevoteeImportWizard() {
             </p>
             {personFile && <p className="mt-1 text-xs text-ink-soft">已選擇：{personFile.name}</p>}
           </div>
+          )}
 
           {fileError && <p className="text-xs text-blossom-300">{fileError}</p>}
           {analyzeError && <p className="text-xs text-blossom-300">{analyzeError}</p>}
