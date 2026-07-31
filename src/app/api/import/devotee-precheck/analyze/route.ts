@@ -156,11 +156,14 @@ export async function POST(request: Request) {
     }
   }
 
+  // V29：信眾資料校正模式——上傳的檔案即為信眾（個人）Excel，略過家戶分析，只做成員逐欄比對/校正。
+  const correctionOnly = formData.get("correctionOnly") === "true";
   const { batchId, summary, rows: analyzedRows, sheetPreparation } = await analyzeDevoteeImport(
     fileName,
-    rows,
+    correctionOnly ? [] : rows,
     mapping,
-    personRows
+    correctionOnly ? rows : personRows,
+    correctionOnly
   );
 
   return NextResponse.json({

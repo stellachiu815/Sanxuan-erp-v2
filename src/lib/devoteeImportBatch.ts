@@ -13,6 +13,7 @@ import {
   parsePersonSheet,
   buildPersonLookup,
   lookupPerson,
+  type PersonSheetRow,
 } from "@/lib/devoteeImportPersonSheet";
 import {
   matchIncomingMember,
@@ -419,6 +420,34 @@ export type AnalyzedDevoteeRow = {
 // 三、第一步：分析（上傳＋欄位對照後，預覽，不寫入正式資料）
 // ============================================================
 
+/**
+ * V29 校正模式：由信眾（個人）Excel 依「家戶編號」分組合成家戶列（僅供成員比對/校正，家戶欄位不動）。
+ * 無家戶編號的列略過（不猜測、不建立）——校正模式必須有家戶編號才能安全定位既有成員。
+ */
+function buildCorrectionNormalizedRows(personRows: PersonSheetRow[]): NormalizedDevoteeRow[] {
+  const byCode = new Map<string, PersonSheetRow[]>();
+  for (const p of personRows) {
+    if (!p.householdCode) continue;
+    const list = byCode.get(p.householdCode) ?? [];
+    list.push(p);
+    byCode.set(p.householdCode, list);
+  }
+  let rowNumber = 1;
+  return [...byCode.entries()].map(([code, persons]) => ({
+    rowNumber: rowNumber++,
+    raw: {},
+    household: { code, name: code, contactName: null, address: null },
+    memberNames: [...new Set(persons.map((p) => p.name))],
+    ancestorNames: [],
+    spiritNames: [],
+    skippedTablets: [],
+    tabletMeta: [],
+    missingFieldErrors: [],
+    formatErrors: [],
+    warnings: [],
+  }));
+}
+
 export async function analyzeDevoteeImport(
   fileName: string,
   rawRows: Record<string, unknown>[],
@@ -431,7 +460,13 @@ export async function analyzeDevoteeImport(
    * 資料可用。沒有上傳這一份時，比對會退化成「只有姓名」，此時同名一律
    * 列為疑似重複交人工確認（而不是自動略過或自動建立）。
    */
-  personRawRows?: Record<string, unknown>[]
+  personRawRows?: Record<string, unknown>[],
+  /**
+   * V29：信眾資料校正模式。true＝**只用信眾（個人）Excel**，略過所有 Household 分析與寫入，
+   * 只做 Member／DevoteeProfile 逐欄差異比對與校正。此時 personRawRows 即為上傳的信眾 Excel；
+   * 家戶列由個人 Excel 依「家戶編號」分組合成（家戶欄位不建立/不更新）。既有完整匯入模式（false）不變。
+   */
+  correctionOnly: boolean = false
 ): Promise<{
   batchId: string;
   summary: DevoteeImportSummary;
@@ -447,13 +482,15 @@ export async function analyzeDevoteeImport(
    * 的欄位驗證／預檢分類／人工確認／正式匯入完全沿用既有的「一列＝一戶」
    * 流程，不需要任何改動。詳見 forwardFillAndGroupHouseholdRows() 的說明。
    */
-  const prepared = forwardFillAndGroupHouseholdRows(rawRows, mapping);
-  const normalizedRows = prepared.rows.map((p) =>
-    normalizeAndValidateDevoteeRow(p.raw, mapping, p.rowNumber)
-  );
-
-  // ---- 個人 Excel（可選）----
+  // ---- 個人（信眾）Excel ----
   const personRows = personRawRows?.length ? parsePersonSheet(personRawRows) : [];
+
+  // V29 校正模式：略過家戶 Excel 前處理，改由信眾 Excel 依家戶編號分組合成家戶列（家戶欄位不動）。
+  const normalizedRows: NormalizedDevoteeRow[] = correctionOnly
+    ? buildCorrectionNormalizedRows(personRows)
+    : forwardFillAndGroupHouseholdRows(rawRows, mapping).rows.map((p) =>
+        normalizeAndValidateDevoteeRow(p.raw, mapping, p.rowNumber)
+      );
   const personLookup = buildPersonLookup(personRows);
   const personFormatErrors = personRows.flatMap((p) =>
     p.formatErrors.map((e) => `個人資料第 ${p.rowNumber} 列（${p.name}）：${e}`)
@@ -886,11 +923,13 @@ export async function analyzeDevoteeImport(
     batchId: batch.id,
     summary,
     rows,
-    sheetPreparation: {
-      excelRowCount: rawRows.length,
-      householdRowCount: prepared.rows.length,
-      mergedRowCount: prepared.mergedRowCount,
-    },
+    sheetPreparation: correctionOnly
+      ? { excelRowCount: personRawRows?.length ?? 0, householdRowCount: normalizedRows.length, mergedRowCount: 0 }
+      : {
+          excelRowCount: rawRows.length,
+          householdRowCount: normalizedRows.length,
+          mergedRowCount: Math.max(0, rawRows.length - normalizedRows.length),
+        },
   };
 }
 
@@ -1168,9 +1207,11 @@ async function finalizeBatchIfComplete(batchId: string): Promise<void> {
 export async function commitDevoteeImport(
   batchId: string,
   operatorName?: string | null,
-  options: { chunkSize?: number; corrections?: MemberCorrectionInput[] } = {}
+  options: { chunkSize?: number; corrections?: MemberCorrectionInput[]; correctionOnly?: boolean } = {}
 ): Promise<CommitDevoteeImportResult> {
   const chunkSize = Math.max(1, options.chunkSize ?? DEFAULT_COMMIT_CHUNK_SIZE);
+  // V29 校正模式：略過所有 Household 建立/更新與 Member 新增，只套用使用者勾選的欄位校正。
+  const correctionOnly = options.correctionOnly === true;
   // V29 B：使用者勾選的欄位校正（rowId::memberName → {mode, selectedFields}）。空＝維持既有只補空白。
   const correctionMap = new Map<string, MemberCorrectionInput>();
   for (const c of options.corrections ?? []) correctionMap.set(`${c.rowId}::${c.memberName}`, c);
@@ -1426,6 +1467,7 @@ export async function commitDevoteeImport(
             }
             if (pm.action === "UPDATE") continue; // 第二輪逐筆處理
             if (pm.action === "CREATE") {
+              if (correctionOnly) continue; // V29 校正模式不新增任何 Member（Excel 有、DB 無 只顯示不建立）
               // plan 已判定為新增（多欄比對認定為不同人），一律建立，不再依姓名去重。
               const id = randomUUID();
               const solar = toSafeCalendarDate(pm.personData?.solarBirthDate ?? null);
@@ -1515,19 +1557,22 @@ export async function commitDevoteeImport(
       }
 
       // ── 第二輪：批次寫入（順序：Household → Member → DevoteeProfile → WorshipRecord），維持 FK 依賴 ──
-      if (householdCreateData.length > 0) {
+      // V29 校正模式：完全略過 Household 的建立與更新（只做成員欄位校正）。
+      if (!correctionOnly && householdCreateData.length > 0) {
         await tx.household.createMany({ data: householdCreateData });
         const createdHouseholds = await tx.household.findMany({ where: { id: { in: newHouseholdCodes } } });
         for (const h of createdHouseholds) {
           pushAudit({ entityType: "Household", entityId: h.id, action: "CREATE", afterData: h, changeNote: "信眾資料匯入預檢中心：正式匯入" });
         }
       }
-      for (const op of householdUpdateOps) {
-        const after = await tx.household.update({ where: { id: op.id }, data: op.data });
-        pushAudit({ entityType: "Household", entityId: op.id, action: "UPDATE", beforeData: op.before, afterData: after, changeNote: op.changeNote });
+      if (!correctionOnly) {
+        for (const op of householdUpdateOps) {
+          const after = await tx.household.update({ where: { id: op.id }, data: op.data });
+          pushAudit({ entityType: "Household", entityId: op.id, action: "UPDATE", beforeData: op.before, afterData: after, changeNote: op.changeNote });
+        }
       }
 
-      if (memberCreateData.length > 0) {
+      if (!correctionOnly && memberCreateData.length > 0) {
         await tx.member.createMany({ data: memberCreateData });
         const createdMembers = await tx.member.findMany({ where: { id: { in: newMemberMeta.map((m) => m.id) } } });
         const createdById = new Map(createdMembers.map((m) => [m.id, m]));

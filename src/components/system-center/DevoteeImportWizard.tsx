@@ -283,6 +283,8 @@ export default function DevoteeImportWizard() {
   const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
   // V29：使用者在校正面板勾選要更新的欄位（於確認匯入時一併送出）。
   const [corrections, setCorrections] = useState<CorrectionSelection[]>([]);
+  // V29：信眾資料校正模式（true＝只用信眾 Excel、略過家戶分析與寫入）。
+  const [correctionMode, setCorrectionMode] = useState(false);
   /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
   const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
@@ -341,6 +343,8 @@ export default function DevoteeImportWizard() {
       const form = new FormData();
       form.append("file", file);
       if (personFile) form.append("personFile", personFile);
+      // V29：信眾資料校正模式——只用信眾 Excel，略過家戶分析。
+      if (correctionMode) form.append("correctionOnly", "true");
       form.append("operatorUserId", operatorUserId);
       if (useCurrentMapping) {
         form.append("mapping", JSON.stringify(mapping));
@@ -448,7 +452,7 @@ export default function DevoteeImportWizard() {
         const res = await fetch(`/api/import/devotee-precheck/${batchId}/commit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ operatorUserId, corrections }),
+          body: JSON.stringify({ operatorUserId, corrections, correctionOnly: correctionMode }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -594,6 +598,36 @@ export default function DevoteeImportWizard() {
       {step === 1 && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第一步：上傳檔案</h3>
+
+          {/* V29：模式選擇——完整匯入 vs 信眾資料校正（只用信眾 Excel、略過家戶） */}
+          <div className="rounded-2xl border border-cream-200 bg-white/60 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-ink-soft">匯入模式：</span>
+              {([false, true] as const).map((cm) => (
+                <button
+                  key={String(cm)}
+                  type="button"
+                  onClick={() => setCorrectionMode(cm)}
+                  className={"rounded-full px-3 py-1 " + (correctionMode === cm ? "bg-ink-soft text-cream-50" : "bg-cream-100 text-ink-soft")}
+                >
+                  {cm ? "信眾資料校正（只用信眾 Excel）" : "完整匯入（家戶＋成員）"}
+                </button>
+              ))}
+            </div>
+            {correctionMode && (
+              <p className="mt-2 rounded-lg bg-yolk-100 px-3 py-2 text-xs font-semibold leading-relaxed text-ink">
+                ⚠️ 本模式僅校正既有信眾資料，不新增家戶、不新增成員、不變更家戶關聯。
+              </p>
+            )}
+            {correctionMode && (
+              <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+                校正模式：只上傳**信眾 Excel**（含家戶編號、姓名、性別、手機、Email、國曆/農曆生日、通訊地址、身份），
+                系統會依家戶編號＋姓名比對既有信眾，逐欄顯示 Excel vs DB 差異；**完全略過家戶（Household）分析與寫入**，
+                也不會新增任何信眾。無家戶編號的列會被略過（不猜測）。請把信眾 Excel 放在下方「① 檔案」欄位。
+              </p>
+            )}
+          </div>
+
           <p className="text-xs text-ink-faint">
             正式格式一列代表一戶，「所有成員」欄以逗號分隔，內含一般家戶成員、歷代祖先與乙位正魂三種資料，
             系統會依名稱自動分類（含「歷代祖先」→ 歷代祖先牌位；含「乙位正魂」→ 乙位正魂牌位；其餘 → 一般成員）。
@@ -753,6 +787,12 @@ export default function DevoteeImportWizard() {
       {step === 3 && summary && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第三步：預覽與統計</h3>
+
+          {correctionMode && (
+            <p className="rounded-lg bg-yolk-100 px-4 py-3 text-xs font-medium leading-relaxed text-ink">
+              目前為信眾資料校正模式。本批次不會修改 Household、不會新增 Member，只會更新已配對成員且由使用者勾選的欄位。
+            </p>
+          )}
 
           {/* V29：成員逐欄差異與安全校正（沿用本預檢中心；勾選於確認匯入時送出） */}
           {(() => {
@@ -1110,6 +1150,12 @@ export default function DevoteeImportWizard() {
                 </div>
               )}
 
+              {correctionMode && (
+                <p className="rounded-lg bg-mist-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+                  只有按下確認匯入後，才會寫入已勾選欄位。未勾選欄位、待確認資料、Excel 空白欄位均不會更新。
+                </p>
+              )}
+
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
                 <button
                   type="button"
@@ -1125,7 +1171,7 @@ export default function DevoteeImportWizard() {
                   onClick={handleCommit}
                   className="min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint sm:w-auto"
                 >
-                  {committing ? "匯入中，請稍候…" : "確認匯入"}
+                  {committing ? "匯入中，請稍候…" : correctionMode ? "確認校正已勾選資料" : "確認匯入"}
                 </button>
               </div>
             </>
@@ -1136,7 +1182,26 @@ export default function DevoteeImportWizard() {
       {/* ⑤ 匯入結果 */}
       {step === 5 && commitResult && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
-          <h3 className="text-sm text-ink">第五步：匯入結果</h3>
+          <h3 className="text-sm text-ink">{correctionMode ? "信眾資料校正完成" : "第五步：匯入結果"}</h3>
+          {correctionMode ? (() => {
+            // 由已分析列＋使用者勾選送出的校正計算統計（不改校正/資料庫邏輯）。
+            const flatMembers = rows.flatMap((r) => (r.plan?.members ?? []) as PlannedMember[]);
+            const updatedPeople = corrections.length;
+            const updatedFields = corrections.reduce((s, c) => s + c.selectedFields.length, 0);
+            const skipped = flatMembers.filter((m) => m.action === "SKIP").length;
+            const needsReview = flatMembers.filter((m) => m.rowCategory === "NEEDS_REVIEW" || m.action === "REVIEW").length;
+            const unmatched = flatMembers.filter((m) => m.action === "CREATE").length;
+            return (
+              <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:gap-3">
+                <StatPill label="成功更新人數" value={updatedPeople} tone="sage" />
+                <StatPill label="成功更新欄位數" value={updatedFields} tone="sage" />
+                <StatPill label="略過人數" value={skipped} tone="mist" />
+                <StatPill label="待確認人數" value={needsReview} tone="mist" />
+                <StatPill label="無法配對人數" value={unmatched} tone="mist" />
+                <StatPill label="失敗" value={commitResult.failedCount} tone="blossom" />
+              </div>
+            );
+          })() : (
           <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:gap-3">
             <StatPill label="新增家戶" value={commitResult.householdsCreated} tone="sage" />
             <StatPill label="更新家戶" value={commitResult.householdsUpdated} tone="mist" />
@@ -1147,6 +1212,7 @@ export default function DevoteeImportWizard() {
             <StatPill label="不處理" value={commitResult.skippedCount} />
             <StatPill label="失敗" value={commitResult.failedCount} tone="blossom" />
           </div>
+          )}
           <p className="text-xs text-ink-faint">
             完成時間：{new Date(commitResult.committedAt).toLocaleString("zh-TW")}
           </p>

@@ -61,8 +61,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ bat
         .filter((c: MemberCorrectionInput) => c.rowId && c.memberName && c.selectedFields.length > 0)
     : [];
 
+  // V29：校正模式（略過 Household 建立/更新與 Member 新增，只套用勾選欄位校正）。
+  const correctionOnly = body?.correctionOnly === true;
   const { batchId } = await params;
-  const result = await commitDevoteeImport(batchId, check.operator.name, { chunkSize, corrections });
+  const result = await commitDevoteeImport(batchId, check.operator.name, { chunkSize, corrections, correctionOnly });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
