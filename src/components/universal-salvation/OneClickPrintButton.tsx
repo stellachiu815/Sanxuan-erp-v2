@@ -5,20 +5,19 @@ import { primaryButtonClass, secondaryButtonClass, errorTextClass } from "@/comp
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 import {
   PRINT_BATCH_META,
-  filterBatchItems,
   summarizeBatchItems,
-  isUnprinted,
-  isComplete,
   type PrintBatchKey,
   type BatchItem,
 } from "@/lib/TabletBatchService";
 
 /**
- * V27.10：單一列印批次區塊（含一鍵列印）。三個批次各自一個，內容只含**該批次**項目，
- * 因此手動勾選在結構上不可能跨批次。牌位批次（ancestor-soul／creditor）的列印一律導向
- * 專用列印頁；寶袋批次沿用既有「牌位與寶袋列印」版型（本區塊僅顯示統計與導引）。
+ * V27.13：單一列印批次區塊。**只提供「一鍵列印全部未列印」＋統計＋確認完成列印**。
  *
- * 列印紀錄：開啟專用列印頁／Chrome 預覽都**不**更新 printCount；只有按「確認完成列印」
+ * 手動勾選／少量補印一律改到本頁下方「牌位與寶袋列印」（PrintObjectCenter）——
+ * 那裡是唯一的手動勾選區，勾選後按「產生列印頁／預覽」會導向同一個牌位專用列印頁。
+ * 避免兩個互不同步的勾選清單造成「這裡勾了、那裡顯示 0」的混淆。
+ *
+ * 列印紀錄：開啟專用列印頁／Chrome 預覽都**不**更新 printCount；只有「確認完成列印」
  * 才呼叫既有 confirm API（printCount++／printedAt／列印批次）。
  */
 export default function OneClickPrintButton({
@@ -33,54 +32,23 @@ export default function OneClickPrintButton({
   onChanged: () => void;
 }) {
   const meta = PRINT_BATCH_META[batch];
-  const inBatch = useMemo(() => filterBatchItems(items, batch), [items, batch]);
   const summary = useMemo(() => summarizeBatchItems(items, batch), [items, batch]);
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showConfirm, setShowConfirm] = useState(false);
   const [printedIds, setPrintedIds] = useState<string[] | null>(null); // 已送去列印頁的 ids（供「確認完成列印」）
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-  function selectAllUnprinted() {
-    setSelected(new Set(inBatch.filter((i) => isUnprinted(i) && isComplete(i)).map((i) => i.id)));
-  }
-
-  function openPrintRoute(ids: string[] | null) {
-    const base = `/universal-salvation/${year}/print-center/print?batch=${batch}`;
-    const url = ids && ids.length ? `${base}&ids=${ids.join(",")}` : `${base}&scope=unprinted`;
-    setPrintedIds(ids && ids.length ? ids : summary.printableIds);
+  function openOneClickRoute() {
+    setPrintedIds(summary.printableIds);
     setError(null);
     setToast(null);
     if (typeof window === "undefined") return;
-    // 優先開新分頁（保留本管理頁與確認狀態）；若被彈出視窗封鎖 → 同分頁導向，確保一定進到專用列印頁，
-    // 不會停在管理頁被誤按 ⌘P 印到管理介面。
+    const url = `/universal-salvation/${year}/print-center/print?batch=${batch}&scope=unprinted`;
+    // 優先新分頁（保留本管理頁與確認狀態）；被彈窗封鎖 → 同分頁導向專用列印頁，絕不停在管理頁列印。
     const win = window.open(url, "_blank", "noopener");
     if (!win) window.location.assign(url);
-  }
-
-  function handleOneClick() {
-    if (summary.printableComplete === 0) return;
-    setShowConfirm(true);
-  }
-
-  function handleManualPrint() {
-    const chosen = inBatch.filter((i) => selected.has(i.id));
-    const incomplete = chosen.filter((i) => !isComplete(i));
-    if (chosen.length === 0) return;
-    if (incomplete.length > 0) {
-      setError(`所選 ${incomplete.length} 筆資料不完整，無法列印；請先補齊或取消勾選。`);
-      return;
-    }
-    openPrintRoute(chosen.map((i) => i.id));
   }
 
   async function confirmPrinted() {
@@ -109,7 +77,6 @@ export default function OneClickPrintButton({
       }
       setToast(`已確認完成列印：${printedIds.length} 筆（已累計列印次數並建立列印批次）。`);
       setPrintedIds(null);
-      setSelected(new Set());
       onChanged();
     } catch {
       setError("網路錯誤，請稍後再試一次。");
@@ -124,9 +91,7 @@ export default function OneClickPrintButton({
         <span className={`inline-block h-4 w-4 rounded-full ${meta.paperDotClass}`} aria-hidden />
         <h2 className="text-base font-medium text-ink">{meta.label}</h2>
         <span className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft">{meta.paperLabel}</span>
-        {meta.usesTabletEngine && (
-          <span className="text-xs text-ink-faint">版型 UNIVERSAL_SALVATION_TABLET_A4_V1</span>
-        )}
+        {meta.usesTabletEngine && <span className="text-xs text-ink-faint">版型 UNIVERSAL_SALVATION_TABLET_A4_V1</span>}
       </div>
 
       {/* 統計 */}
@@ -140,7 +105,7 @@ export default function OneClickPrintButton({
       {meta.usesTabletEngine ? (
         <>
           <div className="mt-4 flex flex-wrap gap-3">
-            <button type="button" className={primaryButtonClass} onClick={handleOneClick} disabled={summary.printableComplete === 0}>
+            <button type="button" className={primaryButtonClass} onClick={() => setShowConfirm(true)} disabled={summary.printableComplete === 0}>
               {meta.oneClickLabel}（{summary.printableComplete}）
             </button>
             {printedIds && printedIds.length > 0 && (
@@ -149,49 +114,13 @@ export default function OneClickPrintButton({
               </button>
             )}
           </div>
-
-          {/* 手動補印（僅本批次項目，結構上不可能跨批次） */}
-          <details className="mt-4">
-            <summary className="cursor-pointer text-sm text-ink-soft">手動勾選補印／少量列印（{inBatch.length} 筆）</summary>
-            <div className="mt-2 flex items-center gap-3">
-              <button type="button" className="text-xs text-ink-soft hover:underline" onClick={selectAllUnprinted}>
-                全選本區塊未列印（完整）
-              </button>
-              <button type="button" className="text-xs text-ink-soft hover:underline" onClick={() => setSelected(new Set())}>
-                清除
-              </button>
-              <button type="button" className={secondaryButtonClass + " ml-auto"} onClick={handleManualPrint} disabled={selected.size === 0}>
-                列印勾選（{selected.size}）
-              </button>
-            </div>
-            <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-cream-200">
-              <table className="w-full text-left text-xs">
-                <tbody>
-                  {inBatch.map((i) => {
-                    const incomplete = !isComplete(i);
-                    return (
-                      <tr key={i.id} className="border-t border-cream-100">
-                        <td className="px-2 py-1">
-                          <input type="checkbox" checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
-                        </td>
-                        <td className="px-2 py-1">{i.household.name}（{i.household.id}）</td>
-                        <td className="px-2 py-1">{i.sourceCategoryLabel}／{i.sourceDisplayName}</td>
-                        <td className="px-2 py-1">{isUnprinted(i) ? "未列印" : `已列印${i.printCount > 1 ? `／補印${i.printCount - 1}` : ""}`}</td>
-                        <td className="px-2 py-1 text-red-700">{incomplete ? `缺${i.tabletMissingFields.join("、")}` : ""}</td>
-                      </tr>
-                    );
-                  })}
-                  {inBatch.length === 0 && (
-                    <tr><td className="px-2 py-3 text-center text-ink-faint" colSpan={5}>本批次目前沒有項目。</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </details>
+          <p className="mt-2 text-xs text-ink-faint">
+            少量／補印：請至下方「牌位與寶袋列印」勾選該筆後按「產生列印頁／預覽」，會進入同一個牌位專用列印頁。
+          </p>
         </>
       ) : (
         <div className="mt-4 rounded-2xl bg-cream-100/60 p-4 text-sm text-ink-soft">
-          寶袋使用既有「牌位與寶袋列印」的紅色紙專用版型，與黃色牌位分開列印。請於本頁上方
+          寶袋使用既有「牌位與寶袋列印」的紅色紙專用版型，與黃色牌位分開列印。請於本頁下方
           「牌位與寶袋列印」區塊選取寶袋並列印、確認完成列印。（本次不重建第二套寶袋版型。）
         </div>
       )}
@@ -225,7 +154,7 @@ export default function OneClickPrintButton({
                 type="button"
                 className={primaryButtonClass}
                 disabled={summary.printableComplete === 0}
-                onClick={() => { setShowConfirm(false); openPrintRoute(null); }}
+                onClick={() => { setShowConfirm(false); openOneClickRoute(); }}
               >
                 開啟列印頁（{summary.printableComplete}）
               </button>
