@@ -16,6 +16,7 @@ import {
 } from "@/lib/universalSalvationTabletPricing";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
+import { getAdditionalPrintItemPaidAmounts } from "@/lib/receivableAdapters";
 import { createPurificationEntryForRecordInTx } from "@/lib/purification";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import {
@@ -1088,6 +1089,11 @@ export type RegisteredItemView = {
   status: string;
   /** V15R2：舊 Detail 贊普的唯讀相容列（非真實 item，不可從此取消；下次儲存時轉為正式 item）。 */
   readOnlyLegacy: boolean;
+  /**
+   * V27.6：此列不計入「本次報名總計」（例如額外寶袋——它是 AdditionalPrintItem，
+   * 有自己的收款 adapter，這裡只唯讀顯示，不重複加進本面板總計）。預設 false。
+   */
+  excludeFromTotal?: boolean;
 };
 
 /**
@@ -1653,6 +1659,50 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       status: salvationDetail.ritualRecord?.status ?? "DRAFT",
       readOnlyLegacy: true,
     });
+  }
+
+  // V27.6：唯讀併入「額外寶袋」（AdditionalPrintItem, isExtra）到已報名項目——**僅顯示**。
+  // 不建立 RitualRegistrationItem、不改寶袋新增/編輯/取消/恢復/收款/列印。金額讀寶袋自身
+  // subtotal（isChargeable=false → 應收 0）與其收款 adapter 的已收；已軟刪／已取消不顯示。
+  // readOnlyLegacy=true（不提供取消鈕，於寶袋區塊管理）；excludeFromTotal=true（不重複併入
+  // 本面板「本次報名總計」，寶袋收款由其 adapter 於收款中心各自計）。
+  const extraPockets = await prisma.additionalPrintItem.findMany({
+    where: { ritualRecordId, isExtra: true, deletedAt: null, status: { not: "CANCELLED" } },
+    select: { id: true, printName: true, quantity: true, unitPrice: true, subtotal: true, isChargeable: true, status: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (extraPockets.length > 0) {
+    const paidMap = await getAdditionalPrintItemPaidAmounts(extraPockets.map((p) => p.id));
+    for (const p of extraPockets) {
+      const due = p.isChargeable ? Number(p.subtotal ?? 0) : 0;
+      const paid = paidMap.get(p.id) ?? 0;
+      const unpaid = Math.max(0, Math.round((due - paid) * 100) / 100);
+      views.push({
+        id: `pocket:${p.id}`,
+        registrationItemTypeId: "",
+        itemKey: "US_POCKET_EXTRA",
+        itemName: "增加寶袋",
+        categoryName: "增加寶袋",
+        subjectName: p.printName,
+        memberName: null,
+        displayLabel: `增加寶袋｜${p.printName}`,
+        contentKind: "POCKET",
+        unitPrice: p.unitPrice != null ? Number(p.unitPrice) : null,
+        yangshangNames: [],
+        tabletAddress: null,
+        activityGroupName: "中元普渡",
+        memberId: null,
+        quantity: p.quantity,
+        customName: null,
+        amountDue: due,
+        amountPaid: paid,
+        amountUnpaid: unpaid,
+        // 顯示狀態：已列印→已確認、否則→草稿（沿用面板既有三態標籤，不新增前端狀態系統）。
+        status: p.status === "PRINTED" ? "CONFIRMED" : "DRAFT",
+        readOnlyLegacy: true,
+        excludeFromTotal: true,
+      });
+    }
   }
 
   return views;

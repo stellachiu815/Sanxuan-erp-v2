@@ -35,6 +35,8 @@ type Item = {
   status: string;
   /** V15R2：舊 Detail 贊普唯讀相容列（非真實 item，不可從此取消）。 */
   readOnlyLegacy?: boolean;
+  /** V27.6：不計入「本次報名總計」（額外寶袋——有自己的收款來源，這裡只顯示）。 */
+  excludeFromTotal?: boolean;
 };
 
 /** V15R6.1：依報名者姓名分組，保留首次出現順序。 */
@@ -125,7 +127,9 @@ export default function RegisteredItemsPanel({
   );
   const cancelCell = (it: Item) =>
     it.readOnlyLegacy ? (
-      <span className="text-xs text-ink-faint">舊資料（下次儲存自動轉正式項目）</span>
+      <span className="text-xs text-ink-faint">
+        {it.itemKey === "US_POCKET_EXTRA" ? "（於寶袋區塊管理）" : "舊資料（下次儲存自動轉正式項目）"}
+      </span>
     ) : (
       it.status !== "CANCELLED" && (
         <button
@@ -230,7 +234,9 @@ export default function RegisteredItemsPanel({
           （listRegisteredItems 已依項目型別讀真正收費來源：贊普→明細、年度燈→明細、
           牌位→本項），不另建第二套統計，與收款中心一致。 */}
       {items !== null && items.length > 0 && (() => {
-        const active = items.filter((it) => it.status !== "CANCELLED");
+        // V27.6：本次報名總計排除 excludeFromTotal 列（額外寶袋——其收款於收款中心各自計，
+        // 這裡只顯示金額、不重複併入總計），維持既有總計行為不變。
+        const active = items.filter((it) => it.status !== "CANCELLED" && !it.excludeFromTotal);
         const due = active.reduce((s, it) => s + it.amountDue, 0);
         const paid = active.reduce((s, it) => s + it.amountPaid, 0);
         const unpaid = active.reduce((s, it) => s + it.amountUnpaid, 0);

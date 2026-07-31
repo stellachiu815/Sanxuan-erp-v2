@@ -57,6 +57,20 @@ export default function TabletPrintPage({
   const [measured, setMeasured] = useState<{ i: number; w: number; h: number; mains: number; transform: string }[]>([]);
   useEffect(() => {
     if (!debug) return;
+    // 分頁邏輯 debug（console）：records / pages / 每頁筆數。scope 與 ids 應得到相同結果。
+    const totalRecords = groups.reduce((s, g) => s + g.records.length, 0);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[TabletPrintPage] 分頁 debug",
+      "| count(標示)=", count,
+      "| records=", totalRecords,
+      "| groups=", diag.map((d) => ({
+        documentType: d.documentType,
+        records: d.layout.pages.reduce((s, p) => s + new Set(p.blocks.map((b) => b.recordIndex)).size, 0),
+        pages: d.layout.pages.length,
+        perPage: d.layout.pages.map((p) => new Set(p.blocks.map((b) => b.recordIndex)).size),
+      }))
+    );
     const t = window.setTimeout(() => {
       const root = sheetsRef.current;
       if (!root) return;

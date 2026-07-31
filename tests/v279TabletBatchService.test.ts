@@ -99,12 +99,28 @@ test("buildTabletGroups：歷代祖先主文正名為○府歷代祖先，乙位
     item({ id: "3", itemType: "TABLET", sourceCategory: "DEBT_CREDITOR", sourceDisplayName: "累世冤親債主" }),
   ];
   const groups = buildTabletGroups(items);
-  const ancestor = groups.find((g) => g.documentType === "ANCESTOR_LINE")!;
-  const soul = groups.find((g) => g.documentType === "INDIVIDUAL_SOUL")!;
+  // V27.14：三區塊型合併同組（documentType 代表值 ANCESTOR_LINE）；冤親另一組。
+  const threeBlock = groups.find((g) => g.documentType === "ANCESTOR_LINE")!;
   const debt = groups.find((g) => g.documentType === "DEBT_CREDITOR")!;
-  assert.equal(ancestor.records[0].displayName, "蔡府歷代祖先"); // 正名
-  assert.equal(soul.records[0].displayName, "林錦輝乙位正魂"); // 不受影響
-  assert.equal(debt.records[0].displayName, "累世冤親債主"); // 不受影響
+  assert.equal(groups.length, 2);
+  assert.equal(threeBlock.records[0].displayName, "蔡府歷代祖先"); // 歷代祖先正名
+  assert.equal(threeBlock.records[1].displayName, "林錦輝乙位正魂"); // 乙位正魂同組、主文不變
+  assert.equal(debt.records[0].displayName, "累世冤親債主"); // 冤親不受影響
+});
+
+test("V27.14：混合三區塊型合併同組，每頁最多 5 筆（scope 與 ids 一致的分頁）", () => {
+  const cats = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"];
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      item({ id: "id" + i, itemType: "TABLET", sourceCategory: cats[i % 3], sourceDisplayName: "名" + i })
+    );
+  // N 筆（含混合型別）→ 恆為 1 個 3-block 組、records=N（每頁 5 筆由 buildTabletLayout 分頁）。
+  for (const n of [1, 2, 3, 4, 5, 6, 7]) {
+    const groups = buildTabletGroups(mk(n));
+    assert.equal(groups.length, 1, `n=${n} 應只有 1 個 3-block 組`);
+    assert.equal(groups[0].documentType, "ANCESTOR_LINE");
+    assert.equal(groups[0].records.length, n, `n=${n} records 應為 ${n}`);
+  }
 });
 
 test("filterBatchItems：只留該批次且可列印狀態", () => {

@@ -144,6 +144,34 @@ export default function PrintItemsCenter({ year }: Props) {
     }
   }
 
+  // V28.2：「列印勾選項目」＝把勾選的**牌位**導向牌位專用列印頁（帶入所選 ids），
+  // 而非直接建立列印批次。與「產生列印頁／預覽」一致；不寫 printCount（回管理頁按確認才寫）。
+  function openSelectedTabletPrint() {
+    if (!items || selected.size === 0 || typeof window === "undefined") return;
+    setActionError(null);
+    setToast(null);
+    const sel = items.filter((i) => selected.has(i.id));
+    const tablets = sel.filter((i) => i.itemType === "TABLET");
+    const pocketCount = sel.length - tablets.length;
+    if (tablets.length === 0) {
+      setActionError("目前勾選沒有牌位（TABLET）。寶袋請用上方「牌位與寶袋列印」列印。");
+      return;
+    }
+    const batches = new Set(tablets.map((i) => (i.sourceCategory === "DEBT_CREDITOR" ? "creditor" : "ancestor-soul")));
+    if (batches.size > 1) {
+      setActionError("不同列印批次需分開列印，請一次只選同一批：祖先／乙位正魂 或 累世冤親債主。");
+      return;
+    }
+    const batch = [...batches][0];
+    const ids = tablets.map((i) => i.id);
+    const url = `/universal-salvation/${year}/print-center/print?batch=${batch}&ids=${ids.join(",")}`;
+    if (pocketCount > 0) {
+      setToast(`已開啟牌位專用列印頁（${ids.length} 筆）；另 ${pocketCount} 筆寶袋未納入，請用寶袋流程另印。`);
+    }
+    const win = window.open(url, "_blank", "noopener");
+    if (!win) window.location.assign(url);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap gap-3 text-sm">
@@ -242,10 +270,10 @@ export default function PrintItemsCenter({ year }: Props) {
             <button
               type="button"
               className={primaryButtonClass}
-              onClick={() => runPrintBatch({ kind: "IDS", ids: [...selected] })}
-              disabled={busy || selected.size === 0}
+              onClick={openSelectedTabletPrint}
+              disabled={selected.size === 0}
             >
-              {busy ? "處理中…" : `列印勾選項目（${selected.size}）`}
+              {`列印勾選項目（${selected.size}）`}
             </button>
           </div>
         </div>

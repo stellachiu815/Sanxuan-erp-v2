@@ -167,21 +167,41 @@ export type TabletPrintGroup = { documentType: string; categoryLabel: string; re
 
 const TABLET_CATEGORY_ORDER = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD", "DEBT_CREDITOR"];
 
-/** 將牌位項目依 documentType 固定順序分組，轉成 UniversalSalvationTabletSheet 需要的 records。 */
+/** 三區塊型（共用同一份 3-block 版面，可同頁混排）。 */
+const THREE_BLOCK_CATS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"];
+
+function toRecord(i: BatchItem): PrintTabletEntry {
+  return {
+    // 主文一律走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女／冤親不變。
+    displayName: formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
+    yangshangName: i.sourceYangshangName,
+    yangshangNames: i.sourceYangshangNames,
+    location: i.sourceLocation,
+    notes: null,
+  };
+}
+
+/**
+ * 轉成 UniversalSalvationTabletSheet 需要的分組。
+ *
+ * V27.14：**依「版面類型」分組，不依精確 documentType**——歷代祖先／乙位正魂／無緣子女
+ * 都是同一份 3-block 版面（THREE_BLOCK_SLOTS、5/頁、相同尺寸），合併成**同一組**，才能在每頁
+ * 5 格內把多筆一起排；documentType 用代表值 ANCESTOR_LINE（三型 slots/尺寸完全相同）。冤親債主
+ * （2-block、11/頁）另成一組。這樣 scope=unprinted 與 ids 兩條流程走**完全相同**的 page grouping，
+ * 選 N 筆（含混合型別）就在同一份 layout 裡一起排，不會每筆各自重建 page。順序：3-block 依
+ * 歷代祖先→乙位正魂→無緣子女，其後冤親。
+ */
 export function buildTabletGroups(items: BatchItem[]): TabletPrintGroup[] {
-  return TABLET_CATEGORY_ORDER.map((cat) => {
-    const rows = items.filter((i) => i.itemType === "TABLET" && i.sourceCategory === cat);
-    return {
-      documentType: cat,
-      categoryLabel: rows[0]?.sourceCategoryLabel ?? cat,
-      records: rows.map<PrintTabletEntry>((i) => ({
-        // 主文一律走共用 formatter：歷代祖先→○府歷代祖先；其餘不變。
-        displayName: formatTabletMainText(cat, i.sourceDisplayName),
-        yangshangName: i.sourceYangshangName,
-        yangshangNames: i.sourceYangshangNames,
-        location: i.sourceLocation,
-        notes: null,
-      })),
-    };
-  }).filter((g) => g.records.length > 0);
+  const tablets = items.filter((i) => i.itemType === "TABLET");
+  const threeBlock = THREE_BLOCK_CATS.flatMap((cat) => tablets.filter((i) => i.sourceCategory === cat)).map(toRecord);
+  const debt = tablets.filter((i) => i.sourceCategory === "DEBT_CREDITOR").map(toRecord);
+
+  const groups: TabletPrintGroup[] = [];
+  if (threeBlock.length > 0) {
+    groups.push({ documentType: "ANCESTOR_LINE", categoryLabel: "祖先／乙位正魂／無緣子女", records: threeBlock });
+  }
+  if (debt.length > 0) {
+    groups.push({ documentType: "DEBT_CREDITOR", categoryLabel: "累世冤親債主", records: debt });
+  }
+  return groups;
 }
