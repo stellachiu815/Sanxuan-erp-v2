@@ -11,6 +11,7 @@ import { matchIncomingMember, type IncomingMember, type ExistingMemberForMatch }
 const incoming = (name: string, address: string | null = null): IncomingMember => ({
   name,
   mobile: null,
+  email: null,
   phone: null,
   solarBirthDate: null,
   lunarBirthYear: null,

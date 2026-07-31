@@ -3,6 +3,8 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useOperator } from "@/lib/operatorClient";
+import DevoteeCorrectionPanel, { type CorrectionSelection, type CorrRow } from "@/components/system-center/DevoteeCorrectionPanel";
+import type { FieldDiff } from "@/lib/devoteeImportFieldDiff";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——五步驟精靈（依正式 7 欄 Excel 格式）：
@@ -67,6 +69,10 @@ type PlannedMember = {
     memberId: string | null;
     householdId: string | null;
   } | null;
+  // V29：逐欄差異＋分類（analyze 產生）。
+  matchedMemberId?: string | null;
+  fieldDiffs?: FieldDiff[];
+  rowCategory?: "IDENTICAL" | "SAFE_UPDATE" | "NEEDS_REVIEW";
 };
 
 type RowPlan = {
@@ -275,6 +281,8 @@ export default function DevoteeImportWizard() {
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
+  // V29：使用者在校正面板勾選要更新的欄位（於確認匯入時一併送出）。
+  const [corrections, setCorrections] = useState<CorrectionSelection[]>([]);
   /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
   const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
@@ -436,10 +444,11 @@ export default function DevoteeImportWizard() {
       // 安全上限：避免後端若出現異常狀態導致無限迴圈。
       // 869 戶 ÷ 100 ≈ 9 批，1000 次已是極寬裕的裕度。
       for (let guard = 0; guard < 1000; guard++) {
+        // V29：每個 chunk 都帶入使用者勾選的欄位校正（rowId/memberName/mode/selectedFields）。
         const res = await fetch(`/api/import/devotee-precheck/${batchId}/commit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ operatorUserId }),
+          body: JSON.stringify({ operatorUserId, corrections }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -744,6 +753,28 @@ export default function DevoteeImportWizard() {
       {step === 3 && summary && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第三步：預覽與統計</h3>
+
+          {/* V29：成員逐欄差異與安全校正（沿用本預檢中心；勾選於確認匯入時送出） */}
+          {(() => {
+            const corrRows: CorrRow[] = rows
+              .filter((r) => r.plan && r.plan.members.length > 0)
+              .map((r) => ({
+                id: r.id,
+                householdCode: r.household.code,
+                householdName: r.household.name,
+                members: (r.plan!.members as PlannedMember[]).map((m) => ({
+                  name: m.name,
+                  action: m.action,
+                  confidence: m.confidence,
+                  reason: m.reason,
+                  matchedMemberId: m.matchedMemberId ?? m.candidates[0]?.memberId ?? null,
+                  rowCategory: m.rowCategory,
+                  fieldDiffs: m.fieldDiffs,
+                  matchedFields: m.candidates[0]?.matchedFields,
+                })),
+              }));
+            return <DevoteeCorrectionPanel rows={corrRows} onChange={setCorrections} />;
+          })()}
           {/* V12.8：合併儲存格前處理說明 */}
           {sheetPrep && sheetPrep.mergedRowCount > 0 && (
             <p className="rounded-2xl bg-sage-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">

@@ -25,6 +25,8 @@ import { toCalendarDateKey } from "@/lib/devoteeDuplicates";
 export type IncomingMember = {
   name: string;
   mobile: string | null;
+  /** V29：Email（僅供 DevoteeProfile.email 校正；不參與配對）。 */
+  email: string | null;
   phone: string | null;
   solarBirthDate: string | null; // yyyy-MM-dd
   lunarBirthYear: number | null;

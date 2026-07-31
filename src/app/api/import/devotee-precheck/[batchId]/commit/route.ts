@@ -22,7 +22,8 @@
 import { NextResponse } from "next/server";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
-import { commitDevoteeImport, DEFAULT_COMMIT_CHUNK_SIZE } from "@/lib/devoteeImportBatch";
+import { commitDevoteeImport, DEFAULT_COMMIT_CHUNK_SIZE, type MemberCorrectionInput } from "@/lib/devoteeImportBatch";
+import { CORRECTABLE_FIELDS, type CorrectableField } from "@/lib/devoteeImportFieldDiff";
 
 /**
  * V12.7：一批 50 戶大約需要十幾秒，明確拉高單一請求的可執行時間上限，
@@ -44,8 +45,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ bat
     ? Math.min(Math.trunc(rawChunk), 500)
     : DEFAULT_COMMIT_CHUNK_SIZE;
 
+  // V29：使用者勾選的欄位校正（rowId／memberName／模式／欄位）。嚴格驗證形狀與允許欄位。
+  const fieldSet = new Set<string>(CORRECTABLE_FIELDS);
+  const corrections: MemberCorrectionInput[] = Array.isArray(body?.corrections)
+    ? body.corrections
+        .filter((c: unknown): c is Record<string, unknown> => !!c && typeof c === "object")
+        .map((c: Record<string, unknown>) => ({
+          rowId: typeof c.rowId === "string" ? c.rowId : "",
+          memberName: typeof c.memberName === "string" ? c.memberName : "",
+          correctionMode: c.correctionMode === "CORRECT_WITH_EXCEL" ? "CORRECT_WITH_EXCEL" : "FILL_BLANK_ONLY",
+          selectedFields: (Array.isArray(c.selectedFields) ? c.selectedFields : []).filter(
+            (f: unknown): f is CorrectableField => typeof f === "string" && fieldSet.has(f)
+          ),
+        }))
+        .filter((c: MemberCorrectionInput) => c.rowId && c.memberName && c.selectedFields.length > 0)
+    : [];
+
   const { batchId } = await params;
-  const result = await commitDevoteeImport(batchId, check.operator.name, { chunkSize });
+  const result = await commitDevoteeImport(batchId, check.operator.name, { chunkSize, corrections });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

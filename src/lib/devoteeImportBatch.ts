@@ -23,6 +23,19 @@ import {
   type MatchConfidence,
 } from "@/lib/devoteeImportMemberMatch";
 import { setPrimaryContact } from "@/lib/householdPrimaryContact";
+import { toCalendarDateKey } from "@/lib/devoteeDuplicates";
+import {
+  computeFieldDiffs,
+  classifyRow,
+  buildSelectedCorrections,
+  isProfileField,
+  type FieldDiff,
+  type RowCategory,
+  type CorrectableField,
+  type CorrectionMode,
+  type ExcelSideValues,
+  type DbSideValues,
+} from "@/lib/devoteeImportFieldDiff";
 import { syncMemberHouseholdReferences, describeSyncCounts } from "@/lib/householdReferenceSync";
 
 /**
@@ -340,6 +353,18 @@ export type MemberResolution = {
   decidedByName: string | null;
 };
 
+/**
+ * V29 B：使用者在預檢中心對「配對成功成員」勾選要校正的欄位（於 commit / commit-preview 時傳入）。
+ *   correctionMode 預設 FILL_BLANK_ONLY（只補空白）；CORRECT_WITH_EXCEL 才允許覆蓋既有非空值。
+ *   selectedFields 為勾選要寫入的欄位（未勾選一律不寫）。待確認 row 不得帶入。
+ */
+export type MemberCorrectionInput = {
+  rowId: string;
+  memberName: string;
+  correctionMode: CorrectionMode;
+  selectedFields: CorrectableField[];
+};
+
 export type PlannedMember = {
   name: string;
   action: "CREATE" | "UPDATE" | "REVIEW" | "SKIP";
@@ -356,6 +381,13 @@ export type PlannedMember = {
    * 有值時會顯示在預檢畫面，匯入本身不會被阻擋，既有值也不會被覆蓋。
    */
   genderConflict?: string | null;
+  /**
+   * V29 A：配對成功成員的逐欄 Excel vs DB 差異（memberId 為配對到的既有成員）。
+   * 舊批次沒有此欄位（undefined），讀取時容忍。
+   */
+  matchedMemberId?: string | null;
+  fieldDiffs?: FieldDiff[];
+  rowCategory?: RowCategory;
 };
 
 export type AnalyzedDevoteeRow = {
@@ -518,11 +550,38 @@ export async function analyzeDevoteeImport(
           lunarBirthMonth: true,
           lunarBirthDay: true,
           lunarIsLeapMonth: true,
+          // V29：逐欄差異所需的既有值（僅唯讀比對；不改配對邏輯）。
+          nationalId: true,
+          address: true,
+          role: true,
           household: { select: { name: true, phone: true, address: true } },
-          devoteeProfile: { select: { mobile: true } },
+          devoteeProfile: { select: { mobile: true, email: true } },
         },
       })
     : [];
+  // V29：逐欄差異用的既有完整值（memberId → 各可校正欄位現值）。
+  const existingFullById = new Map<
+    string,
+    {
+      gender: string | null; solarBirthDate: Date | null;
+      lunarBirthYear: number | null; lunarBirthMonth: number | null; lunarBirthDay: number | null; lunarIsLeapMonth: boolean;
+      nationalId: string | null; address: string | null; role: string | null;
+      mobile: string | null; email: string | null;
+    }
+  >(
+    existingMembersRaw.map((m) => [
+      m.id,
+      {
+        gender: m.gender, solarBirthDate: m.solarBirthDate,
+        lunarBirthYear: m.lunarBirthYear, lunarBirthMonth: m.lunarBirthMonth, lunarBirthDay: m.lunarBirthDay, lunarIsLeapMonth: m.lunarIsLeapMonth,
+        nationalId: (m as { nationalId: string | null }).nationalId,
+        address: (m as { address: string | null }).address,
+        role: (m as { role: string | null }).role,
+        mobile: m.devoteeProfile?.mobile ?? null,
+        email: m.devoteeProfile?.email ?? null,
+      },
+    ])
+  );
   const existingMembers: ExistingMemberForMatch[] = existingMembersRaw.map((m) => ({
     id: m.id,
     name: m.name,
@@ -583,13 +642,17 @@ export async function analyzeDevoteeImport(
       const incoming: IncomingMember = {
         name,
         mobile: person?.mobile ?? null,
+        email: person?.email ?? null,
         phone: person?.phone ?? null,
         solarBirthDate: person?.solarBirthDate ?? null,
         lunarBirthYear: person?.lunarBirthYear ?? null,
         lunarBirthMonth: person?.lunarBirthMonth ?? null,
         lunarBirthDay: person?.lunarBirthDay ?? null,
         lunarIsLeapMonth: person?.lunarIsLeapMonth ?? false,
-        address: person?.address ?? normalized.household.address,
+        // V29：Member.address 只允許來自正式信眾 Excel 的個人通訊地址（person.address）。
+        // **不得**用家戶地址遞補（移除舊 `?? normalized.household.address`）。person.address 為空時
+        // 一律 null → 下游 create 不寫、update 不覆蓋，Member.address 保持原值；Household.address 另行更新。
+        address: person?.address ?? null,
         /**
          * V13.2：性別。唯一來源是個人資料工作表。
          *
@@ -633,6 +696,45 @@ export async function analyzeDevoteeImport(
             `匯入不會覆蓋既有資料，若要改成 Excel 的值請於匯入後手動修改。`
           : null;
 
+      // V29 A：對「配對到既有成員」者，逐欄比對 Excel(person 嚴格) vs DB 現值。
+      // matchSafe＝SKIP_SAME_PERSON（家戶編號＋姓名唯一）；其餘（REVIEW/跨戶/多候選）一律待確認。
+      const matchedMemberId = matchedExisting?.id ?? null;
+      let fieldDiffs: FieldDiff[] | undefined;
+      let rowCategory: RowCategory | undefined;
+      if (matchedMemberId && person) {
+        const dbFull = existingFullById.get(matchedMemberId);
+        if (dbFull) {
+          const excelSide: ExcelSideValues = {
+            gender: person.gender,
+            solarBirthDate: person.solarBirthDate,
+            lunarBirthYear: person.lunarBirthYear,
+            lunarBirthMonth: person.lunarBirthMonth,
+            lunarBirthDay: person.lunarBirthDay,
+            lunarIsLeapMonth: person.lunarIsLeapMonth,
+            nationalId: person.nationalId,
+            address: person.address, // V29：只取個人通訊地址，不吃家戶遞補
+            role: person.role,
+            mobile: person.mobile,
+            email: person.email,
+          };
+          const dbSide: DbSideValues = {
+            gender: dbFull.gender,
+            solarBirthDate: dbFull.solarBirthDate ? toCalendarDateKey(dbFull.solarBirthDate) : null,
+            lunarBirthYear: dbFull.lunarBirthYear,
+            lunarBirthMonth: dbFull.lunarBirthMonth,
+            lunarBirthDay: dbFull.lunarBirthDay,
+            lunarIsLeapMonth: dbFull.lunarIsLeapMonth,
+            nationalId: dbFull.nationalId,
+            address: dbFull.address,
+            role: dbFull.role,
+            mobile: dbFull.mobile,
+            email: dbFull.email,
+          };
+          fieldDiffs = computeFieldDiffs(excelSide, dbSide);
+          rowCategory = classifyRow(result.suggestion === "SKIP_SAME_PERSON", fieldDiffs);
+        }
+      }
+
       return {
         name,
         action,
@@ -641,6 +743,9 @@ export async function analyzeDevoteeImport(
         candidates: result.candidates,
         personData: person ? incoming : null,
         genderConflict,
+        matchedMemberId,
+        fieldDiffs,
+        rowCategory,
       };
     });
 
@@ -1063,9 +1168,12 @@ async function finalizeBatchIfComplete(batchId: string): Promise<void> {
 export async function commitDevoteeImport(
   batchId: string,
   operatorName?: string | null,
-  options: { chunkSize?: number } = {}
+  options: { chunkSize?: number; corrections?: MemberCorrectionInput[] } = {}
 ): Promise<CommitDevoteeImportResult> {
   const chunkSize = Math.max(1, options.chunkSize ?? DEFAULT_COMMIT_CHUNK_SIZE);
+  // V29 B：使用者勾選的欄位校正（rowId::memberName → {mode, selectedFields}）。空＝維持既有只補空白。
+  const correctionMap = new Map<string, MemberCorrectionInput>();
+  for (const c of options.corrections ?? []) correctionMap.set(`${c.rowId}::${c.memberName}`, c);
 
   /**
    * ⚠️ V12.7 效能：這裡刻意**不呼叫 getCommitPreview()**。
@@ -1468,27 +1576,63 @@ export async function commitDevoteeImport(
           if (pm.action === "UPDATE") {
             const targetId = pm.candidates[0]?.memberId;
             if (!targetId || !pm.personData) continue;
+            // V29 交易保護：更新前再次驗證 memberId 仍存在、且家戶關聯未變（分析後被搬戶則不動）。
             const existing = await tx.member.findUnique({ where: { id: targetId } });
             if (!existing) continue;
+            const expectedHouseholdId = pm.candidates[0]?.householdId ?? null;
+            if (expectedHouseholdId && existing.householdId !== expectedHouseholdId) continue;
+
             const patch: Prisma.MemberUpdateInput = {};
-            const safeSolar = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
-            if (!existing.solarBirthDate && safeSolar) patch.solarBirthDate = safeSolar;
-            if (!existing.lunarBirthYear && pm.personData.lunarBirthYear) {
-              patch.lunarBirthYear = pm.personData.lunarBirthYear;
-              patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
-              patch.lunarBirthDay = pm.personData.lunarBirthDay;
-              patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+            const profilePatch: { mobile?: string; email?: string } = {};
+
+            const correction = correctionMap.get(`${r.id}::${pm.name}`);
+            if (correction !== undefined) {
+              // ── V29 校正模式：只寫使用者勾選、且依模式/安全規則可寫的欄位。 ──
+              const mode: CorrectionMode = correction.correctionMode ?? "FILL_BLANK_ONLY";
+              const writable = buildSelectedCorrections(pm.fieldDiffs ?? [], new Set(correction.selectedFields), mode);
+              for (const f of writable) {
+                if (isProfileField(f)) {
+                  if (f === "mobile" && pm.personData.mobile) profilePatch.mobile = pm.personData.mobile;
+                  if (f === "email" && pm.personData.email) profilePatch.email = pm.personData.email;
+                  continue;
+                }
+                if (f === "gender" && pm.personData.gender) patch.gender = pm.personData.gender;
+                else if (f === "solarBirthDate") {
+                  const s = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
+                  if (s) patch.solarBirthDate = s;
+                } else if (f === "lunarBirth" && pm.personData.lunarBirthYear) {
+                  patch.lunarBirthYear = pm.personData.lunarBirthYear;
+                  patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
+                  patch.lunarBirthDay = pm.personData.lunarBirthDay;
+                  patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+                } else if (f === "nationalId" && pm.personData.nationalId) patch.nationalId = pm.personData.nationalId;
+                else if (f === "address" && pm.personData.address) (patch as Record<string, unknown>).address = pm.personData.address;
+                else if (f === "role" && pm.personData.role) patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
+              }
+            } else {
+              // ── 既有相容：一般匯入（未使用校正 UI）維持「只補空白、不覆蓋」自動行為。 ──
+              const safeSolar = toSafeCalendarDate(pm.personData.solarBirthDate ?? null);
+              if (!existing.solarBirthDate && safeSolar) patch.solarBirthDate = safeSolar;
+              if (!existing.lunarBirthYear && pm.personData.lunarBirthYear) {
+                patch.lunarBirthYear = pm.personData.lunarBirthYear;
+                patch.lunarBirthMonth = pm.personData.lunarBirthMonth;
+                patch.lunarBirthDay = pm.personData.lunarBirthDay;
+                patch.lunarIsLeapMonth = pm.personData.lunarIsLeapMonth;
+              }
+              if (!existing.nationalId && pm.personData.nationalId) patch.nationalId = pm.personData.nationalId;
+              if (!existing.gender && pm.personData.gender) patch.gender = pm.personData.gender;
+              if (!(existing as unknown as { address: string | null }).address && pm.personData.address) {
+                (patch as Record<string, unknown>).address = pm.personData.address;
+              }
+              if (existing.role === "OTHER" && pm.personData.role && pm.personData.role !== "OTHER") {
+                patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
+              }
+              if (pm.personData.mobile) {
+                const profile = await tx.devoteeProfile.findUnique({ where: { memberId: targetId } });
+                if (!profile || !profile.mobile) profilePatch.mobile = pm.personData.mobile;
+              }
             }
-            if (!existing.nationalId && pm.personData.nationalId) patch.nationalId = pm.personData.nationalId;
-            if (!existing.gender && pm.personData.gender) patch.gender = pm.personData.gender;
-            // V25：個人地址（Member.address）。比照「空白不覆蓋既有」——既有為空且 Excel 有值才補。
-            // （一次性權威同步以 scripts/syncDevoteesFromExcel.ts 執行「Excel 有值即覆蓋」的完整校正。）
-            if (!(existing as unknown as { address: string | null }).address && pm.personData.address) {
-              (patch as Record<string, unknown>).address = pm.personData.address;
-            }
-            if (existing.role === "OTHER" && pm.personData.role && pm.personData.role !== "OTHER") {
-              patch.role = pm.personData.role as Prisma.MemberUpdateInput["role"];
-            }
+
             if (Object.keys(patch).length > 0) {
               const after = await tx.member.update({ where: { id: targetId }, data: patch });
               pushAudit({
@@ -1497,17 +1641,30 @@ export async function commitDevoteeImport(
                 action: "UPDATE",
                 beforeData: existing,
                 afterData: after,
-                changeNote: `信眾資料匯入預檢中心：正式匯入（以個人資料 Excel 補足空白欄位，比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`,
+                changeNote:
+                  correction !== undefined
+                    ? `信眾資料匯入預檢中心：欄位校正（模式：${correction.correctionMode === "CORRECT_WITH_EXCEL" ? "以Excel校正錯值" : "只補空白"}；更新欄位：${Object.keys(patch).join("、")}；比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`
+                    : `信眾資料匯入預檢中心：正式匯入（以個人資料 Excel 補足空白欄位，比對依據：${pm.candidates[0]?.matchedFields.join("＋") ?? "姓名"}）`,
               });
               membersUpdated++;
             }
-            if (pm.personData.mobile) {
+            // DevoteeProfile（手機/Email）：只補空白或校正（依上面決定），create/update。
+            if (profilePatch.mobile !== undefined || profilePatch.email !== undefined) {
               const profile = await tx.devoteeProfile.findUnique({ where: { memberId: targetId } });
               if (!profile) {
-                await tx.devoteeProfile.create({ data: { memberId: targetId, mobile: pm.personData.mobile } });
+                await tx.devoteeProfile.create({ data: { memberId: targetId, ...profilePatch } });
                 membersUpdated++;
-              } else if (!profile.mobile) {
-                await tx.devoteeProfile.update({ where: { memberId: targetId }, data: { mobile: pm.personData.mobile } });
+              } else {
+                const beforeProfile = { mobile: profile.mobile, email: profile.email };
+                const afterProfile = await tx.devoteeProfile.update({ where: { memberId: targetId }, data: profilePatch });
+                pushAudit({
+                  entityType: "Member",
+                  entityId: targetId,
+                  action: "UPDATE",
+                  beforeData: beforeProfile,
+                  afterData: { mobile: afterProfile.mobile, email: afterProfile.email },
+                  changeNote: `信眾資料匯入預檢中心：DevoteeProfile 校正（${Object.keys(profilePatch).join("、")}）`,
+                });
                 membersUpdated++;
               }
             }
