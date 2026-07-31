@@ -4,6 +4,7 @@ import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
 import { recordVersion } from "@/lib/recordVersion";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
+import { formatTabletMainText } from "@/lib/tabletMainText";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
@@ -1113,8 +1114,11 @@ export async function getUniversalSalvationPrintData(
     const list = entriesByCategory.get(entry.category) ?? [];
     const names = resolveYangshangNames(entry.yangshangNames, entry.yangshangName);
     list.push({
-      // 列印正名：冤親債主／歷世冤親債主等舊寫法一律顯示「累世冤親債主」（非變體原樣）。
-      displayName: displayDebtCreditorName(entry.displayName),
+      // 列印正名（全系統共用 formatter，名稱格式一致）：
+      //  - 歷代祖先 → 「○府歷代祖先」（formatTabletMainText）。
+      //  - 冤親債主／歷世冤親債主等舊寫法 → 「累世冤親債主」（displayDebtCreditorName）。
+      // 只調整名稱，未改版型／資料查詢／列印紀錄流程。
+      displayName: formatTabletMainText(entry.category, displayDebtCreditorName(entry.displayName)),
       yangshangName: entry.yangshangName,
       yangshangNames: names,
       yangshangAcclaim: formatYangshangAcclaim(names),

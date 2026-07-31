@@ -82,7 +82,12 @@ export default function AdditionalPrintItemsPanel({ householdId, year, entryId, 
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "列印失敗，請稍後再試一次。");
+        // 揭露真正原因：完整度未過（422）回 message/missingFields，非 error。
+        const detail =
+          data?.code === "INCOMPLETE_DATA"
+            ? `${data.message ?? "資料尚未完整，無法正式列印"}${Array.isArray(data.missingFields) && data.missingFields.length ? `（缺：${data.missingFields.join("、")}）` : ""}`
+            : data?.error ?? data?.message ?? `列印失敗（HTTP ${res.status}）`;
+        setError(detail);
         return;
       }
       await reload();

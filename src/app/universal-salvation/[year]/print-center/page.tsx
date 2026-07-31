@@ -1,6 +1,7 @@
 import BackButton from "@/components/navigation/BackButton";
 import PrintItemsCenter from "@/components/universal-salvation/PrintItemsCenter";
 import PrintObjectCenter from "@/components/universal-salvation/PrintObjectCenter";
+import TabletBatchPrintSection from "@/components/universal-salvation/TabletBatchPrintSection";
 
 /**
  * V9.1「普渡列印中心」（需求「九」）：跨家戶依年度查看/篩選/批次列印
@@ -30,6 +31,10 @@ export default async function UniversalSalvationPrintCenterPage({
           <p className="text-sm text-ink-soft">年度格式錯誤。</p>
         ) : (
           <>
+            {/* V27.10：跨家戶三批次列印（專用列印頁 + 一鍵列印，牌位只印 A4 版面）。 */}
+            <section className="flex flex-col gap-3">
+              <TabletBatchPrintSection year={year} />
+            </section>
             {/* V14.4 Part 3：牌位／寶袋列印物件（各自狀態、確認完成列印）。 */}
             <section className="flex flex-col gap-3">
               <h2 className="text-lg font-medium text-ink">牌位與寶袋列印</h2>

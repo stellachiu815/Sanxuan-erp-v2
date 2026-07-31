@@ -21,6 +21,8 @@ export default function GlobalHomeButton() {
   const pathname = usePathname();
 
   if (pathname === "/") return null;
+  // V27.10：專用牌位列印頁不得出現任何 App Shell（含首頁浮動按鈕）。
+  if (pathname.endsWith("/print-center/print")) return null;
 
   return (
     <Link

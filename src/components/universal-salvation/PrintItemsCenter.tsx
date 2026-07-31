@@ -48,6 +48,9 @@ const ROW_STATUS_LABEL: Record<string, string> = {
  * （寶袋等），可分開查看預設寶袋／額外寶袋／全部寶袋，支援全部列印／只印
  * 預設寶袋／只印額外寶袋／指定寶袋補印／指定家戶列印／指定名稱搜尋，並
  * 提供 Excel/CSV 匯入（方式二：明細工作表）。
+ *
+ * V27.10：跨家戶「牌位三批次一鍵列印＋專用列印頁」已獨立為上方 TabletBatchPrintSection，
+ * 本區塊維持既有附加列印項目明細管理與批次列印，不動。
  */
 export default function PrintItemsCenter({ year }: Props) {
   const [items, setItems] = useState<PrintCenterItem[] | null>(null);
@@ -123,7 +126,13 @@ export default function PrintItemsCenter({ year }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setActionError(data.error ?? "列印失敗，請稍後再試一次。");
+        // 完整揭露真正原因：完整度未過的 422 回的是 message/missingFields（非 error），
+        // 舊版只讀 data.error → 一律顯示無意義的「列印失敗」。這裡直接把真正原因印出來。
+        const detail =
+          data?.code === "INCOMPLETE_DATA"
+            ? `${data.message ?? "部分項目資料尚未完整，無法正式列印"}${Array.isArray(data.missingFields) && data.missingFields.length ? `（缺：${data.missingFields.join("、")}）` : ""}`
+            : data?.error ?? data?.message ?? `列印失敗（HTTP ${res.status}）`;
+        setActionError(detail);
         return;
       }
       setToast(`已產生列印批次：新列印 ${data.printedCount} 筆，補印 ${data.reprintedCount} 筆`);
@@ -243,7 +252,8 @@ export default function PrintItemsCenter({ year }: Props) {
         {actionError && <p className={`mt-3 ${errorTextClass}`}>{actionError}</p>}
         {toast && <p className="mt-3 text-sm text-sage-700">{toast}</p>}
         <p className="mt-2 text-xs text-ink-faint">
-          ⚠️ 本輪僅完成資料格式與列印批次紀錄，沙盒環境無法產生真正的 PDF 檔案，之後接上正式模板／PDF 引擎即可。
+          「列印勾選項目」為正式列印批次：標記已列印並累計列印次數（printCount）、建立列印批次紀錄。
+          牌位的實際版面列印（依紙張三批次、一鍵列印）請使用本頁上方「跨家戶批次列印」區塊的專用列印頁。
         </p>
       </section>
 

@@ -131,16 +131,49 @@ export default function PrintObjectCenter({ year }: { year: number }) {
 
   const pendingCount = selected.size;
 
-  // 「產生列印頁」：開啟列印預覽（瀏覽器列印對話框），不更新任何 printCount。
+  // 「產生列印頁 / 預覽」：**導向牌位專用列印頁**（只顯示 A4 牌位），
+  // **絕不**在本管理頁執行 window.print()（否則會印出整個管理介面，即先前 18 頁問題）。
   function openPrintPreview() {
-    if (pendingCount === 0) return;
-    setPreviewReady(true);
+    if (pendingCount === 0 || typeof window === "undefined") return;
     setOkMsg(null);
     setConfirmError(null);
-    // 實際 PDF/列印頁在 Mac/實機由瀏覽器產生；這裡觸發列印預覽作為「已產生」的動作。
-    if (typeof window !== "undefined") {
-      try { window.print(); } catch { /* 忽略：預覽失敗不影響資料 */ }
+
+    // 收集勾選中的**牌位（TABLET）**物件 id，並依原祭祀類別推出批次（祖先/乙位 vs 冤親）。
+    const tabletIds: string[] = [];
+    let pocketSelected = 0;
+    const batches = new Set<string>();
+    for (const g of groups ?? []) {
+      for (const o of [g.tablet, g.pocket, ...g.extras]) {
+        if (!o || !selected.has(o.id)) continue;
+        if (o.itemType === "TABLET") {
+          tabletIds.push(o.id);
+          batches.add(g.sourceCategoryLabel.includes("冤親") ? "creditor" : "ancestor-soul");
+        } else {
+          pocketSelected += 1;
+        }
+      }
     }
+
+    if (tabletIds.length === 0) {
+      setConfirmError("目前勾選沒有牌位（TABLET）。寶袋（紅色紙）請用下方「寶袋」批次流程列印。");
+      return;
+    }
+    if (batches.size > 1) {
+      setConfirmError("不同列印批次需分開列印，請一次只選同一批：祖先／乙位正魂 或 累世冤親債主。");
+      return;
+    }
+
+    const batch = [...batches][0];
+    const rel = `/universal-salvation/${year}/print-center/print?batch=${batch}&ids=${tabletIds.join(",")}`;
+    const url = new URL(rel, window.location.origin).href; // 絕對網址
+    setPreviewReady(true); // 已產生列印頁 → 之後可「確認完成列印」
+    if (pocketSelected > 0) {
+      setOkMsg(`已開啟牌位專用列印頁（${tabletIds.length} 筆）。另勾選的 ${pocketSelected} 筆寶袋未納入牌位頁，請用寶袋批次另印。`);
+    }
+    // 優先新分頁（保留本管理頁的勾選與確認狀態）；被彈窗封鎖時**同分頁導向專用列印頁**，
+    // 絕不改成在本管理頁 window.print()。
+    const win = window.open(url, "_blank", "noopener");
+    if (!win) window.location.assign(url);
   }
 
   async function confirmPrinted() {

@@ -13,6 +13,8 @@ import {
   getAdditionalPrintItemPaidAmounts,
 } from "@/lib/receivableAdapters";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
+import { resolveYangshangNames } from "@/lib/yangshang";
+import { tabletMissingFieldsForCategory } from "@/lib/dataCompleteness";
 import {
   resolvePrintName,
   computeAdditionalPrintItemFee,
@@ -911,6 +913,22 @@ export type PrintCenterItemView = {
   isPrinted: boolean;
   printedQuantity: number;
   note: string | null;
+  /**
+   * V27.9：跨家戶批次牌位 PDF（沿用 UNIVERSAL_SALVATION_TABLET_A4_V1）所需的牌位版面欄位。
+   * 內容全部來自來源牌位（UniversalSalvationEntry），此處純唯讀帶出、不新增資料表/路由。
+   */
+  // 列印牌位地址（與 getUniversalSalvationPrintData 一致：優先自身 tabletAddress，缺則回退共用 WorshipRecord 地址）。
+  sourceLocation: string | null;
+  // 完整度檢查用的**原始** tabletAddress（與 completenessGate 讀取的 entry.tabletAddress 同源，供缺漏比對一致）。
+  sourceTabletAddress: string | null;
+  sourceYangshangName: string | null;
+  sourceYangshangNames: string[];
+  /**
+   * 牌位資料缺漏欄位（如「陽上人」「牌位地址」）。空陣列＝可正式列印。
+   * 由 dataCompleteness.tabletMissingFieldsForCategory 計算——直接沿用完整度 gate 的
+   * checkUniversalSalvationItem，與「完成正式列印」422 判定天然一致。
+   */
+  tabletMissingFields: string[];
   // V14.4 列印物件層：
   printCount: number;
   firstPrintedAt: string | null;
@@ -949,7 +967,11 @@ export async function listPrintItemsForPrintCenter(
 
   const sourceEntryIds = [...new Set(items.map((i) => i.sourceEntryId))];
   const sourceEntries = sourceEntryIds.length
-    ? await prisma.universalSalvationEntry.findMany({ where: { id: { in: sourceEntryIds } } })
+    ? await prisma.universalSalvationEntry.findMany({
+        where: { id: { in: sourceEntryIds } },
+        // V27.9：列印牌位地址在缺自身 tabletAddress 時回退共用 WorshipRecord.location（同 getUniversalSalvationPrintData）。
+        include: { worshipRecord: { select: { location: true } } },
+      })
     : [];
   const sourceEntryById = new Map(sourceEntries.map((e) => [e.id, e]));
 
@@ -966,6 +988,9 @@ export async function listPrintItemsForPrintCenter(
   for (const item of items) {
     const source = sourceEntryById.get(item.sourceEntryId);
     if (!source) continue; // 來源資料已經不存在（理論上不應該發生，safety net）
+
+    const sourceYangshangNames = resolveYangshangNames(source.yangshangNames, source.yangshangName);
+    const tabletMissingFields = tabletMissingFieldsForCategory(source.category, sourceYangshangNames, source.tabletAddress);
 
     if (filters.sourceCategory && source.category !== filters.sourceCategory) continue;
     if (filters.sourceName && !source.displayName.includes(filters.sourceName)) continue;
@@ -992,6 +1017,12 @@ export async function listPrintItemsForPrintCenter(
       isPrinted: item.isPrinted,
       printedQuantity: item.printedQuantity,
       note: item.note,
+      // V27.9 跨家戶批次牌位 PDF 版面欄位：
+      sourceLocation: source.tabletAddress ?? source.worshipRecord?.location ?? null,
+      sourceTabletAddress: source.tabletAddress ?? null,
+      sourceYangshangName: source.yangshangName,
+      sourceYangshangNames,
+      tabletMissingFields,
       // V14.4 列印物件層欄位：
       printCount: item.printCount ?? 0,
       firstPrintedAt: (item.firstPrintedAt ?? item.printedAt) ? (item.firstPrintedAt ?? item.printedAt)!.toISOString() : null,

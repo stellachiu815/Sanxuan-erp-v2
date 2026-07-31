@@ -76,6 +76,33 @@ export const FIELD_LABEL = {
 } as const;
 
 /**
+ * V27.9：普渡牌位類別（UniversalSalvationEntryCategory）→ 對應計價 itemKey。
+ * 與 registrationItemRegistration.ENTRY_CATEGORY_TO_ITEM_KEY 一致。
+ */
+export const UNIVERSAL_SALVATION_CATEGORY_TO_ITEM_KEY: Record<string, string> = {
+  ANCESTOR_LINE: "US_ANCESTOR",
+  INDIVIDUAL_SOUL: "US_ZHENGHUN",
+  DEBT_CREDITOR: "US_YUANQIN",
+  UNBORN_CHILD: "US_WUYUAN",
+};
+
+/**
+ * V27.9：牌位資料缺漏欄位標籤（如「陽上人」「牌位地址」），供跨家戶批次牌位 PDF 的
+ * 預覽/正式輸出阻擋。**直接沿用 checkUniversalSalvationItem**（同一支伺服器完整度 gate
+ * 使用的函式），因此預覽阻擋與「完成正式列印」422 判定天然一致、無第二套規則。
+ * tabletAddress 一律用**原始** entry.tabletAddress（與 completenessGate 讀取來源相同）。
+ */
+export function tabletMissingFieldsForCategory(
+  category: string,
+  yangshangNames: string[],
+  tabletAddress: string | null
+): string[] {
+  const key = UNIVERSAL_SALVATION_CATEGORY_TO_ITEM_KEY[category];
+  if (!key) return [];
+  return checkUniversalSalvationItem(key, { yangshangNames, tabletAddress }).missing.map((m) => m.label);
+}
+
+/**
  * V15R3（規則六）：農曆生日「是否可取得」——直接有農曆生日，或有國曆生日且**換算成功**。
  * 只有國曆但換算失敗 → 視為缺農曆生日（不得因有國曆就算完整）。
  * 換算由呼叫端以既有 solarToLunar 執行後傳入布林，這層保持純函式可測。
