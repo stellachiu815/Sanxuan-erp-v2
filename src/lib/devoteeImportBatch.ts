@@ -471,25 +471,37 @@ export type AnalyzedDevoteeRow = {
 // ============================================================
 
 /**
+ * V29 校正：判斷「姓名」其實是永久牌位名稱（歷代祖先／乙位正魂），非一般信眾 Member。
+ * **只**比對這兩個關鍵字，避免誤判其他一般姓名。命中者一律排除於信眾個人校正之外。
+ */
+export function isTabletName(name: string | null | undefined): boolean {
+  const n = (name ?? "").trim();
+  return n.includes("歷代祖先") || n.includes("乙位正魂");
+}
+
+/**
  * V29 信眾個人資料校正：**以「一位信眾＝一列」**建立分析列，配對與更新一律以**姓名**為主，
  * **完全不依賴家戶編號／Household**（家戶資料僅供畫面參考，不作必要條件、不修改）。
  * 無家戶編號的列**不略過**——household.code 只作參考顯示。
+ * **排除牌位名稱**（歷代祖先／乙位正魂）：這些不是信眾 Member，不建列、不配對、不校正。
  */
 export function buildCorrectionNormalizedRows(personRows: PersonSheetRow[]): NormalizedDevoteeRow[] {
-  return personRows.map((p, i) => ({
-    rowNumber: i + 2,
-    raw: {},
-    // household 僅供畫面參考（可空）；校正不依賴、不修改家戶。
-    household: { code: p.householdCode ?? "", name: "", contactName: null, address: null },
-    memberNames: [p.name],
-    ancestorNames: [],
-    spiritNames: [],
-    skippedTablets: [],
-    tabletMeta: [],
-    missingFieldErrors: [],
-    formatErrors: [],
-    warnings: [],
-  }));
+  return personRows
+    .filter((p) => !isTabletName(p.name)) // 牌位資料略過，不進信眾校正
+    .map((p, i) => ({
+      rowNumber: i + 2,
+      raw: {},
+      // household 僅供畫面參考（可空）；校正不依賴、不修改家戶。
+      household: { code: p.householdCode ?? "", name: "", contactName: null, address: null },
+      memberNames: [p.name],
+      ancestorNames: [],
+      spiritNames: [],
+      skippedTablets: [],
+      tabletMeta: [],
+      missingFieldErrors: [],
+      formatErrors: [],
+      warnings: [],
+    }));
 }
 
 /** V29 校正：農曆生日（含閏月）換算國曆 yyyy-MM-dd；資料不完整或換算失敗回 null（不猜測）。 */
@@ -556,6 +568,8 @@ export async function analyzeDevoteeImport(
     withHouseholdCode: number;
     normalizedRowCount: number;
     sampleColumns: string[];
+    /** V29：姓名為牌位（歷代祖先／乙位正魂）而被排除於信眾校正之外的筆數。 */
+    tabletSkippedCount: number;
   };
 }> {
   /**
@@ -1189,6 +1203,8 @@ export async function analyzeDevoteeImport(
           withHouseholdCode: personRows.filter((p) => !!p.householdCode).length,
           normalizedRowCount: normalizedRows.length,
           sampleColumns: personRawRows && personRawRows[0] ? Object.keys(personRawRows[0]).slice(0, 30) : [],
+          // V29：姓名含「歷代祖先／乙位正魂」→ 牌位資料，排除於信眾校正，僅計數供顯示。
+          tabletSkippedCount: personRows.filter((p) => isTabletName(p.name)).length,
         }
       : undefined,
   };

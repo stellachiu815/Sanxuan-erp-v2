@@ -291,6 +291,8 @@ export default function DevoteeImportWizard() {
   const [correctionMode, setCorrectionMode] = useState(false);
   // V29：校正模式 Excel 總筆數（供預覽頁最上方統計；來自 analyze correctionDebug）。
   const [correctionExcelTotal, setCorrectionExcelTotal] = useState(0);
+  // V29：牌位資料（歷代祖先／乙位正魂）被排除於信眾校正的筆數。
+  const [correctionTabletSkipped, setCorrectionTabletSkipped] = useState(0);
   /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
   const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
@@ -373,6 +375,7 @@ export default function DevoteeImportWizard() {
       setCorrectionExcelTotal(
         data.correctionDebug?.personRawRowCount ?? data.correctionDebug?.parsedPersonRows ?? (data.rows?.length ?? 0)
       );
+      setCorrectionTabletSkipped(data.correctionDebug?.tabletSkippedCount ?? 0);
       setFilterKey("ALL");
       setVisibleCount(20);
       // 尚未確認的成員數＝所有 REVIEW 且沒有 resolution 的成員
@@ -830,7 +833,7 @@ export default function DevoteeImportWizard() {
                   reviewExcelSide: m.reviewExcelSide,
                 })),
               }));
-            return <DevoteeCorrectionPanel rows={corrRows} excelTotalCount={correctionExcelTotal} onChange={setCorrections} />;
+            return <DevoteeCorrectionPanel rows={corrRows} excelTotalCount={correctionExcelTotal} tabletSkippedCount={correctionTabletSkipped} onChange={setCorrections} />;
           })()}
           {/* V12.8：合併儲存格前處理說明（校正模式不涉及家戶合併，隱藏） */}
           {!correctionMode && sheetPrep && sheetPrep.mergedRowCount > 0 && (

@@ -104,11 +104,14 @@ export default function DevoteeCorrectionPanel({
   rows,
   onChange,
   excelTotalCount,
+  tabletSkippedCount,
 }: {
   rows: CorrRow[];
   onChange: (corrections: CorrectionSelection[]) => void;
   /** Excel 總筆數（供最上方配對統計；未提供時以列數估算）。 */
   excelTotalCount?: number;
+  /** 牌位資料（歷代祖先／乙位正魂）被排除於信眾校正的筆數（只顯示、不校正）。 */
+  tabletSkippedCount?: number;
 }) {
   const [mode, setMode] = useState<CorrectionMode>("FILL_BLANK_ONLY");
   // key = `${rowId}::${memberName}` → set of selected fields
@@ -139,10 +142,12 @@ export default function DevoteeCorrectionPanel({
       else if (member.action === "UPDATE") uniqueMatched++;
     }
     const excelTotal = excelTotalCount ?? flat.length;
-    // 略過（資料不足）：Excel 有筆數但未能解析成一位可比對信眾（多為缺姓名／空白列）。
-    const skipped = Math.max(0, excelTotal - (uniqueMatched + review + excelOnly));
-    return { excelTotal, uniqueMatched, review, excelOnly, skipped };
-  }, [flat, excelTotalCount]);
+    const tabletSkipped = tabletSkippedCount ?? 0;
+    // 略過（資料不足）：Excel 有筆數但未能解析成一位可比對信眾（多為缺姓名／空白列）；
+    // 牌位資料（歷代祖先／乙位正魂）另計，不重複計入此欄。
+    const skipped = Math.max(0, excelTotal - (uniqueMatched + review + excelOnly + tabletSkipped));
+    return { excelTotal, uniqueMatched, review, excelOnly, skipped, tabletSkipped };
+  }, [flat, excelTotalCount, tabletSkippedCount]);
 
   const counts = useMemo(() => {
     const c = { IDENTICAL: 0, SAFE_UPDATE: 0, NEEDS_REVIEW: 0, EXCEL_ONLY: 0, DB_ONLY: 0 };
@@ -304,12 +309,13 @@ export default function DevoteeCorrectionPanel({
   return (
     <section className="rounded-2xl border border-cream-200 bg-white/70 p-4">
       {/* 預覽頁最上方：整批配對統計 */}
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-6">
         {[
           { label: "Excel 總筆數", value: matchStats.excelTotal, cls: "bg-cream-100 text-ink" },
           { label: "唯一姓名配對成功", value: matchStats.uniqueMatched, cls: "bg-sage-100 text-ink" },
           { label: "同名待確認", value: matchStats.review, cls: "bg-yolk-100 text-ink" },
           { label: "Excel 有、DB 無", value: matchStats.excelOnly, cls: "bg-blossom-100 text-ink" },
+          { label: "牌位資料略過", value: matchStats.tabletSkipped, cls: "bg-mist-100 text-ink" },
           { label: "略過（資料不足）", value: matchStats.skipped, cls: "bg-mist-100 text-ink" },
         ].map((s) => (
           <div key={s.label} className={"rounded-xl px-3 py-2 " + s.cls}>
