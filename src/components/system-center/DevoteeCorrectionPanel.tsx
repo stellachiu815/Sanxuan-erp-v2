@@ -113,7 +113,8 @@ export default function DevoteeCorrectionPanel({
   /** 牌位資料（歷代祖先／乙位正魂）被排除於信眾校正的筆數（只顯示、不校正）。 */
   tabletSkippedCount?: number;
 }) {
-  const [mode, setMode] = useState<CorrectionMode>("FILL_BLANK_ONLY");
+  // V30 正式信眾匯入：唯一配對預設「以 Excel 覆蓋」（Excel 為每週正式來源）。
+  const [mode, setMode] = useState<CorrectionMode>("CORRECT_WITH_EXCEL");
   // key = `${rowId}::${memberName}` → set of selected fields
   const [selections, setSelections] = useState<Record<string, Set<CorrectableField>>>({});
   // key = `${rowId}::${memberName}` → 手動挑選的候選 memberId（同名多人）
@@ -199,10 +200,23 @@ export default function DevoteeCorrectionPanel({
     onChange(out);
   }
 
-  /** 一位成員「可補空白（FILL_BLANK）」的欄位集合（DB 空、Excel 有值）。 */
+  /** 一位成員「可補空白（FILL_BLANK）」的欄位集合（DB 空、Excel 有值）——供「全部安全更新」按鈕。 */
   function fillBlankFields(diffs: FieldDiff[]): Set<CorrectableField> {
     const s = new Set<CorrectableField>();
     for (const d of diffs) if (d.status === "FILL_BLANK") s.add(d.field);
+    return s;
+  }
+
+  /**
+   * V30：一位成員「可寫入」的欄位集合（依模式）。FILL_BLANK 兩種模式都可；DIFF 只在「以 Excel 校正錯值」可。
+   * 正式匯入預設 CORRECT_WITH_EXCEL，故 DB 有值但與 Excel 不同者一律以 Excel 覆蓋（Excel 空白仍永不覆蓋）。
+   */
+  function writableFields(diffs: FieldDiff[], m: CorrectionMode): Set<CorrectableField> {
+    const s = new Set<CorrectableField>();
+    for (const d of diffs) {
+      if (d.status === "FILL_BLANK") s.add(d.field);
+      else if (d.status === "DIFF" && m === "CORRECT_WITH_EXCEL") s.add(d.field);
+    }
     return s;
   }
 
@@ -211,9 +225,9 @@ export default function DevoteeCorrectionPanel({
   const rowsSig = rows.map((r) => r.id).join("|");
 
   /**
-   * V29 進入預覽頁時自動完成「安全勾選」：DB 空白、Excel 有值（FILL_BLANK）的欄位預設勾選，
-   * 涵蓋 國曆生日／農曆生日／性別／身份／聯絡電話／通訊地址。**不含** DIFF（DB 有值且不同，
-   * 保持未勾選由使用者決定）、SAME、DB_ONLY、Excel有DB無、同名待確認（待選定候選後另行預設）。
+   * V30 進入預覽頁時自動勾選「可寫入」欄位（唯一配對）：涵蓋 國曆生日／農曆生日／性別／身份／
+   * 聯絡電話／通訊地址。預設模式為「以 Excel 覆蓋」，故 DB 空白補入、DB 有值但不同者以 Excel 覆蓋；
+   * SAME／DB_ONLY（Excel 空白）不勾、永不覆蓋。Excel有DB無不勾；同名待確認待選定候選後另行預設。
    * 使用者仍可手動取消任何預設。只有換一批分析（rowsSig 變）才重設。
    */
   useEffect(() => {
@@ -221,7 +235,7 @@ export default function DevoteeCorrectionPanel({
     for (const { row, member } of flat) {
       if (member.action === "SKIP" || member.action === "CREATE") continue; // 略過 / Excel有DB無：不勾
       if (isReviewMember(member)) continue; // 同名多人：待使用者選定候選後再預設
-      const set = fillBlankFields(member.fieldDiffs ?? []);
+      const set = writableFields(member.fieldDiffs ?? [], mode);
       if (set.size > 0) next[`${row.id}::${member.name}`] = set;
     }
     setSelections(next);
@@ -251,7 +265,7 @@ export default function DevoteeCorrectionPanel({
       const cand = fm?.member.reviewCandidates?.find((c) => c.memberId === memberId);
       const defaults =
         fm?.member.reviewExcelSide && cand
-          ? fillBlankFields(computeFieldDiffs(fm.member.reviewExcelSide, cand.dbValues))
+          ? writableFields(computeFieldDiffs(fm.member.reviewExcelSide, cand.dbValues), mode)
           : new Set<CorrectableField>();
       setSelections((prevSel) => {
         const nextSel = { ...prevSel, [key]: defaults };

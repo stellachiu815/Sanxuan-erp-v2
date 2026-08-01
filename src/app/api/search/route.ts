@@ -79,6 +79,8 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         householdId: true,
+        // V30：搜尋結果地址優先顯示 Member.address（個人通訊地址），沒有才用家戶地址。
+        address: true,
         solarBirthDate: true,
         lunarBirthYear: true,
         lunarBirthMonth: true,
@@ -115,7 +117,8 @@ export async function GET(request: NextRequest) {
       // 個人手機優先，其次家戶手機，再其次家戶市話——跟疑似重複比對對
       // 「電話」的定義一致。
       phone: m.devoteeProfile?.mobile || m.household.mobile || m.household.phone || null,
-      addressSummary: summarizeAddress(m.household.address),
+      // V30：Member.address（個人通訊地址）優先，沒有才用家戶地址。
+      addressSummary: summarizeAddress(m.address ?? m.household.address),
       birthdayDisplay: m.solarBirthDate
         ? formatRocDateCompact(m.solarBirthDate)
         : m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay
