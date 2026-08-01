@@ -490,6 +490,8 @@ export async function findFileByName(
   if (!res.ok) throw new Error(`在 Google Drive 尋找檔案失敗：HTTP ${res.status}`);
   const data = await res.json();
   const files = data.files ?? [];
+  // V30.1 debug（僅 log，不影響行為）：實際查詢字串與回傳筆數。
+  console.log(`[信眾同步 debug] findFileByName query: ${q} → Drive 回傳 ${files.length} 筆`);
   const f = files[0];
   if (!f) return null;
   return {
@@ -501,6 +503,35 @@ export async function findFileByName(
     mimeType: f.mimeType,
     matchCount: files.length,
   };
+}
+
+/** V30.1 debug（診斷用，不影響同步流程）：目前 OAuth 授權帳號的 email。 */
+export async function getConnectedAccountEmail(accessToken: string): Promise<string | null> {
+  const res = await fetch(`${DRIVE_API}/about?fields=user(emailAddress)`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.user?.emailAddress ?? null;
+}
+
+/** V30.1 debug（診斷用，不影響同步流程）：列出資料夾內所有檔案的檔名與 mimeType。 */
+export async function listFolderFilesForDebug(
+  accessToken: string,
+  folderId: string
+): Promise<{ id: string; name: string; mimeType: string }[]> {
+  const q = `'${folderId}' in parents and trashed = false`;
+  const res = await fetch(
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=200`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.files ?? []).map((f: { id: string; name: string; mimeType: string }) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+  }));
 }
 
 /**

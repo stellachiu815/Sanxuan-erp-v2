@@ -14,6 +14,8 @@ import {
   ensureImportFolder,
   findFileByName,
   downloadDriveFileAsXlsx,
+  getConnectedAccountEmail,
+  listFolderFilesForDebug,
   DEVOTEE_SHEET_FILE_NAME,
   IMPORT_ROOT_FOLDER_NAME,
   IMPORT_SUBFOLDER_NAME,
@@ -40,14 +42,35 @@ export async function POST(request: Request) {
     );
   }
 
+  // V30.1 debug（僅 log，不改同步流程）：1. OAuth 帳號。
+  try {
+    const email = await getConnectedAccountEmail(accessToken);
+    console.log(`[信眾同步 debug] OAuth 授權帳號：${email ?? "（無法取得）"}`);
+  } catch (e) {
+    console.log("[信眾同步 debug] 取得 OAuth 帳號失敗", e);
+  }
+
   // 2) 確認（不存在就自動建立）「三玄宮ERP／匯入資料」資料夾（不建立空白 Excel），找最新修改的「信眾資料.xlsx」。
   let found;
   try {
-    const { importFolderId } = await ensureImportFolder(accessToken);
+    const { rootFolderId, importFolderId } = await ensureImportFolder(accessToken);
+    // debug：2. 三玄宮ERP folder id；3. 匯入資料 folder id。
+    console.log(`[信眾同步 debug] ${IMPORT_ROOT_FOLDER_NAME} folder id：${rootFolderId}`);
+    console.log(`[信眾同步 debug] ${IMPORT_SUBFOLDER_NAME} folder id：${importFolderId}`);
+    // debug：4. 查詢字串；5. 回傳筆數（在 findFileByName 內部 log）。
     found = await findFileByName(accessToken, importFolderId, DEVOTEE_SHEET_FILE_NAME);
     if (!found) {
+      // debug：6. 0 筆時，列出「匯入資料」底下所有檔名與 mimeType，判斷檔案在不在對的資料夾。
+      const all = await listFolderFilesForDebug(accessToken, importFolderId);
+      console.log(
+        `[信眾同步 debug] 「${IMPORT_SUBFOLDER_NAME}」(${importFolderId}) 內共 ${all.length} 個檔案：`,
+        JSON.stringify(all)
+      );
       return NextResponse.json({ error: `Google Drive 找不到：${DRIVE_PATH}` }, { status: 404 });
     }
+    console.log(
+      `[信眾同步 debug] 找到檔案：name=${found.name} id=${found.id} mimeType=${found.mimeType} modifiedTime=${found.modifiedTime} 同名筆數=${found.matchCount}`
+    );
   } catch (err) {
     console.error("信眾同步：尋找 Google Drive 匯入檔失敗", err);
     return NextResponse.json({ error: "讀取 Google Drive 匯入資料夾失敗，請稍後再試。" }, { status: 502 });
