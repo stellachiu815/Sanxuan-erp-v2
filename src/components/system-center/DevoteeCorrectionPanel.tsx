@@ -117,6 +117,9 @@ export default function DevoteeCorrectionPanel({
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [catFilter, setCatFilter] = useState<string>("ALL");
   const [fieldFilter, setFieldFilter] = useState<string>("ALL");
+  // V29 一次性：同名待確認「專區」——只逐筆處理同名待確認，不影響其他資料/流程/勾選狀態。
+  const [reviewMode, setReviewMode] = useState(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
 
   const flat: FlatMember[] = useMemo(
     () => rows.flatMap((row) => row.members.map((member) => ({ row, member }))),
@@ -151,6 +154,10 @@ export default function DevoteeCorrectionPanel({
     }
     return c;
   }, [flat]);
+
+  // V29 同名待確認專區：所有待確認成員（順序固定），與「已確認（已挑選候選）」筆數。
+  const reviewList = useMemo(() => flat.filter(({ member }) => isReviewMember(member)), [flat]);
+  const reviewDone = reviewList.filter(({ row, member }) => picks[`${row.id}::${member.name}`]).length;
 
   // 某位成員「目前生效」的逐欄差異：待確認 → 對「已挑選候選」以 Excel×該候選 DB 即時計算；其餘取自身差異。
   function effectiveDiffs(row: CorrRow, member: CorrMember): FieldDiff[] {
@@ -344,8 +351,19 @@ export default function DevoteeCorrectionPanel({
         {catFilter !== "ALL" && (
           <button type="button" onClick={() => setCatFilter("ALL")} className="rounded-full px-3 py-1 text-ink-faint underline">清除分類篩選</button>
         )}
+        {/* V29 一次性：同名待確認專區入口（僅逐筆處理待確認，不影響其他資料）。 */}
+        {counts.NEEDS_REVIEW > 0 && !reviewMode && (
+          <button
+            type="button"
+            onClick={() => { setReviewMode(true); setReviewIndex(0); }}
+            className="rounded-full bg-yolk-300 px-3 py-1 font-medium text-ink"
+          >
+            處理同名待確認（{counts.NEEDS_REVIEW}）
+          </button>
+        )}
       </div>
 
+      {!reviewMode && (
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-ink-faint">欄位篩選：</span>
         <select className="rounded border border-cream-300 px-2 py-1" value={fieldFilter} onChange={(e) => setFieldFilter(e.target.value)}>
@@ -358,11 +376,71 @@ export default function DevoteeCorrectionPanel({
         <button type="button" onClick={clearAll} className="rounded-full bg-cream-100 px-3 py-1 text-ink-soft">清除勾選</button>
         <span className="ml-auto text-ink-faint">已勾選 {totalSelectedMembers} 位／{totalSelectedFields} 欄</span>
       </div>
+      )}
 
-      {/* 逐位差異 */}
+      {/* 逐位差異（一般模式：完整清單） */}
+      {!reviewMode && (
       <div className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto">
         {visible.length === 0 && <p className="p-3 text-center text-xs text-ink-faint">沒有符合篩選的成員。</p>}
-        {visible.map(({ row, member }) => {
+        {visible.map(({ row, member }) => renderMemberCard(row, member))}
+      </div>
+      )}
+
+      {/* V29 一次性：同名待確認專區——只逐筆顯示待確認，隱藏其他分類。 */}
+      {reviewMode && (
+        <div className="mt-3 rounded-2xl border border-yolk-300 bg-yolk-50/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-ink">同名待確認專區</span>
+            <span className="text-xs text-ink-soft">已確認 {reviewDone}／{reviewList.length} 筆</span>
+            <button type="button" onClick={() => setReviewMode(false)} className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft">
+              返回全部資料
+            </button>
+          </div>
+
+          {reviewList.length === 0 ? (
+            <p className="mt-3 p-3 text-center text-xs text-ink-faint">沒有同名待確認資料。</p>
+          ) : reviewIndex >= reviewList.length ? (
+            <div className="mt-3 flex flex-col items-center gap-3 p-4">
+              <p className="text-sm font-medium text-ink">同名資料已確認完成</p>
+              <p className="text-xs text-ink-soft">已確認 {reviewDone}／{reviewList.length} 筆</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setReviewIndex(reviewList.length - 1)} className="rounded-full border border-cream-200 px-4 py-1 text-xs text-ink-soft">← 上一筆</button>
+                <button type="button" onClick={() => setReviewMode(false)} className="rounded-full bg-ink px-4 py-1 text-xs text-cream-50">返回全部資料</button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-col gap-3">
+              <p className="text-xs text-ink-soft">第 {reviewIndex + 1} 筆／共 {reviewList.length} 筆</p>
+              {renderMemberCard(reviewList[reviewIndex].row, reviewList[reviewIndex].member)}
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={reviewIndex === 0}
+                  onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
+                  className="rounded-full border border-cream-200 px-4 py-1.5 text-xs text-ink-soft disabled:opacity-40"
+                >
+                  ← 上一筆
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewIndex((i) => i + 1)}
+                  className="rounded-full bg-ink px-4 py-1.5 text-xs text-cream-50"
+                >
+                  {reviewIndex === reviewList.length - 1 ? "完成" : "下一筆 →"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="mt-2 text-xs text-ink-faint">
+        確認匯入前會再顯示總筆數／欄位數；待確認成員需先手動挑選正確的人、勾選欄位後才會更新。「以 Excel 校正錯值」才會覆蓋既有非空值；Excel 空白永不覆蓋、相同值不寫入；通訊地址只寫該信眾個人資料，不動家戶。
+      </p>
+    </section>
+  );
+
+  function renderMemberCard(row: CorrRow, member: CorrMember) {
           const key = `${row.id}::${member.name}`;
           const isReview = isReviewMember(member);
           const isCreate = member.action === "CREATE";
@@ -439,12 +517,5 @@ export default function DevoteeCorrectionPanel({
               )}
             </div>
           );
-        })}
-      </div>
-
-      <p className="mt-2 text-xs text-ink-faint">
-        確認匯入前會再顯示總筆數／欄位數；待確認成員需先手動挑選正確的人、勾選欄位後才會更新。「以 Excel 校正錯值」才會覆蓋既有非空值；Excel 空白永不覆蓋、相同值不寫入；通訊地址只寫該信眾個人資料，不動家戶。
-      </p>
-    </section>
-  );
+  }
 }
