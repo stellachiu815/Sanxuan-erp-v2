@@ -49,6 +49,8 @@ export type QuickSearchResult = {
   householdName: string;
   phone: string | null;
   addressSummary: string | null;
+  /** V30.1：地址 fallback 到家戶地址（Member.address 空白）時為 true。 */
+  addressIsHouseholdFallback?: boolean;
   birthdayDisplay: string | null;
   /** 直接可用的跳轉目標，畫面不需要自己拼路由 */
   href: string;
@@ -117,8 +119,10 @@ export async function GET(request: NextRequest) {
       // 個人手機優先，其次家戶手機，再其次家戶市話——跟疑似重複比對對
       // 「電話」的定義一致。
       phone: m.devoteeProfile?.mobile || m.household.mobile || m.household.phone || null,
-      // V30：Member.address（個人通訊地址）優先，沒有才用家戶地址。
+      // V30：Member.address（個人通訊地址）優先，沒有才 fallback 家戶地址。
       addressSummary: summarizeAddress(m.address ?? m.household.address),
+      // V30.1：fallback 到家戶地址時標示（前端顯示「（家戶地址）」）。
+      addressIsHouseholdFallback: !m.address && !!m.household.address,
       birthdayDisplay: m.solarBirthDate
         ? formatRocDateCompact(m.solarBirthDate)
         : m.lunarBirthYear && m.lunarBirthMonth && m.lunarBirthDay

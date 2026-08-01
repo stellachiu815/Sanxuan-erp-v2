@@ -365,6 +365,21 @@ async function findOrCreateFolder(accessToken: string, name: string, parentId?: 
 }
 
 /**
+ * V30.1 正式匯入資料夾（與備份分開）：三玄宮ERP／匯入資料。
+ * 不存在就自動建立資料夾，但**不建立任何空白 Excel**（需求三）。回傳「匯入資料」資料夾 id。
+ * 匯入檔一律只從這裡讀取，**絕不**從備份（三玄宮ERP_Backup／Daily／Weekly／Monthly／Before_Update）讀取。
+ */
+export const IMPORT_ROOT_FOLDER_NAME = "三玄宮ERP";
+export const IMPORT_SUBFOLDER_NAME = "匯入資料";
+export const DEVOTEE_SHEET_FILE_NAME = "信眾資料.xlsx";
+
+export async function ensureImportFolder(accessToken: string): Promise<{ rootFolderId: string; importFolderId: string }> {
+  const rootFolderId = await findOrCreateFolder(accessToken, IMPORT_ROOT_FOLDER_NAME);
+  const importFolderId = await findOrCreateFolder(accessToken, IMPORT_SUBFOLDER_NAME, rootFolderId);
+  return { rootFolderId, importFolderId };
+}
+
+/**
  * 確認（不存在就自動建立）三玄宮ERP_Backup 與其下 4 個子資料夾
  * （需求「三」：「不得要求使用者手動建立資料夾」）。
  */
@@ -440,6 +455,68 @@ export async function listFilesInFolder(accessToken: string, folderId: string): 
     size: f.size ? Number(f.size) : 0,
     createdTime: f.createdTime,
   }));
+}
+
+/** V30.1：找檔結果（含最後修改時間與 mimeType，供預覽顯示與 xlsx／試算表下載判斷）。 */
+export type DriveFoundFile = {
+  id: string;
+  name: string;
+  size: number;
+  createdTime: string;
+  modifiedTime: string;
+  mimeType: string;
+  /** 同名檔案的總數（>1 時前端可提示「取最新修改的一份」）。 */
+  matchCount: number;
+};
+
+const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/**
+ * V30.1：在指定資料夾中依「檔名」找檔案，**取 modifiedTime 最新的一份**（需求五）。找不到回 null。
+ * 只在該資料夾下尋找，不跨資料夾（不會誤讀備份）。
+ */
+export async function findFileByName(
+  accessToken: string,
+  folderId: string,
+  fileName: string
+): Promise<DriveFoundFile | null> {
+  const safeName = fileName.replace(/'/g, "\\'");
+  const q = `'${folderId}' in parents and name = '${safeName}' and trashed = false`;
+  const res = await fetch(
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,createdTime,modifiedTime,mimeType)&orderBy=modifiedTime desc&pageSize=20`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error(`在 Google Drive 尋找檔案失敗：HTTP ${res.status}`);
+  const data = await res.json();
+  const files = data.files ?? [];
+  const f = files[0];
+  if (!f) return null;
+  return {
+    id: f.id,
+    name: f.name,
+    size: f.size ? Number(f.size) : 0,
+    createdTime: f.createdTime,
+    modifiedTime: f.modifiedTime,
+    mimeType: f.mimeType,
+    matchCount: files.length,
+  };
+}
+
+/**
+ * V30.1：把 Drive 檔案下載成 xlsx buffer。
+ * - 一般 .xlsx（二進位）→ alt=media 直接下載。
+ * - Google 試算表 → 用 export 匯出成 xlsx（不可用 alt=media 當二進位 xlsx）。
+ */
+export async function downloadDriveFileAsXlsx(accessToken: string, fileId: string, mimeType: string): Promise<Buffer> {
+  if (mimeType === GOOGLE_SHEET_MIME) {
+    const res = await fetch(`${DRIVE_API}/files/${fileId}/export?mimeType=${encodeURIComponent(XLSX_MIME)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) throw new Error(`從 Google Drive 匯出試算表為 xlsx 失敗：HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  return downloadFile(accessToken, fileId);
 }
 
 /** 下載檔案內容（還原時使用）。 */

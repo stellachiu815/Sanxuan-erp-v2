@@ -1894,7 +1894,9 @@ export async function commitDevoteeImport(
         if (profileData.length > 0) await tx.devoteeProfile.createMany({ data: profileData });
       }
 
-      if (worshipCreateData.length > 0) {
+      // V30.1 永久牌位資料保護（最高優先）：校正／信眾同步模式**絕不**建立/修改任何牌位（WorshipRecord＝
+      // 歷代祖先／乙位正魂／陽上人等永久資料）。correctionOnly 下 worshipCreateData 本就為空，這裡再加顯式守門。
+      if (!correctionOnly && worshipCreateData.length > 0) {
         await tx.worshipRecord.createMany({ data: worshipCreateData });
         const createdWorship = await tx.worshipRecord.findMany({ where: { id: { in: newWorshipIds } } });
         for (const w of createdWorship) {
@@ -2148,25 +2150,30 @@ export async function commitDevoteeImport(
        * V12.6 指令七：主要聯絡人一致性同步（呼叫既有 setPrimaryContact，不複製邏輯）。
        * 全新家戶為效能考量批次處理（新戶必無其他主要聯絡人、contactName 於建立時已寫入，
        * 只需把對應成員 isPrimaryContact 設為 true）；既有家戶維持原逐筆邏輯（數量極少）。
+       *
+       * V30.1：校正／信眾同步模式**完全不做家戶主要聯絡人同步**——不修改 Household、
+       * 不改動任何成員的 isPrimaryContact。correctionOnly 下相關集合本就為空，這裡再加顯式守門。
        */
-      const newPrimaryMemberIds: string[] = [];
-      for (const r of readyRows) {
-        const householdId = resolvedHouseholdIdByRowId.get(r.id)!;
-        if (!newHouseholdIds.has(householdId)) continue;
-        const contactName = r.household.contactName;
-        if (!contactName) continue;
-        const match = newMemberMeta.find((m) => m.householdId === householdId && m.name === contactName);
-        if (match) newPrimaryMemberIds.push(match.id);
-      }
-      if (newPrimaryMemberIds.length > 0) {
-        await tx.member.updateMany({ where: { id: { in: newPrimaryMemberIds } }, data: { isPrimaryContact: true } });
-      }
-      for (const householdId of touchedHouseholdIds) {
-        if (newHouseholdIds.has(householdId)) continue; // 新戶已於上方批次處理
-        const h = await tx.household.findUnique({ where: { id: householdId }, select: { contactName: true } });
-        if (!h?.contactName) continue;
-        const matched = await tx.member.findFirst({ where: { householdId, name: h.contactName, deletedAt: null }, select: { id: true } });
-        if (matched) await setPrimaryContact(tx, householdId, matched.id);
+      if (!correctionOnly) {
+        const newPrimaryMemberIds: string[] = [];
+        for (const r of readyRows) {
+          const householdId = resolvedHouseholdIdByRowId.get(r.id)!;
+          if (!newHouseholdIds.has(householdId)) continue;
+          const contactName = r.household.contactName;
+          if (!contactName) continue;
+          const match = newMemberMeta.find((m) => m.householdId === householdId && m.name === contactName);
+          if (match) newPrimaryMemberIds.push(match.id);
+        }
+        if (newPrimaryMemberIds.length > 0) {
+          await tx.member.updateMany({ where: { id: { in: newPrimaryMemberIds } }, data: { isPrimaryContact: true } });
+        }
+        for (const householdId of touchedHouseholdIds) {
+          if (newHouseholdIds.has(householdId)) continue; // 新戶已於上方批次處理
+          const h = await tx.household.findUnique({ where: { id: householdId }, select: { contactName: true } });
+          if (!h?.contactName) continue;
+          const matched = await tx.member.findFirst({ where: { householdId, name: h.contactName, deletedAt: null }, select: { id: true } });
+          if (matched) await setPrimaryContact(tx, householdId, matched.id);
+        }
       }
 
       // V12.7：分批累加（不是覆蓋），才能反映跨批次的累計進度。

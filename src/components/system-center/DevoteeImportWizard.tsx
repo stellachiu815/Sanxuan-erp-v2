@@ -293,6 +293,10 @@ export default function DevoteeImportWizard() {
   const [correctionExcelTotal, setCorrectionExcelTotal] = useState(0);
   // V29：牌位資料（歷代祖先／乙位正魂）被排除於信眾校正的筆數。
   const [correctionTabletSkipped, setCorrectionTabletSkipped] = useState(0);
+  // V30.1：Google Drive 來源檔資訊（路徑／檔名／最後修改時間／檔案 ID／同名檔數）。本機上傳時為 null。
+  const [driveFileInfo, setDriveFileInfo] = useState<{
+    path: string; id: string; name: string; modifiedTime: string; matchCount: number; isGoogleSheet: boolean;
+  } | null>(null);
   /** V12.7：分批匯入進度（null＝目前沒有在匯入） */
   const [commitProgress, setCommitProgress] = useState<{ processed: number; total: number } | null>(null);
 
@@ -343,6 +347,31 @@ export default function DevoteeImportWizard() {
     setFile(f);
   }
 
+  // 將分析回應套進畫面狀態（本機上傳與 Google Drive 同步共用）。gotoStep 為成功後要前往的步驟。
+  function applyAnalyzeData(data: Record<string, unknown>, gotoStep: number) {
+    setBatchId((data.batchId as string) ?? null);
+    setColumns((data.columns as string[]) ?? []);
+    setTargetFields((data.targetFields as TargetField[]) ?? []);
+    setMapping((data.mapping as Record<string, string | null>) ?? {});
+    setSummary((data.summary as Summary) ?? null);
+    const dataRows = (data.rows as AnalyzedRow[]) ?? [];
+    setRows(dataRows);
+    setPersonInfo({ fileName: (data.personFileName as string) ?? null, rowCount: (data.personRowCount as number) ?? 0 });
+    setSheetPrep((data.sheetPreparation as { excelRowCount: number; householdRowCount: number; mergedRowCount: number }) ?? null);
+    const cd = data.correctionDebug as { personRawRowCount?: number; parsedPersonRows?: number; tabletSkippedCount?: number } | undefined;
+    setCorrectionExcelTotal(cd?.personRawRowCount ?? cd?.parsedPersonRows ?? dataRows.length);
+    setCorrectionTabletSkipped(cd?.tabletSkippedCount ?? 0);
+    setFilterKey("ALL");
+    setVisibleCount(20);
+    setPendingTotal(
+      dataRows.reduce(
+        (acc: number, r: AnalyzedRow) => acc + (r.plan?.members.filter((m) => m.action === "REVIEW" && !m.resolution).length ?? 0),
+        0
+      )
+    );
+    setStep(gotoStep);
+  }
+
   async function runAnalyze(useCurrentMapping: boolean) {
     if (!file || !operatorUserId) return;
     setAnalyzing(true);
@@ -363,31 +392,35 @@ export default function DevoteeImportWizard() {
         setAnalyzeError(data.error ?? "分析失敗，請確認檔案內容");
         return;
       }
-      setBatchId(data.batchId);
-      setColumns(data.columns ?? []);
-      setTargetFields(data.targetFields ?? []);
-      setMapping(data.mapping ?? {});
-      setSummary(data.summary ?? null);
-      setRows(data.rows ?? []);
-      setPersonInfo({ fileName: data.personFileName ?? null, rowCount: data.personRowCount ?? 0 });
-      setSheetPrep(data.sheetPreparation ?? null);
-      // V29 校正模式：Excel 總筆數（用於預覽頁最上方配對統計）。
-      setCorrectionExcelTotal(
-        data.correctionDebug?.personRawRowCount ?? data.correctionDebug?.parsedPersonRows ?? (data.rows?.length ?? 0)
-      );
-      setCorrectionTabletSkipped(data.correctionDebug?.tabletSkippedCount ?? 0);
-      setFilterKey("ALL");
-      setVisibleCount(20);
-      // 尚未確認的成員數＝所有 REVIEW 且沒有 resolution 的成員
-      setPendingTotal(
-        (data.rows ?? []).reduce(
-          (acc: number, r: AnalyzedRow) =>
-            acc + (r.plan?.members.filter((m) => m.action === "REVIEW" && !m.resolution).length ?? 0),
-          0
-        )
-      );
-      // V29：校正模式不需要家戶欄位對照（信眾 Excel 依中文欄名解析），直接進預覽與統計。
-      setStep(useCurrentMapping || correctionMode ? 3 : 2);
+      setDriveFileInfo(null); // 本機上傳：非 Google Drive 來源
+      // 校正模式直接進預覽（步驟 3），完整匯入依是否已套用對照決定步驟 2/3。
+      applyAnalyzeData(data, useCurrentMapping || correctionMode ? 3 : 2);
+    } catch {
+      setAnalyzeError("無法連線到伺服器，請稍後再試");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  // V30.1：從 Google Drive 固定讀取最新版「信眾資料.xlsx」直接同步（信眾 Member；不動家戶／永久資料）。
+  async function runAnalyzeFromDrive() {
+    if (!operatorUserId) return;
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    setCorrectionMode(true); // Google Drive 同步一律為信眾（Member）校正模式
+    try {
+      const res = await fetch("/api/import/devotee-precheck/analyze-from-drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operatorUserId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAnalyzeError(data.error ?? "Google Drive 同步失敗，請確認已連接 Google Drive 且「三玄宮ERP／匯入資料」內有「信眾資料.xlsx」");
+        return;
+      }
+      setDriveFileInfo(data.driveFile ?? null);
+      applyAnalyzeData(data, 3);
     } catch {
       setAnalyzeError("無法連線到伺服器，請稍後再試");
     } finally {
@@ -615,6 +648,23 @@ export default function DevoteeImportWizard() {
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第一步：上傳檔案</h3>
 
+          {/* V30.1 正式信眾同步：直接讀取 Google Drive 最新版「信眾資料.xlsx」（只更新信眾 Member；不動家戶／永久資料）。 */}
+          <div className="rounded-2xl border border-sage-300 bg-sage-50/60 p-3">
+            <p className="text-xs font-medium text-ink">正式信眾同步（Google Drive）</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+              直接讀取 Google Drive 資料夾「三玄宮ERP_Backup」內最新版「信眾資料.xlsx」，只更新信眾（Member）資料，
+              **完全不動家戶、歷代祖先、乙位正魂等永久資料**。下方「① 本機選擇檔案」保留作為備援。
+            </p>
+            <button
+              type="button"
+              disabled={!operatorUserId || analyzing}
+              onClick={() => runAnalyzeFromDrive()}
+              className="mt-2 min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint sm:w-fit"
+            >
+              {analyzing ? "同步中…" : "從 Google Drive 同步信眾資料"}
+            </button>
+          </div>
+
           {/* V29：模式選擇——完整匯入 vs 信眾資料校正（只用信眾 Excel、略過家戶） */}
           <div className="rounded-2xl border border-cream-200 bg-white/60 p-3">
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -805,6 +855,24 @@ export default function DevoteeImportWizard() {
       {step === 3 && summary && (
         <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-6 shadow-card">
           <h3 className="text-sm text-ink">第三步：預覽與統計</h3>
+
+          {/* V30.1：Google Drive 來源檔資訊（不可靜默選錯檔） */}
+          {driveFileInfo && (
+            <div className="rounded-2xl border border-sage-300 bg-sage-50/60 px-4 py-3 text-xs leading-relaxed text-ink-soft">
+              <p className="font-medium text-ink">來源：Google Drive　{driveFileInfo.path}</p>
+              <p className="mt-1">
+                檔名 {driveFileInfo.name}
+                　最後修改 {new Date(driveFileInfo.modifiedTime).toLocaleString("zh-TW")}
+                　檔案 ID {driveFileInfo.id}
+                {driveFileInfo.isGoogleSheet && "　（Google 試算表，已匯出 xlsx）"}
+              </p>
+              {driveFileInfo.matchCount > 1 && (
+                <p className="mt-1 text-blossom-300">
+                  ⚠️ 匯入資料夾內有 {driveFileInfo.matchCount} 個同名「信眾資料.xlsx」，已自動取「最後修改時間最新」的一份。
+                </p>
+              )}
+            </div>
+          )}
 
           {correctionMode && (
             <p className="rounded-lg bg-yolk-100 px-4 py-3 text-xs font-medium leading-relaxed text-ink">

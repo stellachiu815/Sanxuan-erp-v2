@@ -25,10 +25,10 @@ import { Buffer } from "node:buffer";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
 import { parseSpreadsheetBuffer, suggestColumnMapping, saveFieldMapping, getTargetFields } from "@/lib/smartImport";
-import { remapPersonSheetAliases } from "@/lib/devoteeImportPersonSheet";
 import { applyCanonicalDevoteeHouseholdMapping } from "@/lib/importFieldSuggestion";
 import { annotateTabletRoutedColumns, TABLET_ROUTED_COLUMNS } from "@/lib/devoteeImportNormalize";
 import { analyzeDevoteeImport, DEVOTEE_IMPORT_KIND, MAX_UPLOAD_FILE_BYTES, hasAllowedUploadExtension } from "@/lib/devoteeImportBatch";
+import { analyzeCorrectionFromBuffer } from "@/lib/devoteeCorrectionSync";
 
 export async function POST(request: Request) {
   const formData = await request.formData().catch(() => null);
@@ -63,47 +63,35 @@ export async function POST(request: Request) {
     );
   }
 
-  // V29：信眾資料校正模式——上傳的檔案即為信眾（個人）Excel。
+  // V29／V30：信眾資料校正（＝信眾同步）模式——上傳的檔案即為信眾 Excel。
+  // 共用核心 analyzeCorrectionFromBuffer（與 Google Drive 同步同一支），完整匯入模式不受影響。
   const correctionOnly = formData.get("correctionOnly") === "true";
+  if (correctionOnly) {
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    } catch (err) {
+      console.error("信眾資料匯入預檢：讀取檔案失敗", err);
+      return NextResponse.json({ error: "無法讀取這個檔案，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" }, { status: 400 });
+    }
+    const result = await analyzeCorrectionFromBuffer(fileName, buffer);
+    return result.ok
+      ? NextResponse.json(result.payload)
+      : NextResponse.json({ error: result.error }, { status: result.status });
+  }
 
+  // ---- 以下為「完整家戶匯入」模式（correctionOnly=false），維持原流程不變。 ----
   let columns: string[] = [];
   let rows: Record<string, unknown>[] = [];
-  // V29 校正模式：自動偵測標題列 + 欄名別名正規化後的信眾列（完整匯入不受影響）。
-  let correctionPersonRows: Record<string, unknown>[] = [];
-  let correctionDetectedColumns: string[] = [];
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    if (correctionOnly) {
-      // V29 記憶體優化②：校正模式**只解析一次**（autoDetectHeader），不再先做一般 parse 再解析第二次。
-      // 自動找出真正標題列（前面可有標題文字/空白列/合併儲存格），再把別名欄名補成正式欄名。
-      // detected 於本區塊結束後即離開作用域、可被回收；不與 remapped 陣列同時長存。
-      const detected = parseSpreadsheetBuffer(buffer, { autoDetectHeader: true });
-      correctionDetectedColumns = detected.columns;
-      correctionPersonRows = remapPersonSheetAliases(detected.rows);
-    } else {
-      // 完整匯入模式維持原流程。
-      ({ columns, rows } = parseSpreadsheetBuffer(buffer));
-    }
+    ({ columns, rows } = parseSpreadsheetBuffer(buffer));
   } catch (err) {
     console.error("信眾資料匯入預檢：讀取檔案失敗", err);
     return NextResponse.json({ error: "無法讀取這個檔案，請確認是有效的 Excel（.xlsx/.xls）或 CSV 檔" }, { status: 400 });
   }
 
-  // V29 校正模式：以「姓名」為配對主鍵，**完全不依賴家戶編號**。解析前只驗證能否辨識「姓名」欄；
-  // 不再要求家戶編號／戶號欄（家戶資料僅供畫面參考，非必要）。不得靜默回傳全 0。
-  if (correctionOnly) {
-    const withName = correctionPersonRows.filter((r) => String(r["姓名"] ?? "").trim() !== "").length;
-    const detected = correctionDetectedColumns.join("、") || "（未偵測到欄名）";
-    if (correctionPersonRows.length === 0 || withName === 0) {
-      return NextResponse.json(
-        { error: `校正模式無法辨識「姓名／信眾姓名」欄，請確認信眾 Excel 的標題列。實際偵測到的欄名：${detected}` },
-        { status: 400 }
-      );
-    }
-  }
-
-  // 完整匯入模式才檢查家戶 Excel 的欄/列；校正模式不解析 rows（改用 correctionPersonRows，前面已驗證）。
-  if (!correctionOnly && (columns.length === 0 || rows.length === 0)) {
+  if (columns.length === 0 || rows.length === 0) {
     return NextResponse.json({ error: "檔案裡沒有資料列（標題列下面沒有內容），請確認檔案內容" }, { status: 400 });
   }
 
@@ -187,13 +175,13 @@ export async function POST(request: Request) {
     }
   }
 
-  // V29：校正模式改用「自動偵測標題＋別名正規化」後的信眾列（correctionPersonRows）；略過家戶分析。
+  // 完整家戶匯入（correctionOnly 已於前面早退並由共用核心處理）。
   const { batchId, summary, rows: analyzedRows, sheetPreparation, correctionDebug } = await analyzeDevoteeImport(
     fileName,
-    correctionOnly ? [] : rows,
+    rows,
     mapping,
-    correctionOnly ? correctionPersonRows : personRows,
-    correctionOnly
+    personRows,
+    false
   );
 
   return NextResponse.json({

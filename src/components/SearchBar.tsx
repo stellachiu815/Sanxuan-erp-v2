@@ -36,6 +36,8 @@ type SearchResult = {
   householdName: string;
   phone: string | null;
   addressSummary: string | null;
+  /** V30.1：地址是 fallback 到家戶地址（Member.address 空白）時為 true → 顯示「（家戶地址）」。 */
+  addressIsHouseholdFallback?: boolean;
   birthdayDisplay: string | null;
   href: string;
 };
@@ -158,9 +160,17 @@ export default function SearchBar({
                   <span className="rounded-full bg-mist-100 px-2 py-0.5 text-xs text-ink-soft">家戶</span>
                 )}
               </span>
-              {/* 同名信眾靠這一行區分：電話／生日／地址 */}
+              {/* 同名信眾靠這一行區分：電話／生日／地址（fallback 家戶地址時標示） */}
               <span className="text-xs text-ink-faint">
-                {[r.phone, r.birthdayDisplay, r.addressSummary].filter(Boolean).join("・") || "尚未填寫聯絡資料"}
+                {[
+                  r.phone,
+                  r.birthdayDisplay,
+                  r.addressSummary
+                    ? r.addressIsHouseholdFallback
+                      ? `${r.addressSummary}（家戶地址）`
+                      : r.addressSummary
+                    : null,
+                ].filter(Boolean).join("・") || "尚未填寫聯絡資料"}
               </span>
             </button>
           </li>
