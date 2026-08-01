@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { useOperator } from "@/lib/operatorClient";
 import DevoteeCorrectionPanel, { type CorrectionSelection, type CorrRow, type CandidateInfo } from "@/components/system-center/DevoteeCorrectionPanel";
-import type { FieldDiff } from "@/lib/devoteeImportFieldDiff";
+import type { FieldDiff, ExcelSideValues } from "@/lib/devoteeImportFieldDiff";
 
 /**
  * V11.3「信眾資料匯入預檢中心」正式版——五步驟精靈（依正式 7 欄 Excel 格式）：
@@ -75,6 +75,8 @@ type PlannedMember = {
   rowCategory?: "IDENTICAL" | "SAFE_UPDATE" | "NEEDS_REVIEW";
   /** V29 同名多人候選（待確認時供手動挑選）。 */
   reviewCandidates?: CandidateInfo[];
+  /** V29 同名多人時，這一列 Excel 端逐欄值（挑選候選後即時比對用）。 */
+  reviewExcelSide?: ExcelSideValues;
 };
 
 type RowPlan = {
@@ -823,6 +825,7 @@ export default function DevoteeImportWizard() {
                   fieldDiffs: m.fieldDiffs,
                   matchedFields: m.candidates[0]?.matchedFields,
                   reviewCandidates: m.reviewCandidates,
+                  reviewExcelSide: m.reviewExcelSide,
                 })),
               }));
             return <DevoteeCorrectionPanel rows={corrRows} excelTotalCount={correctionExcelTotal} onChange={setCorrections} />;

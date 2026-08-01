@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   CORRECTABLE_FIELD_LABELS,
+  computeFieldDiffs,
   type FieldDiff,
   type CorrectableField,
   type CorrectionMode,
+  type ExcelSideValues,
+  type DbSideValues,
 } from "@/lib/devoteeImportFieldDiff";
 
 /**
@@ -19,7 +22,7 @@ import {
  * 模式預設「只補空白」；「以 Excel 校正錯值」才會覆蓋既有非空值；Excel 空白永不覆蓋、相同值不寫入。
  */
 
-/** 同名多人候選（唯讀參考＋該候選逐欄差異）。 */
+/** 同名多人候選（唯讀顯示欄位＋精簡 DB 純量；挑選後才即時算差異，不預存 fieldDiffs）。 */
 export type CandidateInfo = {
   memberId: string;
   name: string;
@@ -28,7 +31,7 @@ export type CandidateInfo = {
   mobile: string | null;
   address: string | null;
   householdName: string | null;
-  fieldDiffs: FieldDiff[];
+  dbValues: DbSideValues;
 };
 
 export type CorrMember = {
@@ -42,6 +45,8 @@ export type CorrMember = {
   matchedFields?: string[];
   /** 同名多人時的候選清單（供手動挑選）。 */
   reviewCandidates?: CandidateInfo[];
+  /** 同名多人時，這一列 Excel 端逐欄值（挑選候選後即時比對用）。 */
+  reviewExcelSide?: ExcelSideValues;
 };
 export type CorrRow = { id: string; householdCode: string; householdName: string; members: CorrMember[] };
 
@@ -116,13 +121,15 @@ export default function DevoteeCorrectionPanel({
     return c;
   }, [flat]);
 
-  // 某位成員「目前生效」的逐欄差異：待確認取「已挑選候選」的差異，其餘取自身差異。
+  // 某位成員「目前生效」的逐欄差異：待確認 → 對「已挑選候選」以 Excel×該候選 DB 即時計算；其餘取自身差異。
   function effectiveDiffs(row: CorrRow, member: CorrMember): FieldDiff[] {
     if (isReviewMember(member)) {
       const key = `${row.id}::${member.name}`;
       const pickedId = picks[key];
       const c = member.reviewCandidates?.find((x) => x.memberId === pickedId);
-      return c?.fieldDiffs ?? [];
+      if (!c || !member.reviewExcelSide) return [];
+      // 記憶體優化③：候選不預存 fieldDiffs，挑選後才即時算（computeFieldDiffs 為純函式，前端可跑）。
+      return computeFieldDiffs(member.reviewExcelSide, c.dbValues);
     }
     return member.fieldDiffs ?? [];
   }

@@ -66,19 +66,23 @@ export async function POST(request: Request) {
   // V29：信眾資料校正模式——上傳的檔案即為信眾（個人）Excel。
   const correctionOnly = formData.get("correctionOnly") === "true";
 
-  let columns: string[];
-  let rows: Record<string, unknown>[];
+  let columns: string[] = [];
+  let rows: Record<string, unknown>[] = [];
   // V29 校正模式：自動偵測標題列 + 欄名別名正規化後的信眾列（完整匯入不受影響）。
   let correctionPersonRows: Record<string, unknown>[] = [];
   let correctionDetectedColumns: string[] = [];
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    ({ columns, rows } = parseSpreadsheetBuffer(buffer));
     if (correctionOnly) {
+      // V29 記憶體優化②：校正模式**只解析一次**（autoDetectHeader），不再先做一般 parse 再解析第二次。
       // 自動找出真正標題列（前面可有標題文字/空白列/合併儲存格），再把別名欄名補成正式欄名。
+      // detected 於本區塊結束後即離開作用域、可被回收；不與 remapped 陣列同時長存。
       const detected = parseSpreadsheetBuffer(buffer, { autoDetectHeader: true });
       correctionDetectedColumns = detected.columns;
       correctionPersonRows = remapPersonSheetAliases(detected.rows);
+    } else {
+      // 完整匯入模式維持原流程。
+      ({ columns, rows } = parseSpreadsheetBuffer(buffer));
     }
   } catch (err) {
     console.error("信眾資料匯入預檢：讀取檔案失敗", err);
@@ -98,7 +102,8 @@ export async function POST(request: Request) {
     }
   }
 
-  if (columns.length === 0 || rows.length === 0) {
+  // 完整匯入模式才檢查家戶 Excel 的欄/列；校正模式不解析 rows（改用 correctionPersonRows，前面已驗證）。
+  if (!correctionOnly && (columns.length === 0 || rows.length === 0)) {
     return NextResponse.json({ error: "檔案裡沒有資料列（標題列下面沒有內容），請確認檔案內容" }, { status: 400 });
   }
 

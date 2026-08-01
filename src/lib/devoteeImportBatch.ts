@@ -94,6 +94,13 @@ export const DEVOTEE_IMPORT_KIND = "DEVOTEE_PRECHECK";
  */
 export const DEFAULT_COMMIT_CHUNK_SIZE = 200;
 
+/**
+ * V29 記憶體優化①：分析階段 ImportRow 以 createMany 分批寫入的每批筆數。
+ * 300～500 之間；取 400 兼顧「單批 payload 不過大」與「往返次數不過多」，
+ * 讓 Render Free 512MB 不會因為一次寫入全部列而 OOM。
+ */
+export const IMPORT_ROW_INSERT_CHUNK = 400;
+
 /** 交易 timeout（毫秒）。V24.3 起每批僅十餘次批次往返，120 秒是充足的安全裕度（非用來掩蓋逐筆逾時）。 */
 export const COMMIT_TRANSACTION_TIMEOUT_MS = 120_000;
 export const COMMIT_TRANSACTION_MAX_WAIT_MS = 20_000;
@@ -401,9 +408,19 @@ export type PlannedMember = {
    * 只有 action==="REVIEW" 且因同名多筆時才有值。
    */
   reviewCandidates?: CorrectionCandidate[];
+  /**
+   * V29 記憶體優化③：同名多人時，這一列 Excel 端的逐欄值（一列一份，非每位候選一份）。
+   * 使用者挑選候選後，前端以 computeFieldDiffs(reviewExcelSide, candidate.dbValues) **即時**算差異，
+   * 不再於 analyze 為每位候選預先建立完整 fieldDiffs。只有 action==="REVIEW" 時有值。
+   */
+  reviewExcelSide?: ExcelSideValues;
 };
 
-/** V29 校正：同名多人時，每位候選的畫面參考資訊（唯讀，不作為寫入依據）。 */
+/**
+ * V29 校正：同名多人時，每位候選的**輕量**參考資訊（唯讀，不作為寫入依據）。
+ * 記憶體優化③：不再為每位候選預先建立完整 fieldDiffs；只帶顯示欄位＋一份精簡 dbValues 純量，
+ * 由前端在使用者挑選後即時比對、commit 端再從即時 DB 重算並驗證候選清單。
+ */
 export type CorrectionCandidate = {
   memberId: string;
   name: string;
@@ -417,8 +434,8 @@ export type CorrectionCandidate = {
   address: string | null;
   /** 所屬家戶名稱（僅供辨識參考） */
   householdName: string | null;
-  /** Excel 值 vs 這位候選 DB 現值的逐欄差異——使用者手動挑選此候選後，供勾選校正欄位。 */
-  fieldDiffs: FieldDiff[];
+  /** 這位候選的 DB 現值純量（供挑選後即時算差異；比 8 個 FieldDiff 物件輕量）。 */
+  dbValues: DbSideValues;
 };
 
 export type AnalyzedDevoteeRow = {
@@ -751,20 +768,22 @@ export async function analyzeDevoteeImport(
       mobile: incoming.mobile,
       email: null,
     };
+    // DB 純量（供比對／輕量候選），一份 dbValues 取代原本每位候選 8 個 FieldDiff 物件。
+    const dbSideOf = (dbFull: NonNullable<ReturnType<typeof existingFullById.get>>): DbSideValues => ({
+      gender: dbFull.gender,
+      solarBirthDate: dbFull.solarBirthDate ? toCalendarDateKey(dbFull.solarBirthDate) : null,
+      lunarBirthYear: dbFull.lunarBirthYear,
+      lunarBirthMonth: dbFull.lunarBirthMonth,
+      lunarBirthDay: dbFull.lunarBirthDay,
+      lunarIsLeapMonth: dbFull.lunarIsLeapMonth,
+      nationalId: dbFull.nationalId,
+      address: dbFull.address,
+      role: dbFull.role,
+      mobile: dbFull.mobile,
+      email: dbFull.email,
+    });
     const diffAgainst = (dbFull: NonNullable<ReturnType<typeof existingFullById.get>>): FieldDiff[] =>
-      computeFieldDiffs(excelSide, {
-        gender: dbFull.gender,
-        solarBirthDate: dbFull.solarBirthDate ? toCalendarDateKey(dbFull.solarBirthDate) : null,
-        lunarBirthYear: dbFull.lunarBirthYear,
-        lunarBirthMonth: dbFull.lunarBirthMonth,
-        lunarBirthDay: dbFull.lunarBirthDay,
-        lunarIsLeapMonth: dbFull.lunarIsLeapMonth,
-        nationalId: dbFull.nationalId,
-        address: dbFull.address,
-        role: dbFull.role,
-        mobile: dbFull.mobile,
-        email: dbFull.email,
-      });
+      computeFieldDiffs(excelSide, dbSideOf(dbFull));
 
     if (cands.length === 0) {
       // Excel 有、DB 無 → 不新增 Member，只在畫面顯示。
@@ -783,7 +802,8 @@ export async function analyzeDevoteeImport(
     }
 
     if (cands.length >= 2) {
-      // DB 同名多位 → 全部列為待確認，附各候選參考資訊，使用者手動挑選；不自動選一位。
+      // DB 同名多位 → 全部列為待確認，附各候選**輕量**參考資訊＋ dbValues（不預先建立完整 fieldDiffs）。
+      // 使用者手動挑選後，前端以 reviewExcelSide × candidate.dbValues 即時算差異；系統不自動選一位。
       const reviewCandidates: CorrectionCandidate[] = cands.map((c) => {
         const full = existingFullById.get(c.id);
         return {
@@ -796,7 +816,9 @@ export async function analyzeDevoteeImport(
           mobile: full?.mobile ?? null,
           address: full?.address ?? null,
           householdName: householdNameById.get(c.id) ?? null,
-          fieldDiffs: full ? diffAgainst(full) : [],
+          dbValues: full
+            ? dbSideOf(full)
+            : { gender: null, solarBirthDate: null, lunarBirthYear: null, lunarBirthMonth: null, lunarBirthDay: null, lunarIsLeapMonth: false, nationalId: null, address: null, role: null, mobile: null, email: null },
         };
       });
       return {
@@ -811,6 +833,7 @@ export async function analyzeDevoteeImport(
         fieldDiffs: undefined,
         rowCategory: "NEEDS_REVIEW",
         reviewCandidates,
+        reviewExcelSide: excelSide,
       };
     }
 
@@ -1057,6 +1080,9 @@ export async function analyzeDevoteeImport(
       : [];
 
     return {
+      // V29 記憶體優化①：自行產生 row id，之後用 createMany 分批寫入，
+      // 不再靠 nested create + include 讀回（避免同時持有多份完整 rows 副本）。
+      id: randomUUID(),
       rowNumber: normalized.rowNumber,
       householdId: normalized.household.code || "",
       // 既有欄位（ImportRow.memberName）沿用來存「這一列的顯示用名稱」，
@@ -1091,6 +1117,9 @@ export async function analyzeDevoteeImport(
   );
   const summary = buildSummary(rowsToCreate.map((r) => r.status), rowPlans);
 
+  // V29 記憶體優化①：先只建立 ImportBatch（不含 nested rows），
+  // 再用 createMany 分批寫入 ImportRow，且**不 include 讀回**——避免同時持有
+  // rowsToCreate（含 plan JSON）＋ DB 讀回副本＋回應副本三份完整 rows（Render Free 512MB 會 OOM）。
   const batch = await prisma.importBatch.create({
     data: {
       fileName,
@@ -1102,28 +1131,42 @@ export async function analyzeDevoteeImport(
       // V12.6：正式格式現在也有「疑似重複」了（成員層級的多欄比對），
       // 沿用既有欄位記錄筆數，不新增欄位。
       duplicateCount: summary.suspectedDuplicate,
-      rows: { create: rowsToCreate },
     },
-    include: { rows: { orderBy: { rowNumber: "asc" } } },
   });
 
-  const rows: AnalyzedDevoteeRow[] = batch.rows.map((r, i) => {
-    const normalized = normalizedRows[i];
-    return {
+  // ImportRow 分批寫入（每批 IMPORT_ROW_INSERT_CHUNK 筆）。row id 於上方已自產，
+  // 因此不需要把資料讀回就能組裝回應、保存後續 resolution／commit 依賴的 id。
+  for (let i = 0; i < rowsToCreate.length; i += IMPORT_ROW_INSERT_CHUNK) {
+    const slice = rowsToCreate.slice(i, i + IMPORT_ROW_INSERT_CHUNK).map((r) => ({
       id: r.id,
+      batchId: batch.id,
       rowNumber: r.rowNumber,
-      household: normalized.household,
-      memberNames: normalized.memberNames,
-      ancestorNames: normalized.ancestorNames,
-      spiritNames: normalized.spiritNames,
+      householdId: r.householdId,
+      memberName: r.memberName,
+      rawData: r.rawData,
       status: r.status,
-      errors: [...normalized.missingFieldErrors, ...normalized.formatErrors],
-      warnings: normalized.warnings,
-      plan: rowPlans[i] ?? null,
-      tabletLocations: buildTabletLocations(normalized, personLookup),
-      tabletYangshang: buildTabletYangshang(normalized),
-    };
-  });
+      errors: r.errors as unknown as Prisma.InputJsonValue,
+      warnings: r.warnings as unknown as Prisma.InputJsonValue,
+    }));
+    await prisma.importRow.createMany({ data: slice });
+  }
+
+  // 回應直接用記憶體中的分析結果（rowsToCreate 的 id/status ＋ normalizedRows ＋ rowPlans）組裝，
+  // 不再從 DB 讀回第二份完整 rows。
+  const rows: AnalyzedDevoteeRow[] = normalizedRows.map((normalized, i) => ({
+    id: rowsToCreate[i].id,
+    rowNumber: normalized.rowNumber,
+    household: normalized.household,
+    memberNames: normalized.memberNames,
+    ancestorNames: normalized.ancestorNames,
+    spiritNames: normalized.spiritNames,
+    status: rowsToCreate[i].status,
+    errors: [...normalized.missingFieldErrors, ...normalized.formatErrors],
+    warnings: normalized.warnings,
+    plan: rowPlans[i] ?? null,
+    tabletLocations: buildTabletLocations(normalized, personLookup),
+    tabletYangshang: buildTabletYangshang(normalized),
+  }));
 
   return {
     batchId: batch.id,
@@ -1848,10 +1891,42 @@ export async function commitDevoteeImport(
             if (!correction || !pickedId) continue; // 未挑選 → 不動
             const picked = pm.reviewCandidates.find((c) => c.memberId === pickedId);
             if (!picked || !pm.personData) continue; // 挑選的 id 不在候選清單 → 拒絕（防呆）
-            const existing = await tx.member.findUnique({ where: { id: pickedId } });
+            const existing = await tx.member.findUnique({ where: { id: pickedId }, include: { devoteeProfile: true } });
             if (!existing || existing.deletedAt || existing.name !== pm.name) continue; // 姓名須一致
             const mode: CorrectionMode = correction.correctionMode ?? "FILL_BLANK_ONLY";
-            const writable = buildSelectedCorrections(picked.fieldDiffs, new Set(correction.selectedFields), mode);
+            // V29 記憶體優化③：候選不再預存 fieldDiffs，這裡對「選定候選」用**即時 DB 現值**重算差異
+            // （比 analyze 當下更即時、更安全），再套使用者勾選欄位。
+            const excelSideNow: ExcelSideValues = pm.reviewExcelSide ?? {
+              gender: pm.personData.gender,
+              solarBirthDate: pm.personData.solarBirthDate,
+              lunarBirthYear: pm.personData.lunarBirthYear,
+              lunarBirthMonth: pm.personData.lunarBirthMonth,
+              lunarBirthDay: pm.personData.lunarBirthDay,
+              lunarIsLeapMonth: pm.personData.lunarIsLeapMonth,
+              nationalId: null,
+              address: pm.personData.address,
+              role: pm.personData.role,
+              mobile: pm.personData.mobile,
+              email: null,
+            };
+            const dbSideNow: DbSideValues = {
+              gender: existing.gender,
+              solarBirthDate: existing.solarBirthDate ? toCalendarDateKey(existing.solarBirthDate) : null,
+              lunarBirthYear: existing.lunarBirthYear,
+              lunarBirthMonth: existing.lunarBirthMonth,
+              lunarBirthDay: existing.lunarBirthDay,
+              lunarIsLeapMonth: existing.lunarIsLeapMonth,
+              nationalId: existing.nationalId,
+              address: (existing as unknown as { address: string | null }).address,
+              role: existing.role,
+              mobile: existing.devoteeProfile?.mobile ?? null,
+              email: existing.devoteeProfile?.email ?? null,
+            };
+            const writable = buildSelectedCorrections(
+              computeFieldDiffs(excelSideNow, dbSideNow),
+              new Set(correction.selectedFields),
+              mode
+            );
             const patch: Prisma.MemberUpdateInput = {};
             const profilePatch: { mobile?: string; email?: string } = {};
             for (const f of writable) {
