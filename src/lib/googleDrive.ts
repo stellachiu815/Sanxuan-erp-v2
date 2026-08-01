@@ -473,26 +473,40 @@ const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
- * V30.1：在指定資料夾中依「檔名」找檔案，**取 modifiedTime 最新的一份**（需求五）。找不到回 null。
+ * V30.1：在指定資料夾中找「信眾資料.xlsx」，**取 modifiedTime 最新的一份**（需求五）。找不到回 null。
  * 只在該資料夾下尋找，不跨資料夾（不會誤讀備份）。
+ *
+ * 修正：改成「先列出整個資料夾所有檔案，再用程式比對檔名」，且加上
+ * `supportsAllDrives`＋`includeItemsFromAllDrives`（否則共用雲端硬碟／部分共用檔案 files.list 會回 0 筆）。
+ * 檔名比對：完全相符「信眾資料.xlsx」或去副檔名「信眾資料」（Google 試算表可能不帶 .xlsx）。
  */
 export async function findFileByName(
   accessToken: string,
   folderId: string,
   fileName: string
 ): Promise<DriveFoundFile | null> {
-  const safeName = fileName.replace(/'/g, "\\'");
-  const q = `'${folderId}' in parents and name = '${safeName}' and trashed = false`;
-  const res = await fetch(
-    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,createdTime,modifiedTime,mimeType)&orderBy=modifiedTime desc&pageSize=20`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  // 列出整個資料夾所有檔案（不在 Drive query 過濾檔名，避免名稱細節差異或 Google 試算表被濾掉）。
+  const q = `'${folderId}' in parents and trashed = false`;
+  const url =
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}` +
+    `&fields=files(id,name,size,createdTime,modifiedTime,mimeType)` +
+    `&orderBy=modifiedTime desc&pageSize=1000` +
+    `&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error(`在 Google Drive 尋找檔案失敗：HTTP ${res.status}`);
   const data = await res.json();
-  const files = data.files ?? [];
-  // V30.1 debug（僅 log，不影響行為）：實際查詢字串與回傳筆數。
-  console.log(`[信眾同步 debug] findFileByName query: ${q} → Drive 回傳 ${files.length} 筆`);
-  const f = files[0];
+  const files: Array<{ id: string; name: string; size?: string; createdTime: string; modifiedTime: string; mimeType: string }> =
+    data.files ?? [];
+  // V30.1 debug：印出資料夾內完整檔案陣列（name／mimeType／id），供診斷。
+  console.log(
+    `[信眾同步 debug] 資料夾 ${folderId} files.list（supportsAllDrives）回傳 ${files.length} 筆：`,
+    JSON.stringify(files.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType })))
+  );
+  // 程式端比對檔名：完全相符，或去副檔名相符（Google 試算表）。
+  const base = fileName.replace(/\.[^.]+$/, "");
+  const matches = files.filter((f) => f.name === fileName || f.name === base);
+  console.log(`[信眾同步 debug] 依檔名「${fileName}／${base}」比對出 ${matches.length} 筆`);
+  const f = matches[0]; // files 已按 modifiedTime desc 排序，取最新一份
   if (!f) return null;
   return {
     id: f.id,
@@ -501,7 +515,7 @@ export async function findFileByName(
     createdTime: f.createdTime,
     modifiedTime: f.modifiedTime,
     mimeType: f.mimeType,
-    matchCount: files.length,
+    matchCount: matches.length,
   };
 }
 
@@ -522,7 +536,7 @@ export async function listFolderFilesForDebug(
 ): Promise<{ id: string; name: string; mimeType: string }[]> {
   const q = `'${folderId}' in parents and trashed = false`;
   const res = await fetch(
-    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=200`,
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   if (!res.ok) return [];
@@ -541,18 +555,19 @@ export async function listFolderFilesForDebug(
  */
 export async function downloadDriveFileAsXlsx(accessToken: string, fileId: string, mimeType: string): Promise<Buffer> {
   if (mimeType === GOOGLE_SHEET_MIME) {
-    const res = await fetch(`${DRIVE_API}/files/${fileId}/export?mimeType=${encodeURIComponent(XLSX_MIME)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const res = await fetch(
+      `${DRIVE_API}/files/${fileId}/export?mimeType=${encodeURIComponent(XLSX_MIME)}&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
     if (!res.ok) throw new Error(`從 Google Drive 匯出試算表為 xlsx 失敗：HTTP ${res.status}`);
     return Buffer.from(await res.arrayBuffer());
   }
   return downloadFile(accessToken, fileId);
 }
 
-/** 下載檔案內容（還原時使用）。 */
+/** 下載檔案內容（還原時使用）。加上 supportsAllDrives 以支援共用雲端硬碟檔案。 */
 export async function downloadFile(accessToken: string, fileId: string): Promise<Buffer> {
-  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error(`從 Google Drive 下載檔案失敗：HTTP ${res.status}`);
