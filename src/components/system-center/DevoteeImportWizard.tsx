@@ -652,8 +652,8 @@ export default function DevoteeImportWizard() {
           <div className="rounded-2xl border border-sage-300 bg-sage-50/60 p-3">
             <p className="text-xs font-medium text-ink">正式信眾同步（Google Drive）</p>
             <p className="mt-1 text-xs leading-relaxed text-ink-faint">
-              直接讀取 Google Drive 資料夾「三玄宮ERP_Backup」內最新版「信眾資料.xlsx」，只更新信眾（Member）資料，
-              **完全不動家戶、歷代祖先、乙位正魂等永久資料**。下方「① 本機選擇檔案」保留作為備援。
+              直接讀取 Google Drive「三玄宮ERP／匯入資料／信眾資料.xlsx」的最新修改版（與備份資料夾分開），
+              只更新信眾（Member）資料，**完全不動家戶、歷代祖先、乙位正魂等永久資料**。下方「① 本機選擇檔案」保留作為備援。
             </p>
             <button
               type="button"
