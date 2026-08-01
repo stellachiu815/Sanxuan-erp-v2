@@ -195,7 +195,14 @@ function normalizeGenderCell(raw: unknown, errors: string[]): string | null {
   return null;
 }
 
-/** 農曆生日：yyyy-MM-dd，閏月在後面加「(閏)」或「（閏）」，沿用舊版慣例。 */
+/**
+ * 農曆生日解析。支援分隔符 `/` 或 `-`，年份為民國年，並**只取開頭日期**，
+ * 忽略後面的「吉／凶／干支／任何括號附註」（半形/全形括號皆可），例如：
+ *   090/01/27(吉)(辛巳) → 民國90(西元2001) 農曆 1 月 27 日
+ *   090/01/27（吉）（辛巳）／090/01/27(吉)／090/01/27／46-4-17（皆可）
+ * 閏月：字串含「閏」即視為閏月（沿用舊版慣例，位置不限，如「(閏)」）。
+ * 後面的括號附註一律忽略、**不寫入資料庫**。
+ */
 function parseLunarCell(
   raw: unknown,
   errors: string[]
@@ -204,15 +211,16 @@ function parseLunarCell(
   if (raw === null || raw === undefined) return empty;
   const original = toHalfWidthDigits(String(raw)).trim();
   if (!original) return empty;
-  const leap = /[（(]\s*閏\s*[)）]/.test(original);
-  const s = original.replace(/[（(]\s*閏\s*[)）]/g, "").trim().replace(/\//g, "-");
-  // V15R5：年份一律以民國理解（1～3 碼＝民國，+1911 轉西元；4 碼＝西元相容舊資料）。
-  // 例：46-4-17＝民國46年（西元1957），絕不被當成西元46 或 1946。lunarBirthYear DB 存西元。
-  const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  // 閏月：整串含「閏」即為閏月（干支/吉凶都不含「閏」，不會誤判）。
+  const leap = /閏/.test(original);
+  // 只匹配「開頭的日期」（yyyy[/-]MM[/-]dd），後面的 (吉)/(干支)/全形括號/任何附註全部忽略。
+  const m = /^\s*(\d{1,4})[/-](\d{1,2})[/-](\d{1,2})/.exec(original);
   if (!m) {
-    errors.push(`「農曆生日」格式看不懂「${original}」，請用民國年 yyyy-MM-dd（如 46-4-17），閏月加「(閏)」`);
+    errors.push(`「農曆生日」格式看不懂「${original}」，請用民國年 yyyy/MM/dd（如 090/01/27，可加吉凶干支括號）`);
     return empty;
   }
+  // V15R5：年份一律以民國理解（1～3 碼＝民國，+1911 轉西元；4 碼＝西元相容舊資料）。
+  // 例：090＝民國90年（西元2001）；46＝民國46年（西元1957）。lunarBirthYear DB 存西元。
   const yRaw = Number(m[1]);
   const y = yRaw < 1000 ? yRaw + 1911 : yRaw; // 民國→西元（一次轉換）
   const mo = Number(m[2]);
