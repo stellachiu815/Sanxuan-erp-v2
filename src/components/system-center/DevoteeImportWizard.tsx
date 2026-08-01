@@ -402,7 +402,9 @@ export default function DevoteeImportWizard() {
     setCommitPreview(null);
     try {
       const res = await fetch(
-        `/api/import/devotee-precheck/${batchId}/commit-preview?operatorUserId=${encodeURIComponent(operatorUserId)}`
+        `/api/import/devotee-precheck/${batchId}/commit-preview?operatorUserId=${encodeURIComponent(operatorUserId)}` +
+          // V29 校正模式：即將新增家戶／成員一律 0（commit 不建立任何資料）。
+          (correctionMode ? "&correctionOnly=true" : "")
       );
       const data = await res.json();
       // 有更新的請求（或已切換 batch）就丟棄本次結果，不覆蓋較新的狀態。

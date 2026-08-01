@@ -284,7 +284,7 @@ export type DevoteeImportSummary = {
   fieldConflicts: number;
 };
 
-function buildSummary(statuses: ImportRowStatus[], plans: RowPlan[] = []): DevoteeImportSummary {
+function buildSummary(statuses: ImportRowStatus[], plans: RowPlan[] = [], correctionOnly = false): DevoteeImportSummary {
   const count = (s: ImportRowStatus) => statuses.filter((x) => x === s).length;
   const sum = (f: (p: RowPlan) => number) => plans.reduce((a, p) => a + f(p), 0);
   return {
@@ -296,9 +296,12 @@ function buildSummary(statuses: ImportRowStatus[], plans: RowPlan[] = []): Devot
     imported: count("IMPORTED"),
     suspectedDuplicate: count("SUSPECTED_DUPLICATE"),
     householdUncertain: count("HOUSEHOLD_UNCERTAIN"),
-    householdsToCreate: plans.filter((p) => p.householdAction === "CREATE").length,
-    householdsToUpdate: plans.filter((p) => p.householdAction === "UPDATE").length,
-    membersToCreate: sum((p) => p.members.filter((m) => m.action === "CREATE").length),
+    // V29 校正模式：**永遠不新增任何家戶／成員**（commit 全程略過 create）。
+    // 「Excel 有、DB 無」雖以 action=CREATE 供面板歸類顯示，但**絕不計入即將新增**——
+    // 這裡強制歸零，避免畫面誤顯示「即將新增成員 N」。
+    householdsToCreate: correctionOnly ? 0 : plans.filter((p) => p.householdAction === "CREATE").length,
+    householdsToUpdate: correctionOnly ? 0 : plans.filter((p) => p.householdAction === "UPDATE").length,
+    membersToCreate: correctionOnly ? 0 : sum((p) => p.members.filter((m) => m.action === "CREATE").length),
     membersToUpdate: sum((p) => p.members.filter((m) => m.action === "UPDATE").length),
     autoMatchedHighConfidence: sum(
       (p) => p.members.filter((m) => m.action === "UPDATE" && m.confidence === "HIGH").length
@@ -1115,7 +1118,7 @@ export async function analyzeDevoteeImport(
   const rowPlans: RowPlan[] = rowsToCreate.map(
     (r) => (r.rawData as unknown as StoredRowPayload).plan!
   );
-  const summary = buildSummary(rowsToCreate.map((r) => r.status), rowPlans);
+  const summary = buildSummary(rowsToCreate.map((r) => r.status), rowPlans, correctionOnly);
 
   // V29 記憶體優化①：先只建立 ImportBatch（不含 nested rows），
   // 再用 createMany 分批寫入 ImportRow，且**不 include 讀回**——避免同時持有
@@ -1292,10 +1295,34 @@ function groupReadyRowsByHouseholdCode(rows: AnalyzedDevoteeRow[]): Map<string, 
   return byCode;
 }
 
-export async function getCommitPreview(batchId: string): Promise<CommitPreviewResult> {
+export async function getCommitPreview(
+  batchId: string,
+  correctionOnly = false
+): Promise<CommitPreviewResult> {
   const view = await getDevoteeImportBatch(batchId);
   if (!view) return { ok: false, error: "找不到這個匯入批次" };
   if (view.status === "COMMITTED") return { ok: false, error: "這個批次已經確認匯入過了" };
+
+  /**
+   * V29 校正模式：commit 全程**不建立/不更新任何家戶、成員、牌位**（只套用使用者勾選的欄位校正）。
+   * 因此「即將新增家戶／成員／祖先／乙位正魂」「即將更新家戶」一律 0；
+   * 「Excel 有、DB 無」只在校正面板列出、絕不計入即將新增。不逐戶查詢，也省下記憶體與時間。
+   */
+  if (correctionOnly) {
+    return {
+      ok: true,
+      newHouseholdCount: 0,
+      updateHouseholdCount: 0,
+      newMemberCount: 0,
+      newAncestorCount: 0,
+      newSpiritCount: 0,
+      skippedCount: view.summary.incompleteData + view.summary.formatError,
+      pendingResolutions: await countPendingResolutions(batchId),
+      overCap: false,
+      capMessage: null,
+      totalHouseholds: view.rows.filter((r) => r.status === "READY_TO_IMPORT").length,
+    };
+  }
 
   const readyRows = view.rows.filter((r) => r.status === "READY_TO_IMPORT");
   const namesByCode = groupReadyRowsByHouseholdCode(readyRows);

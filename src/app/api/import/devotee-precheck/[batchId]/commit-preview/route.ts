@@ -18,7 +18,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   const { batchId } = await params;
-  const preview = await getCommitPreview(batchId);
+  // V29 校正模式：即將新增家戶／成員一律 0（commit 不建立任何資料）。
+  const correctionOnly = request.nextUrl.searchParams.get("correctionOnly") === "true";
+  const preview = await getCommitPreview(batchId, correctionOnly);
   if (!preview.ok) {
     return NextResponse.json({ error: preview.error }, { status: 404 });
   }
