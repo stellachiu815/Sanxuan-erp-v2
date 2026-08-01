@@ -1949,9 +1949,14 @@ export async function commitDevoteeImport(
               mobile: existing.devoteeProfile?.mobile ?? null,
               email: existing.devoteeProfile?.email ?? null,
             };
+            // V29 生日校正：勾選「農曆生日」時，一併回推「國曆生日」（solarBirthDate 已由 lunarToSolar 換算）。
+            // 仍走 buildSelectedCorrections，故 solar 只在 FILL_BLANK（任何模式）或 DIFF（校正錯值模式）才寫入，
+            // 農曆不足時 solar 為 null → 不可寫 → 保持原值（不猜測）。
+            const selectedNow = new Set(correction.selectedFields);
+            if (selectedNow.has("lunarBirth")) selectedNow.add("solarBirthDate");
             const writable = buildSelectedCorrections(
               computeFieldDiffs(excelSideNow, dbSideNow),
-              new Set(correction.selectedFields),
+              selectedNow,
               mode
             );
             const patch: Prisma.MemberUpdateInput = {};
@@ -2032,7 +2037,12 @@ export async function commitDevoteeImport(
             if (correction !== undefined) {
               // ── V29 校正模式：只寫使用者勾選、且依模式/安全規則可寫的欄位。 ──
               const mode: CorrectionMode = correction.correctionMode ?? "FILL_BLANK_ONLY";
-              const writable = buildSelectedCorrections(pm.fieldDiffs ?? [], new Set(correction.selectedFields), mode);
+              // V29 生日校正：勾選「農曆生日」時一併回推「國曆生日」（solarBirthDate 已由 lunarToSolar 換算）。
+              // 仍走 buildSelectedCorrections：solar 只在 FILL_BLANK（任何模式）或 DIFF（校正錯值模式）才寫；
+              // 農曆不足時 solar 為 null → 不可寫 → 保持原值（不猜測）。
+              const selectedFields = new Set(correction.selectedFields);
+              if (selectedFields.has("lunarBirth")) selectedFields.add("solarBirthDate");
+              const writable = buildSelectedCorrections(pm.fieldDiffs ?? [], selectedFields, mode);
               for (const f of writable) {
                 if (isProfileField(f)) {
                   if (f === "mobile" && pm.personData.mobile) profilePatch.mobile = pm.personData.mobile;
