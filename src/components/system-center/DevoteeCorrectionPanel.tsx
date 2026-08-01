@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CORRECTABLE_FIELD_LABELS,
   computeFieldDiffs,
@@ -187,6 +187,37 @@ export default function DevoteeCorrectionPanel({
     onChange(out);
   }
 
+  /** 一位成員「可補空白（FILL_BLANK）」的欄位集合（DB 空、Excel 有值）。 */
+  function fillBlankFields(diffs: FieldDiff[]): Set<CorrectableField> {
+    const s = new Set<CorrectableField>();
+    for (const d of diffs) if (d.status === "FILL_BLANK") s.add(d.field);
+    return s;
+  }
+
+  // 依 rows 內容產生穩定簽章：父層每次 render 都會重建 rows 陣列，若用 rows 參考當依賴會每次重跑、
+  // 抹掉使用者的手動取消。改用 row id 串成的字串（primitive）當依賴，只有「新一批分析」才會變。
+  const rowsSig = rows.map((r) => r.id).join("|");
+
+  /**
+   * V29 進入預覽頁時自動完成「安全勾選」：DB 空白、Excel 有值（FILL_BLANK）的欄位預設勾選，
+   * 涵蓋 國曆生日／農曆生日／性別／身份／聯絡電話／通訊地址。**不含** DIFF（DB 有值且不同，
+   * 保持未勾選由使用者決定）、SAME、DB_ONLY、Excel有DB無、同名待確認（待選定候選後另行預設）。
+   * 使用者仍可手動取消任何預設。只有換一批分析（rowsSig 變）才重設。
+   */
+  useEffect(() => {
+    const next: Record<string, Set<CorrectableField>> = {};
+    for (const { row, member } of flat) {
+      if (member.action === "SKIP" || member.action === "CREATE") continue; // 略過 / Excel有DB無：不勾
+      if (isReviewMember(member)) continue; // 同名多人：待使用者選定候選後再預設
+      const set = fillBlankFields(member.fieldDiffs ?? []);
+      if (set.size > 0) next[`${row.id}::${member.name}`] = set;
+    }
+    setSelections(next);
+    setPicks({});
+    emit(next, {}, mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowsSig]);
+
   function toggleField(key: string, field: CorrectableField) {
     setSelections((prev) => {
       const next = { ...prev };
@@ -199,12 +230,19 @@ export default function DevoteeCorrectionPanel({
     });
   }
 
-  // 挑選同名候選：改選候選時清掉這位成員原有勾選（避免套到別位候選）。
+  // 挑選同名候選：選定後，對「該候選」自動預設勾選其「可補空白」欄位（DIFF 保持未勾）。
+  // 改選其他候選時會以新候選重算預設，不會殘留前一位候選的勾選。
   function pickCandidate(key: string, memberId: string) {
     setPicks((prevPicks) => {
       const nextPicks = { ...prevPicks, [key]: memberId };
+      const fm = flat.find(({ row, member }) => `${row.id}::${member.name}` === key);
+      const cand = fm?.member.reviewCandidates?.find((c) => c.memberId === memberId);
+      const defaults =
+        fm?.member.reviewExcelSide && cand
+          ? fillBlankFields(computeFieldDiffs(fm.member.reviewExcelSide, cand.dbValues))
+          : new Set<CorrectableField>();
       setSelections((prevSel) => {
-        const nextSel = { ...prevSel, [key]: new Set<CorrectableField>() };
+        const nextSel = { ...prevSel, [key]: defaults };
         emit(nextSel, nextPicks, mode);
         return nextSel;
       });
@@ -218,10 +256,10 @@ export default function DevoteeCorrectionPanel({
       for (const { row, member } of flat) {
         if (member.rowCategory !== "SAFE_UPDATE" || isReviewMember(member)) continue; // 待確認不可批次
         const key = `${row.id}::${member.name}`;
+        // V29 規則六：「全部安全更新」只勾選 FILL_BLANK（可補空白），**絕不**勾選 DIFF（錯值覆蓋）。
         const set = new Set(next[key] ?? []);
         for (const d of member.fieldDiffs ?? []) {
-          if (d.status === "FILL_BLANK") set.add(d.field); // 只自動選「補空白」的安全欄
-          if (d.status === "DIFF" && mode === "CORRECT_WITH_EXCEL") set.add(d.field);
+          if (d.status === "FILL_BLANK") set.add(d.field);
         }
         next[key] = set;
       }
