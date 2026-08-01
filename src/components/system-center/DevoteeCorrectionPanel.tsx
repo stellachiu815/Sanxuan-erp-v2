@@ -10,6 +10,37 @@ import {
   type ExcelSideValues,
   type DbSideValues,
 } from "@/lib/devoteeImportFieldDiff";
+import { formatIsoDateToMinguoLong, formatLunarDateToMinguoArabic } from "@/lib/minguoDate";
+
+/**
+ * V29：生日一律用民國格式顯示（不顯示西元裸格式；沿用既有 minguoDate 工具）。
+ *   國曆（yyyy-MM-dd）→ 民國49年10月24日
+ *   農曆（computeFieldDiffs 產生的「y-m-d」或「y-m-d(閏)」）→ 民國49年農曆9月5日／…農曆閏9月5日
+ * Excel 值與 DB 現值兩側都走這支，確保同一套格式。非生日欄位原樣顯示。
+ */
+function formatDiffValue(field: CorrectableField, value: string | null): string | null {
+  if (value == null) return value;
+  if (field === "solarBirthDate") return formatIsoDateToMinguoLong(value) || value;
+  if (field === "lunarBirth") {
+    const leap = /\(閏\)/.test(value);
+    const m = /^(\d+)-(\d+)-(\d+)/.exec(value);
+    if (!m) return value;
+    return (
+      formatLunarDateToMinguoArabic({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]), isLeapMonth: leap }) ||
+      value
+    );
+  }
+  return value;
+}
+
+/** 農曆西元年月日 → 民國顯示（候選卡片用；資料不足回「—」）。 */
+function fmtLunarMinguo(y: number | null, mo: number | null, d: number | null, leap: boolean): string {
+  return formatLunarDateToMinguoArabic({ year: y, month: mo, day: d, isLeapMonth: leap }) || "—";
+}
+/** 國曆 ISO → 民國顯示（候選卡片用；空值回「—」）。 */
+function fmtSolarMinguo(iso: string | null): string {
+  return (iso && formatIsoDateToMinguoLong(iso)) || "—";
+}
 
 /**
  * V29 C：信眾資料匯入預檢中心「成員逐欄差異＋安全校正」面板（沿用既有預檢中心，不建第二套）。
@@ -326,8 +357,8 @@ export default function DevoteeCorrectionPanel({
                       <input type="radio" name={`pick-${key}`} checked={pickedId === c.memberId} onChange={() => pickCandidate(key, c.memberId)} />
                       <span className="font-medium text-ink">{c.name}</span>
                       <span className="text-ink-faint">ID {c.memberId}</span>
-                      <span className="text-ink-faint">農曆 {c.lunarBirthLabel ?? "—"}</span>
-                      <span className="text-ink-faint">國曆 {c.solarBirthLabel ?? "—"}</span>
+                      <span className="text-ink-faint">農曆 {fmtLunarMinguo(c.dbValues.lunarBirthYear, c.dbValues.lunarBirthMonth, c.dbValues.lunarBirthDay, c.dbValues.lunarIsLeapMonth)}</span>
+                      <span className="text-ink-faint">國曆 {fmtSolarMinguo(c.dbValues.solarBirthDate)}</span>
                       <span className="text-ink-faint">電話 {c.mobile ?? "—"}</span>
                       <span className="text-ink-faint">地址 {c.address ?? "—"}</span>
                       <span className="text-ink-faint">家戶 {c.householdName ?? "—"}（僅供辨識）</span>
@@ -351,8 +382,8 @@ export default function DevoteeCorrectionPanel({
                             <input type="checkbox" disabled={!selectable} checked={set.has(d.field)} onChange={() => toggleField(key, d.field)} />
                           </td>
                           <td className="px-1 py-0.5">{d.label}</td>
-                          <td className="px-1 py-0.5">{d.excel ?? <span className="text-ink-faint">（空白）</span>}</td>
-                          <td className="px-1 py-0.5">{d.db ?? <span className="text-ink-faint">（空白）</span>}</td>
+                          <td className="px-1 py-0.5">{formatDiffValue(d.field, d.excel) ?? <span className="text-ink-faint">（空白）</span>}</td>
+                          <td className="px-1 py-0.5">{formatDiffValue(d.field, d.db) ?? <span className="text-ink-faint">（空白）</span>}</td>
                           <td className="px-1 py-0.5">
                             {d.status === "SAME" && "一致"}
                             {d.status === "FILL_BLANK" && "可補空白"}

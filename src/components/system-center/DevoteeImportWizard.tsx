@@ -832,8 +832,8 @@ export default function DevoteeImportWizard() {
               }));
             return <DevoteeCorrectionPanel rows={corrRows} excelTotalCount={correctionExcelTotal} onChange={setCorrections} />;
           })()}
-          {/* V12.8：合併儲存格前處理說明 */}
-          {sheetPrep && sheetPrep.mergedRowCount > 0 && (
+          {/* V12.8：合併儲存格前處理說明（校正模式不涉及家戶合併，隱藏） */}
+          {!correctionMode && sheetPrep && sheetPrep.mergedRowCount > 0 && (
             <p className="rounded-2xl bg-sage-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
               偵測到合併儲存格格式：Excel 共 {sheetPrep.excelRowCount} 列，已依家戶編號合併成{" "}
               <span className="text-ink">{sheetPrep.householdRowCount} 戶</span>
@@ -851,7 +851,10 @@ export default function DevoteeImportWizard() {
             </p>
           )}
 
-          {/* V12.6 驗收修正（指令一）：每個分類都可點擊，點了只看該分類的完整清單 */}
+          {/* V12.6 驗收修正（指令一）：每個分類都可點擊，點了只看該分類的完整清單。
+              V29 校正模式：這是完整匯入的家戶/成員新增統計與逐列清單，一律隱藏，
+              只保留上方 DevoteeCorrectionPanel（姓名／Member ID／更新欄位／可更新／待確認／Excel有DB無）。 */}
+          {!correctionMode && (
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
             <FilterPill k="ALL" count={summary.total} label="總筆數（戶）" active={filterKey} onPick={pickFilter} />
             <FilterPill k="HOUSEHOLD_CREATE" count={summary.householdsToCreate} active={filterKey} onPick={pickFilter} tone="sage" />
@@ -865,8 +868,9 @@ export default function DevoteeImportWizard() {
             <FilterPill k="EXCLUDED" count={summary.excluded} active={filterKey} onPick={pickFilter} tone="cream" />
             <StatPill label="高可信度自動配對" value={summary.autoMatchedHighConfidence} tone="mist" />
           </div>
+          )}
 
-          {summary.suspectedDuplicate > 0 && (
+          {!correctionMode && summary.suspectedDuplicate > 0 && (
             <p className="rounded-2xl bg-yolk-50 px-4 py-3 text-xs leading-relaxed text-ink-soft">
               有 {summary.suspectedDuplicate} 列被判定為「疑似重複」，
               <span className="text-ink">預設不會匯入</span>
@@ -875,6 +879,8 @@ export default function DevoteeImportWizard() {
             </p>
           )}
 
+          {/* V29 校正模式：完整匯入的篩選列與逐列家戶清單一律隱藏（只保留上方校正面板）。 */}
+          {!correctionMode && (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-ink-faint">
               目前顯示「{FILTER_LABEL[filterKey]}」
@@ -892,6 +898,8 @@ export default function DevoteeImportWizard() {
               </button>
             )}
           </div>
+          )}
+          {!correctionMode && (
           <div className="flex flex-col gap-3">
             {previewRows.map((r) => (
               <div key={r.id} className="rounded-2xl border border-cream-200 p-4">
@@ -1062,7 +1070,8 @@ export default function DevoteeImportWizard() {
               </div>
             ))}
           </div>
-          {filteredRows.length > previewRows.length && (
+          )}
+          {!correctionMode && filteredRows.length > previewRows.length && (
             <button
               type="button"
               onClick={() => setVisibleCount((n) => n + 50)}

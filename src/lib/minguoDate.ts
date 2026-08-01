@@ -252,6 +252,26 @@ export function formatLunarDateToMinguoLong(input: {
   return `民國${minguo}年${leapTag}${LUNAR_MONTH_NAMES[month - 1]}${LUNAR_DAY_NAMES[day - 1]}`;
 }
 
+/**
+ * 農曆 → 「民國49年農曆9月5日」（閏月：「民國49年農曆閏9月5日」）。
+ *
+ * 與 formatLunarDateToMinguoLong 的差別：本函式用**阿拉伯數字月日＋「農曆」前綴**，
+ * 供 V29 信眾資料校正預覽畫面使用（規格明定此格式）。年份換算沿用同一支 adToMinguo，
+ * 不另建曆法／民國換算邏輯。傳入 year 為農曆西元年；年月日缺失或不合法 → 回空字串。
+ */
+export function formatLunarDateToMinguoArabic(input: {
+  year: number | null | undefined;
+  month: number | null | undefined;
+  day: number | null | undefined;
+  isLeapMonth?: boolean | null;
+}): string {
+  const { year, month, day, isLeapMonth } = input;
+  if (year === null || year === undefined || !Number.isInteger(year)) return "";
+  if (month === null || month === undefined || !Number.isInteger(month) || month < 1 || month > 12) return "";
+  if (day === null || day === undefined || !Number.isInteger(day) || day < 1 || day > 30) return "";
+  return `民國${adToMinguo(year)}年農曆${isLeapMonth ? "閏" : ""}${month}月${day}日`;
+}
+
 /** Date → 西元 yyyy-MM-dd（給 <input type="date"> 與 API 傳輸用）。 */
 export function toIsoDateString(d: Date | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return "";
