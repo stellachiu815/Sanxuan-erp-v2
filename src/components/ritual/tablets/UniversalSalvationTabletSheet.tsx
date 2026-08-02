@@ -1,4 +1,5 @@
 import { TABLET_FONT_FAMILY, formatWorkNumber, toPrintableTablet, type PrintTabletEntry } from "./shared";
+import { addressVerticalAlign, verticalTextInnerStyle } from "./addressLayout";
 import {
   A4,
   TABLET_A4_CONFIG,
@@ -25,26 +26,27 @@ export type TabletSheetMode = "print" | "calibration";
 
 const mm = (v: number) => `${v}mm`;
 
-function VerticalText({ text, sizePx, soft }: { text: string; sizePx: number; soft?: boolean }) {
+function VerticalText({
+  text,
+  sizePx,
+  soft,
+  align = "center",
+}: {
+  text: string;
+  sizePx: number;
+  soft?: boolean;
+  /** V30.5：直式文字沿 inline（垂直）軸的對齊。地址兩行時用 "end" 讓第二行向下對齊、兩行底部齊平。 */
+  align?: "center" | "end";
+}) {
   if (!text) return null;
   return (
-    <div
-      style={{
-        writingMode: "vertical-rl",
-        textOrientation: "mixed",
-        fontSize: sizePx,
-        lineHeight: 1.15,
-        textAlign: "center",
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: soft ? "#333" : "#000",
-        fontFamily: TABLET_FONT_FAMILY,
-      }}
-    >
-      {text}
+    // 外層只負責把直行整體水平置中（cross 軸），不影響地址在盒內的垂直排列。
+    // 內層樣式抽到 verticalTextInnerStyle（component 與測試共用同一份）：center＝置中（單行地址、
+    // 主文、陽上人維持原樣）；end＝沿底部對齊（地址第二行向下對齊）。
+    <div style={{ width: "100%", height: "100%", display: "flex", justifyContent: "center" }}>
+      <div style={{ ...verticalTextInnerStyle(align, sizePx, !!soft), fontFamily: TABLET_FONT_FAMILY }}>
+        {text}
+      </div>
     </div>
   );
 }
@@ -77,7 +79,13 @@ function BlockView({ block, mode }: { block: PositionedBlock; mode: TabletSheetM
       data-entry-id={block.entryId ?? ""}
       data-registration-id={block.registrationId ?? ""}
     >
-      <VerticalText text={block.text} sizePx={fontPxFor(block)} soft={block.blockType !== "main"} />
+      <VerticalText
+        text={block.text}
+        sizePx={fontPxFor(block)}
+        soft={block.blockType !== "main"}
+        // V30.5：只有「地址」在折成兩行時沿底部對齊；主文／陽上人維持置中不變。
+        align={block.blockType === "address" ? addressVerticalAlign(block.text.length, block.heightMm, fontPxFor(block)) : "center"}
+      />
       {mode === "calibration" && (
         <div
           style={{ position: "absolute", top: 0, left: 0, fontSize: 8, color: "#c0392b", background: "rgba(255,255,255,.7)", padding: "0 1px", writingMode: "horizontal-tb" }}

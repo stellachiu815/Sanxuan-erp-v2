@@ -112,6 +112,43 @@ function PrintCenterInner() {
         </section>
       )}
 
+      {/*
+        V30.5：中元普渡正式列印入口——清楚區分「報名總名單」與「牌位／寶袋正式列印」。
+        報名總名單＝名冊（下方各項目連結）；牌位／寶袋正式列印＝既有 mm 引擎版型頁（預覽／勾選列印／
+        全部未列印／指定 ids／補印／作業號碼顯示隱藏／確認完成列印）。不得把報名總名單當成牌位正式列印頁。
+        本輪只補入口與連結，不重做既有正式版型與 mm 引擎。
+      */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-base text-ink">中元普渡正式列印入口（民國 {year} 年）</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Link href={`/universal-salvation/${year}/print-center`} className="rounded-2xl bg-white/70 p-4 shadow-card hover:bg-cream-50">
+            <p className="text-sm font-medium text-ink">牌位正式列印</p>
+            <p className="mt-1 text-xs text-ink-faint">超拔祖先／乙位正魂／累世冤親債主／無緣子女——mm 版型：預覽・勾選・全部未列印・指定 ids・補印・作業號碼顯示／隱藏・確認完成列印。</p>
+          </Link>
+          <Link href={`/universal-salvation/${year}/print-center`} className="rounded-2xl bg-white/70 p-4 shadow-card hover:bg-cream-50">
+            <p className="text-sm font-medium text-ink">寶袋正式列印</p>
+            <p className="mt-1 text-xs text-ink-faint">基本寶袋＋額外寶袋——同一列印物件中心，每頁 4 筆、作業號碼可顯示／隱藏。</p>
+          </Link>
+          <Link href={`/print-center/rosters/US_RICE/${year}`} className="rounded-2xl bg-white/70 p-4 shadow-card hover:bg-cream-50">
+            <p className="text-sm font-medium text-ink">白米名單</p>
+            <p className="mt-1 text-xs text-ink-faint">白米登記報名總名單（顯示斤數）／列印／補印／紀錄。</p>
+          </Link>
+          <Link href={`/print-center/rosters/US_SPONSOR/${year}`} className="rounded-2xl bg-white/70 p-4 shadow-card hover:bg-cream-50">
+            <p className="text-sm font-medium text-ink">贊普名單</p>
+            <p className="mt-1 text-xs text-ink-faint">贊普報名總名單／列印／補印／紀錄。</p>
+          </Link>
+          <Link href={`/print-center/rosters/US_SPONSOR_DONATION/${year}`} className="rounded-2xl bg-white/70 p-4 shadow-card hover:bg-cream-50">
+            <p className="text-sm font-medium text-ink">隨喜贊普名單</p>
+            <p className="mt-1 text-xs text-ink-faint">隨喜贊普報名總名單／列印／補印／紀錄。</p>
+          </Link>
+        </div>
+        <p className="mt-2 text-xs text-ink-faint">＊各報名項目的「報名總名單」也可從下方「依項目快速彙總」進入；報名總名單為名冊，牌位／寶袋正式列印請走上方 mm 版型入口。</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a href={`/api/universal-salvation/${year}/roster-export`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">⬇ 匯出活動總名單 Excel（祖先＋乙位／冤親／白米／贊普）</a>
+          <Link href="/system-center/universal-salvation-check" className="rounded-full bg-cream-100 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-200">普渡上線前檢查（唯讀）</Link>
+        </div>
+      </section>
+
       {/* V15R8：普渡列印管理唯一入口——所有來源共用的報名名單（搜尋／篩選／狀態／單筆＋批次＋全部列印）。 */}
       <section className="mb-8">
         <h2 className="mb-3 text-base text-ink">普渡列印名單（全部來源）</h2>

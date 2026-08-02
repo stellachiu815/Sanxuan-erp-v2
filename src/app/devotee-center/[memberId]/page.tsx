@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import BackButton from "@/components/navigation/BackButton";
-import { Suspense, useEffect, useRef, useState, use as usePromise } from "react";
+import { Fragment, Suspense, useEffect, useRef, useState, use as usePromise } from "react";
 import { useSearchParams } from "next/navigation";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee, type Role } from "@/lib/permissions";
@@ -17,6 +17,7 @@ import { memberRoleOptions, memberRoleLabel, birthHourOptions, worshipTypeOption
 import { GENDER_OPTIONS } from "@/lib/genderNormalize";
 import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
 import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
+import RegistrationDetailPanel from "@/components/devotee/RegistrationDetailPanel";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 // V13.4 驗收：國曆生日一律以民國長格式顯示，唯一來源在 minguoDate。
 import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
@@ -1280,6 +1281,8 @@ function ActivitiesTab({
   onChanged: () => void;
 }) {
   const [showNewRegistration, setShowNewRegistration] = useState(false);
+  // V30.5：展開某筆中元普渡報名的「報名明細」（唯讀，導向既有正式編輯頁）。
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -1326,15 +1329,40 @@ function ActivitiesTab({
             </tr>
           </thead>
           <tbody>
-            {rituals.map((r) => (
-              <tr key={r.ritualRecordId} className="border-t border-cream-200">
-                <td className="px-3 py-2 text-ink">{r.activityName}</td>
-                <td className="px-3 py-2 text-ink-soft">{r.year}</td>
-                <td className="px-3 py-2 text-ink-soft"><Money n={r.amount} /></td>
-                <td className="px-3 py-2 text-ink-soft">{r.paymentStatus}</td>
-                <td className="px-3 py-2 text-ink-faint">{r.receiptNumbers.join("、") || "—"}</td>
-              </tr>
-            ))}
+            {rituals.map((r) => {
+              const isUS = r.activityName.includes("普渡");
+              const open = expanded === r.ritualRecordId;
+              return (
+                <Fragment key={r.ritualRecordId}>
+                  <tr className="border-t border-cream-200">
+                    <td className="px-3 py-2 text-ink">
+                      {isUS ? (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(open ? null : r.ritualRecordId)}
+                          className="text-left text-ink underline decoration-dotted underline-offset-2"
+                        >
+                          {open ? "▾ " : "▸ "}{r.activityName}
+                        </button>
+                      ) : (
+                        r.activityName
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-ink-soft">{r.year}</td>
+                    <td className="px-3 py-2 text-ink-soft"><Money n={r.amount} /></td>
+                    <td className="px-3 py-2 text-ink-soft">{r.paymentStatus}</td>
+                    <td className="px-3 py-2 text-ink-faint">{r.receiptNumbers.join("、") || "—"}</td>
+                  </tr>
+                  {isUS && open && (
+                    <tr>
+                      <td colSpan={5} className="px-3 pb-3">
+                        <RegistrationDetailPanel ritualRecordId={r.ritualRecordId} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
