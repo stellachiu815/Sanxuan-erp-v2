@@ -14,6 +14,7 @@ import {
 import { upsertLanternRegistrationInTransaction } from "@/lib/lanternRegistration";
 import { canAcceptRegistration, listActivityYearCandidates } from "@/lib/activityYear";
 import { assertRiceQuota } from "@/lib/whiteRiceService";
+import { confirmedRecordHasLeftoverDrafts } from "@/lib/registrationDisplayRules";
 
 /** V16：白米年度配額不足（確認報名時觸發）。用來在 transaction 內中止並回傳原狀態碼／訊息。 */
 class RiceQuotaBlockedError extends Error {
@@ -342,11 +343,20 @@ export async function confirmRegistration(
   if (!record || record.deletedAt) {
     return { ok: false, status: 404, error: "找不到這筆活動報名" };
   }
-  if (record.status === "CONFIRMED") {
-    return { ok: true, snapshotsGenerated: 0 };
-  }
   if (record.status === "CANCELLED") {
     return { ok: false, status: 409, error: "這筆報名已取消，無法直接確認" };
+  }
+  // V30.4：主報名已 CONFIRMED 時，**不再直接 no-op**——「確認後才新增、仍停在 DRAFT 的未取消
+  // item」（例如已確認後再加全戶冤親／再補牌位）必須一起補確認，否則它們永遠不進總名單/列印/統計。
+  // 已於上方通過 validateForConfirm；若確實沒有任何 DRAFT item，才視同 no-op 直接返回。
+  // 只補確認「本筆 record 自己的」DRAFT item，不跨 record、不做全庫批次轉換。
+  if (record.status === "CONFIRMED") {
+    const draftCount = await prisma.ritualRegistrationItem.count({
+      where: { ritualRecordId, deletedAt: null, status: "DRAFT" },
+    });
+    if (!confirmedRecordHasLeftoverDrafts(record.status, draftCount)) {
+      return { ok: true, snapshotsGenerated: 0 };
+    }
   }
 
   let result;

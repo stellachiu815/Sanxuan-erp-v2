@@ -1153,7 +1153,15 @@ export async function ensureLinkedTabletItem(
     where: { key: itemKey },
     select: { id: true },
   });
-  if (!itemType) return;
+  // V30.4：這裡曾是「孤兒牌位」的根因——RegistrationItemType 尚未 seed 時**靜默 return**，
+  // 導致 entry 已建、item 沒建（例：早期 US_YUANQIN 未 seed → 14 筆孤兒冤親）。改為**拋錯**，
+  // 讓建立 entry 的同一 transaction 整批 rollback（entry 與 item 原子一致，寧可失敗也不留孤兒）。
+  // 正常情況下報名項目已於活動建立時 seed，本錯誤不會發生。
+  if (!itemType) {
+    throw new Error(
+      `報名項目設定「${itemKey}」尚未建立，無法為牌位（${params.category}）連結計價項目；請先於活動設定建立報名項目後再登記。`
+    );
+  }
 
   const prices = await getUniversalSalvationTabletPrices(params.year, tx);
   const unit = tabletUnitPriceFor(itemKey, prices);

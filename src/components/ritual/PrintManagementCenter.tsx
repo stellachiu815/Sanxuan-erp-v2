@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 import { previewRouteForPrintObject } from "@/lib/printPreviewRoutes";
+import { universalSalvationItemDropdown } from "@/lib/registrationDisplayRules";
 
 /**
  * V15R8：普渡列印管理「唯一入口」。所有來源（手動／信眾頁／家戶多人／活動頁／Excel 匯入／
@@ -98,12 +99,29 @@ export default function PrintManagementCenter() {
 
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [year, itemKey, source, printStatus]);
 
-  // 報名項目下拉：由目前結果的相異項目動態組成（涵蓋實際存在的 8 類）。
-  const itemOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const it of items ?? []) m.set(it.itemKey, it.itemName);
-    return [{ key: "", name: "全部項目" }, ...[...m.entries()].map(([key, name]) => ({ key, name }))];
-  }, [items]);
+  // V30.4 下拉來源修正：報名項目下拉**不再**由目前查到的名單結果動態產生（那會導致某項目 0 筆
+  // 就整個消失、永遠只剩超拔祖先）。改以「該中元普渡活動已啟用的 RegistrationItemType」為來源
+  // （listActivityItemPrintSummary 回傳全部啟用項目，含 0 筆），用正式名稱顯示；選取後名單查詢
+  // 仍維持正式 CONFIRMED 條件（不放寬）。
+  const [activityItemTypes, setActivityItemTypes] = useState<{ key: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchRegistration(`/api/print-center/activity-items?year=${year}`);
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        const summary: { itemKey: string; itemName: string; activityGroup: string }[] = data.summary ?? [];
+        // 共用純函式：過濾普渡群組、正式名稱、含 0 筆項目、最前面「全部項目」。
+        setActivityItemTypes(universalSalvationItemDropdown(summary));
+      } catch {
+        /* 下拉來源讀取失敗時保留現有清單，不影響名單本身 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [year]);
+
+  const itemOptions = useMemo(() => activityItemTypes, [activityItemTypes]);
 
   // 只設定「待列印」目標（進入確認狀態），此時完全不呼叫 API、不更新任何列印次數。
   function requestPrint(ids: string[]) {
