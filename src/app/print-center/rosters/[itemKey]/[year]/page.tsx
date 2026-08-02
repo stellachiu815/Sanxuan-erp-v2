@@ -16,6 +16,8 @@ import RosterPrintButton from "@/components/print/RosterPrintButton";
 
 type RosterRow = {
   registrationItemId: string;
+  /** V30.3 普渡報名順序（各項目各自 1 起；未補號 null → 顯示「—」）。名單「順序」欄用此值，不用流水 index。 */
+  registrationOrder: number | null;
   householdName: string;
   memberName: string | null;
   itemName: string;
@@ -132,15 +134,15 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
         <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-ink/20 text-xs text-ink-faint">
-              <th className="px-2 py-1.5">#</th>
+              <th className="px-2 py-1.5">順序</th>
               <th className="px-2 py-1.5">姓名</th>
               <th className="px-2 py-1.5">斤數</th>
             </tr>
           </thead>
           <tbody>
-            {roster.rows.map((r, i) => (
+            {roster.rows.map((r) => (
               <tr key={r.registrationItemId} className="border-b border-ink/10">
-                <td className="px-2 py-1.5 text-ink-faint">{i + 1}</td>
+                <td className="px-2 py-1.5 tabular-nums text-ink-faint">{r.registrationOrder ?? "—"}</td>
                 <td className="px-2 py-1.5 text-ink">{r.memberName ?? r.householdName}</td>
                 <td className="px-2 py-1.5 text-ink-soft">{r.quantity} 斤</td>
               </tr>
@@ -183,7 +185,7 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
       <table className="w-full border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-ink/20 text-xs text-ink-faint">
-            <th className="px-2 py-1.5">#</th>
+            <th className="px-2 py-1.5">順序</th>
             <th className="px-2 py-1.5">家戶</th>
             <th className="px-2 py-1.5">姓名</th>
             <th className="px-2 py-1.5">項目</th>
@@ -195,9 +197,9 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
           </tr>
         </thead>
         <tbody>
-          {roster.rows.map((r, i) => (
+          {roster.rows.map((r) => (
             <tr key={r.registrationItemId} className="border-b border-ink/10">
-              <td className="px-2 py-1.5 text-ink-faint">{i + 1}</td>
+              <td className="px-2 py-1.5 tabular-nums text-ink-faint">{r.registrationOrder ?? "—"}</td>
               <td className="px-2 py-1.5 text-ink">{r.householdName}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.memberName ?? "—"}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.itemName}</td>

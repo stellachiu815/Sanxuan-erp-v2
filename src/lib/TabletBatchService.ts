@@ -67,13 +67,71 @@ export const PRINT_BATCH_META: Record<PrintBatchKey, BatchMeta> = {
     oneClickLabel: "一鍵列印全部未列印寶袋",
     paperLabel: "紅色紙",
     paperDotClass: "bg-red-400 border border-red-600",
-    usesTabletEngine: false,
+    // V30.3：寶袋改走同一 A4 引擎（POCKET documentType，既定 25×140／45×60／25×65mm、每頁 4 筆），
+    // 不再只顯示 Notice。祖先／乙位正魂／無緣子女／冤親四種牌位版面完全不受影響。
+    usesTabletEngine: true,
     itemType: "POCKET",
     categories: [],
   },
 };
 
 export const BATCH_KEYS: PrintBatchKey[] = ["ancestor-soul", "creditor", "pocket"];
+
+/**
+ * V30.3 資料鏈防誤取：列印中心「順序／作業號碼」的 registrationOrder 只能對 **TABLET（牌位）**
+ * 取其 sourceEntry（UniversalSalvationEntry）對應報名項目的順序。
+ *
+ * POCKET（寶袋）的 `sourceEntryId` 指向的是它「所依附的牌位」entry（歷代祖先／乙位正魂／
+ * 累世冤親債主／無緣子女）。若沿用同一條 `universalSalvationEntryId = sourceEntryId` join，
+ * 會把**牌位的 registrationOrder 誤植到寶袋**（例：祖先 No.003 被印在寶袋上）。
+ *
+ * 目前資料模型中，寶袋 AdditionalPrintItem **沒有**回指自身 US_POCKET_EXTRA
+ * RitualRegistrationItem 的欄位（AdditionalPrintItem 無 registrationItemId；
+ * linkItemToExistingDetail 亦不為 POCKET 設定 linkedEntryId），因此**無法**、也**不得**由
+ * 依附牌位取號。規則：
+ *   - TABLET → 使用其牌位報名項目的 registrationOrder（可為 null）。
+ *   - 非 TABLET（POCKET…）→ 一律 null（寶袋自身無順序連結時維持 null，**絕不** fallback 牌位號碼）。
+ *
+ * 未來若建立「寶袋自身 US_POCKET_EXTRA 報名項目 → 列印物件」的正式連結，只需把非 TABLET 分支
+ * 改由該自身項目取號，牌位分支與其他資料鏈皆不受影響。（放在 client-safe 純函式層便於單元測試。）
+ */
+export function registrationOrderForPrintItem(
+  itemType: string,
+  entryRegistrationOrder: number | null
+): number | null {
+  return itemType === "TABLET" ? entryRegistrationOrder : null;
+}
+
+/**
+ * V30.3b 寶袋作業號碼資料鏈的**唯一** repository-mapping 規則（純函式，client-safe，便於單元測試；
+ * listPrintItemsForPrintCenter 直接呼叫本函式，測試涵蓋即等同涵蓋正式查詢路徑）。
+ *
+ *   TABLET（牌位）→ 由 sourceEntry（UniversalSalvationEntry）對應報名項目取 registrationOrder。
+ *   POCKET（寶袋）→ **只**由自身 `registrationItemId` → RitualRegistrationItem 取號，且該報名
+ *                    項目型別必須為 US_POCKET_EXTRA；否則（無關聯／找不到／型別不符／order 為 null）
+ *                    一律回 null。**絕不** fallback 到 sourceEntry（依附牌位：祖先／乙位／冤親／無緣）。
+ *
+ * @param item.registrationItemId 寶袋自身 US_POCKET_EXTRA 報名項目 id（基本寶袋／未回填為 null）。
+ * @param ctx.tabletOrderByEntryId  TABLET 用：entryId → registrationOrder。
+ * @param ctx.pocketRegistrationById POCKET 用：registrationItemId → { itemKey, registrationOrder }。
+ */
+export function resolvePrintItemRegistrationOrder(
+  item: { itemType: string; sourceEntryId: string; registrationItemId: string | null },
+  ctx: {
+    tabletOrderByEntryId: Map<string, number | null>;
+    pocketRegistrationById: Map<string, { itemKey: string; registrationOrder: number | null }>;
+  }
+): number | null {
+  if (item.itemType === "TABLET") {
+    return ctx.tabletOrderByEntryId.get(item.sourceEntryId) ?? null;
+  }
+  // 非 TABLET（POCKET…）：只認自身報名識別關聯，且必須 US_POCKET_EXTRA。
+  if (!item.registrationItemId) return null;
+  const reg = ctx.pocketRegistrationById.get(item.registrationItemId);
+  if (!reg) return null; // 關聯指向的報名項目不存在／已刪除
+  if (reg.itemKey !== "US_POCKET_EXTRA") return null; // 型別守門：非增加寶袋不顯示號碼
+  return reg.registrationOrder ?? null; // 自身順序 null → 維持 null（不 fallback 牌位）
+}
 
 /** 一筆列印物件在此批次系統中屬於哪一批（不屬於任一批回 null）。 */
 export function batchOf(item: { itemType: string; sourceCategory: string }): PrintBatchKey | null {
@@ -100,6 +158,8 @@ export function isComplete(item: { tabletMissingFields?: string[] }): boolean {
 
 export type BatchItem = {
   id: string;
+  /** V30.3 普渡報名順序（作業號碼＝此值；未補號為 null）。由 PrintCenterItemView 帶入。 */
+  registrationOrder?: number | null;
   itemType: string;
   sourceCategory: string;
   sourceCategoryLabel: string;
@@ -178,6 +238,8 @@ function toRecord(i: BatchItem): PrintTabletEntry {
     yangshangNames: i.sourceYangshangNames,
     location: i.sourceLocation,
     notes: null,
+    // V30.3：作業號碼＝報名順序（列印於裁切外白邊）。
+    workNumber: i.registrationOrder ?? null,
   };
 }
 
@@ -195,6 +257,8 @@ export function buildTabletGroups(items: BatchItem[]): TabletPrintGroup[] {
   const tablets = items.filter((i) => i.itemType === "TABLET");
   const threeBlock = THREE_BLOCK_CATS.flatMap((cat) => tablets.filter((i) => i.sourceCategory === cat)).map(toRecord);
   const debt = tablets.filter((i) => i.sourceCategory === "DEBT_CREDITOR").map(toRecord);
+  // V30.3：寶袋（itemType POCKET）→ POCKET 版面（同一 A4 引擎）。傳入前已依 registrationOrder 排序（NULL 最後）。
+  const pockets = items.filter((i) => i.itemType === "POCKET").map(toRecord);
 
   const groups: TabletPrintGroup[] = [];
   if (threeBlock.length > 0) {
@@ -202,6 +266,9 @@ export function buildTabletGroups(items: BatchItem[]): TabletPrintGroup[] {
   }
   if (debt.length > 0) {
     groups.push({ documentType: "DEBT_CREDITOR", categoryLabel: "累世冤親債主", records: debt });
+  }
+  if (pockets.length > 0) {
+    groups.push({ documentType: "POCKET", categoryLabel: "寶袋", records: pockets });
   }
   return groups;
 }

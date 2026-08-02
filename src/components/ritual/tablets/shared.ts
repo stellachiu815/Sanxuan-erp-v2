@@ -11,12 +11,26 @@ import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 /**
  * 牌位列印的**原始**資料（資料庫值，阿拉伯數字、不含「叩薦」）。
  */
+/**
+ * V30.3 作業號碼顯示格式：No.001 / No.099 / No.100 / No.999 / No.1000（≥1000 不截斷、不補零）。
+ * null／undefined（未補號）→ 回 null（不顯示，不印 No.000）。
+ */
+export function formatWorkNumber(wn: number | null | undefined): string | null {
+  if (wn == null) return null;
+  return `No.${wn < 1000 ? String(wn).padStart(3, "0") : String(wn)}`;
+}
+
 export type PrintTabletEntry = {
   displayName: string;
   yangshangName: string | null;
   /** V14.1：多位陽上人（有值優先於 yangshangName）。 */
   yangshangNames?: string[] | null;
   notes: string | null;
+  /**
+   * V30.3 作業號碼＝報名順序（registrationOrder）。列印於裁切範圍外白邊，供現場核對／補印定位；
+   * 裁切後正式牌位看不到。null＝未補號（不顯示號碼）。是否顯示由列印頁 showWorkNumber 控制。
+   */
+  workNumber?: number | null;
   /**
    * V13.1 指令七：牌位地址。可為 null（待補資料）——為 null 時模板不顯示
    * 地址區塊，不會印出空白框或「未填寫」字樣。

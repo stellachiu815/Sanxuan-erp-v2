@@ -704,13 +704,30 @@ model RitualRegistrationItem {
   /// 其他項目一律為 null（不影響既有金流/列印/收款）。
   familyLanternRegistration FamilyLanternRegistration?
 
+  /// V30.3 普渡報名順序：本次活動、該報名項目內的順序（1 起，各項目各自從 1）。
+  /// 舊資料／無活動歸屬（templeEventId 為 null）者保留 null，不占用正式順序。
+  /// 排序範圍＝(templeEventId, registrationItemTypeId)。指派時以 advisory lock＋max+1，
+  /// 並由下方 unique index 作為最後防線。修改/補印/取消/恢復一律不改此號。
+  registrationOrder Int?
+  /// V30.3：冗餘存一份活動 id（由 RitualRecord.templeEventId 安全回填），供 (活動,項目,順序)
+  /// 唯一約束與「本活動全部報名」查詢（比照 PurificationEntry 的 templeEventId 冗餘慣例）。
+  /// 純量欄位、不建 relation（不更動 TempleEvent／RitualRecord 既有關聯）。
+  templeEventId String?
+
+  /// V30.3b：寶袋列印物件（AdditionalPrintItem）回指自身報名項目用的反向關聯。
+  /// 只有 US_POCKET_EXTRA（增加寶袋）報名項目會被指到；牌位不走這裡（牌位用
+  /// universalSalvationEntryId 1:1）。onDelete SetNull 由 AdditionalPrintItem 那側定義。
+  pocketPrintItems AdditionalPrintItem[] @relation("PocketPrintItemRegistration")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([templeEventId, registrationItemTypeId, registrationOrder], map: "rri_event_item_order_key")
   @@index([ritualRecordId])
   @@index([registrationItemTypeId])
   @@index([memberId])
   @@index([deletedAt])
+  @@index([templeEventId], map: "rri_temple_event_idx")
   @@map("ritual_registration_items")
 }
 
@@ -1906,6 +1923,16 @@ model AdditionalPrintItem {
   // 也需要掛附加列印項目時，同一張表可以直接沿用，不需要重新設計。
   sourceEntryId   String
   sourceEntryType String @default("UNIVERSAL_SALVATION_ENTRY")
+
+  /// V30.3b 寶袋作業號碼識別關聯：寶袋（itemType=POCKET，且對應「增加寶袋」US_POCKET_EXTRA
+  /// 報名）回指自身 RitualRegistrationItem。作業號碼 No.xxx 一律取自「這一筆」報名項目的
+  /// registrationOrder，**絕不**沿用 sourceEntryId 所指依附牌位（祖先／乙位正魂／冤親／無緣）的號碼。
+  /// - nullable：基本寶袋（US_BASIC_POCKET）與尚未回填的既有寶袋為 null → 不顯示 No.xxx（維持 null）。
+  /// - sourceEntryId 用途不變（仍指依附牌位 entry）；本欄是**額外**的自身報名識別，不取代 sourceEntryId。
+  /// - onDelete SetNull：報名項目若被刪，僅解除關聯、列印物件與列印紀錄保留。
+  /// - 不在本表存 registrationOrder：號碼唯一真值仍只在 RitualRegistrationItem。
+  registrationItemId String?
+  registrationItem   RitualRegistrationItem? @relation("PocketPrintItemRegistration", fields: [registrationItemId], references: [id], onDelete: SetNull)
 
   householdId String
   household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)

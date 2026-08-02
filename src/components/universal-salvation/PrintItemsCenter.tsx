@@ -20,6 +20,8 @@ import { summarizePrintItems, type AdditionalPrintItemStatusValue } from "@/lib/
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type PrintCenterItem = {
   id: string;
+  /** V30.3 普渡報名順序（各項目各自 1 起；未補號為 null → 顯示「—」）。 */
+  registrationOrder: number | null;
   household: { id: string; name: string };
   sourceCategory: string;
   sourceCategoryLabel: string;
@@ -302,6 +304,7 @@ export default function PrintItemsCenter({ year }: Props) {
             <thead className="sticky top-0 bg-cream-100">
               <tr className="text-ink-faint">
                 <th className="px-3 py-2"></th>
+                <th className="px-3 py-2">順序</th>
                 <th className="px-3 py-2">家戶</th>
                 <th className="px-3 py-2">原祭祀類型／名稱</th>
                 <th className="px-3 py-2">項目</th>
@@ -317,6 +320,7 @@ export default function PrintItemsCenter({ year }: Props) {
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
                   </td>
+                  <td className="px-3 py-2 tabular-nums">{item.registrationOrder ?? "—"}</td>
                   <td className="px-3 py-2">{item.household.name}（{item.household.id}）</td>
                   <td className="px-3 py-2">
                     {item.sourceCategoryLabel}／{item.sourceDisplayName}
@@ -333,7 +337,7 @@ export default function PrintItemsCenter({ year }: Props) {
               ))}
               {items?.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-ink-faint">
+                  <td colSpan={9} className="px-3 py-6 text-center text-ink-faint">
                     沒有符合條件的項目。
                   </td>
                 </tr>

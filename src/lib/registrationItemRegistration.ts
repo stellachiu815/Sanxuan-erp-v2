@@ -18,6 +18,7 @@ import { resolveYangshangNames } from "@/lib/yangshang";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { getAdditionalPrintItemPaidAmounts } from "@/lib/receivableAdapters";
 import { createPurificationEntryForRecordInTx } from "@/lib/purification";
+import { applyRegistrationOrder } from "@/lib/registrationOrder";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import {
   getAnnualLanternPrices,
@@ -298,6 +299,8 @@ export async function registerItem(input: RegisterItemInput): Promise<RegisterIt
         },
         select: { id: true },
       });
+      // V30.3：建立即取號（同交易 advisory lock；活動為 null 時不取號）。
+      await applyRegistrationOrder(tx, created.id, rec.id, itemType.id);
 
       const participantIds =
         input.participantMemberIds && input.participantMemberIds.length > 0
@@ -945,6 +948,8 @@ export async function registerItemsBatch(
           },
           select: { id: true },
         });
+        // V30.3：建立即取號（同交易 advisory lock；活動為 null 時不取號）。
+        await applyRegistrationOrder(tx, created.id, recordId, p.itemType.id);
 
         await upsertParticipantsInTransaction(tx, recordId, participantIdsFor(p.entry), operatorName ?? null);
 
@@ -1211,9 +1216,13 @@ export async function ensureLinkedTabletItem(
     return;
   }
 
-  await tx.ritualRegistrationItem.create({
+  const createdTablet = await tx.ritualRegistrationItem.create({
     data: { ritualRecordId: params.ritualRecordId, ...initData(0) },
+    select: { id: true },
   });
+  // V30.3：牌位（歷代祖先／乙位正魂／累世冤親債主／無緣子女）建立即取號。
+  // 恢復（already）與重用佔位（placeholder）走 update，不經此處，故原號保留。
+  await applyRegistrationOrder(tx, createdTablet.id, params.ritualRecordId, itemType.id);
 }
 
 const RECONCILE_TABLET_CATEGORIES: UniversalSalvationEntryCategory[] = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
@@ -1472,7 +1481,10 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
   const [[rows, salvationDetail, lantern], purificationEntries] = await Promise.all([
     Promise.all([
     prisma.ritualRegistrationItem.findMany({
-      where: { ritualRecordId, deletedAt: null },
+      // V30.3c：寶袋（US_POCKET_EXTRA）報名項目不進「報名項目清單」——每個寶袋（基本＋額外）
+      // 都是列印物件，於寶袋區塊／列印中心管理與顯示；此處排除，避免每筆基本寶袋灌爆報名清單。
+      // 額外寶袋仍以既有 extraPockets（AdditionalPrintItem isExtra=true）視圖顯示。
+      where: { ritualRecordId, deletedAt: null, registrationItemType: { key: { not: "US_POCKET_EXTRA" } } },
       include: {
         registrationItemType: true,
         member: { select: { name: true } },

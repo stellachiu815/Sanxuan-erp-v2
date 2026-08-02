@@ -138,9 +138,9 @@ export default function PrintObjectCenter({ year }: { year: number }) {
     setOkMsg(null);
     setConfirmError(null);
 
-    // 收集勾選中的**牌位（TABLET）**物件 id，並依原祭祀類別推出批次（祖先/乙位 vs 冤親）。
+    // 收集勾選中的牌位（TABLET）與寶袋（POCKET）id；牌位再依原祭祀類別推出批次（祖先/乙位 vs 冤親）。
     const tabletIds: string[] = [];
-    let pocketSelected = 0;
+    const pocketIds: string[] = []; // V30.3：寶袋改為正式 A4 版面，支援勾選 ids 列印。
     const batches = new Set<string>();
     for (const g of groups ?? []) {
       for (const o of [g.tablet, g.pocket, ...g.extras]) {
@@ -149,15 +149,31 @@ export default function PrintObjectCenter({ year }: { year: number }) {
           tabletIds.push(o.id);
           batches.add(g.sourceCategoryLabel.includes("冤親") ? "creditor" : "ancestor-soul");
         } else {
-          pocketSelected += 1;
+          pocketIds.push(o.id);
         }
       }
     }
 
-    if (tabletIds.length === 0) {
-      setConfirmError("目前勾選沒有牌位（TABLET）。寶袋（紅色紙）請用下方「寶袋」批次流程列印。");
+    if (tabletIds.length === 0 && pocketIds.length === 0) {
+      setConfirmError("目前沒有勾選任何可列印物件。");
       return;
     }
+    // 牌位（黃色紙）與寶袋（紅色紙）為不同批次，需分開列印。
+    if (tabletIds.length > 0 && pocketIds.length > 0) {
+      setConfirmError("牌位與寶袋為不同批次（黃色紙／紅色紙），請分開列印：一次只選牌位或只選寶袋。");
+      return;
+    }
+
+    // V30.3：寶袋批次（依 registrationOrder 排序、支援作業號碼開關）——開啟寶袋正式 A4 列印頁。
+    if (pocketIds.length > 0) {
+      const rel = `/universal-salvation/${year}/print-center/print?batch=pocket&ids=${pocketIds.join(",")}`;
+      const url = new URL(rel, window.location.origin).href;
+      setPreviewReady(true);
+      const win = window.open(url, "_blank", "noopener");
+      if (!win) window.location.assign(url);
+      return;
+    }
+
     if (batches.size > 1) {
       setConfirmError("不同列印批次需分開列印，請一次只選同一批：祖先／乙位正魂 或 累世冤親債主。");
       return;
@@ -167,9 +183,6 @@ export default function PrintObjectCenter({ year }: { year: number }) {
     const rel = `/universal-salvation/${year}/print-center/print?batch=${batch}&ids=${tabletIds.join(",")}`;
     const url = new URL(rel, window.location.origin).href; // 絕對網址
     setPreviewReady(true); // 已產生列印頁 → 之後可「確認完成列印」
-    if (pocketSelected > 0) {
-      setOkMsg(`已開啟牌位專用列印頁（${tabletIds.length} 筆）。另勾選的 ${pocketSelected} 筆寶袋未納入牌位頁，請用寶袋批次另印。`);
-    }
     // 優先新分頁（保留本管理頁的勾選與確認狀態）；被彈窗封鎖時**同分頁導向專用列印頁**，
     // 絕不改成在本管理頁 window.print()。
     const win = window.open(url, "_blank", "noopener");

@@ -42,10 +42,12 @@ export default async function TabletBatchPrintRoute({
   searchParams,
 }: {
   params: Promise<{ year: string }>;
-  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string }>;
+  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string; workno?: string }>;
 }) {
   const { year: yearParam } = await params;
-  const { batch: batchParam, ids: idsParam, debug: debugParam } = await searchParams;
+  const { batch: batchParam, ids: idsParam, debug: debugParam, workno: worknoParam } = await searchParams;
+  // V30.3：作業號碼開關（?workno=0 隱藏；預設／其他值＝顯示）。
+  const showWorkNumber = worknoParam !== "0";
 
   const year = Number(yearParam);
   if (!Number.isInteger(year)) return <Notice year={0} title="年度格式錯誤" />;
@@ -100,6 +102,7 @@ export default async function TabletBatchPrintRoute({
       count={chosen.length}
       groups={groups}
       debug={debugParam === "1"}
+      showWorkNumber={showWorkNumber}
     />
   );
 }

@@ -28,6 +28,8 @@ export type PrintCenterFilters = {
 
 export type PrintCenterRow = {
   registrationItemId: string;
+  /** V30.3 普渡報名順序（各活動×項目各自 1 起；未補號為 null）。名單／總表／列印一律以此排序、顯示。 */
+  registrationOrder: number | null;
   year: number;
   itemKey: string;
   itemName: string;
@@ -81,8 +83,17 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
       universalSalvationEntry: { select: { displayName: true, yangshangNames: true, yangshangName: true, tabletAddress: true } },
       ritualRecord: { select: { year: true, registrationSource: true, templeEventId: true, household: { select: { id: true, name: true } } } },
     },
-    orderBy: [{ ritualRecord: { household: { name: "asc" } } }, { createdAt: "asc" }],
+    orderBy: [{ createdAt: "asc" }],
   });
+
+  // V30.3：報名順序（raw SQL，避免依賴 client regenerate）。名單／總表一律以 registrationOrder 排序、顯示。
+  const rowIds = rows.map((r) => r.id);
+  const orderRows = rowIds.length
+    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
+        SELECT "id", "registrationOrder" AS ord FROM "ritual_registration_items" WHERE "id" = ANY(${rowIds})
+      `
+    : [];
+  const orderById = new Map(orderRows.map((o) => [o.id, o.ord]));
 
   const mapped: PrintCenterRow[] = rows.map((r) => {
     const ext = r as unknown as { lastPrintedAt: Date | null; printedByName: string | null };
@@ -91,6 +102,7 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
     const source = r.ritualRecord.registrationSource ?? "";
     return {
       registrationItemId: r.id,
+      registrationOrder: orderById.get(r.id) ?? null,
       year: r.ritualRecord.year,
       itemKey: r.registrationItemType.key,
       itemName: r.registrationItemType.name,
@@ -110,6 +122,17 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
       lastPrintedAt: ext.lastPrintedAt ? ext.lastPrintedAt.toISOString() : (r.printedAt ? r.printedAt.toISOString() : null),
       lastPrintedByName: ext.printedByName ?? null,
     };
+  });
+
+  // V30.3：每個報名項目（itemKey）各自依 registrationOrder 由小到大；未補號（null）排最後。
+  mapped.sort((a, b) => {
+    if (a.itemKey !== b.itemKey) return a.itemKey < b.itemKey ? -1 : 1;
+    const ao = a.registrationOrder;
+    const bo = b.registrationOrder;
+    if (ao == null && bo == null) return 0;
+    if (ao == null) return 1;
+    if (bo == null) return -1;
+    return ao - bo;
   });
 
   const q = (f.q ?? "").trim();
@@ -173,6 +196,8 @@ export async function printRegistrationItems(
 
 export type RosterRow = {
   registrationItemId: string;
+  /** V30.3 普渡報名順序（本項目 1 起；未補號為 null → 顯示「—」）。名單一律以此排序、顯示。 */
+  registrationOrder: number | null;
   householdId: string;
   householdName: string;
   memberName: string | null;
@@ -231,13 +256,23 @@ export async function buildItemRoster(
       member: { select: { name: true } },
       ritualRecord: { include: { household: { select: { id: true, name: true } } } },
     },
-    orderBy: [{ ritualRecord: { household: { name: "asc" } } }, { createdAt: "asc" }],
+    orderBy: [{ createdAt: "asc" }],
   });
+
+  // V30.3：報名順序（raw SQL；名單一律以 registrationOrder 排序、顯示）。本 roster 為單一項目，各筆同型別。
+  const rosterIds = rows.map((r) => r.id);
+  const rosterOrderRows = rosterIds.length
+    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
+        SELECT "id", "registrationOrder" AS ord FROM "ritual_registration_items" WHERE "id" = ANY(${rosterIds})
+      `
+    : [];
+  const rosterOrderById = new Map(rosterOrderRows.map((o) => [o.id, o.ord]));
 
   const rosterRows: RosterRow[] = rows.map((r) => {
     const pr = r as unknown as { printedAt: Date | null; lastPrintedAt: Date | null; printCount: number | null; printedByName: string | null };
     return {
       registrationItemId: r.id,
+      registrationOrder: rosterOrderById.get(r.id) ?? null,
       householdId: r.ritualRecord.household.id,
       householdName: r.ritualRecord.household.name,
       memberName: r.member?.name ?? null,
@@ -252,6 +287,16 @@ export async function buildItemRoster(
       printCount: pr.printCount ?? 0,
       printedByName: pr.printedByName ?? null,
     };
+  });
+
+  // V30.3：依 registrationOrder ASC（NULL 最後）；本 roster 單一項目故不需再分項目分組。
+  rosterRows.sort((a, b) => {
+    const ao = a.registrationOrder;
+    const bo = b.registrationOrder;
+    if (ao == null && bo == null) return 0;
+    if (ao == null) return 1;
+    if (bo == null) return -1;
+    return ao - bo;
   });
 
   return {

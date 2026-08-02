@@ -13,6 +13,8 @@ import {
   getAdditionalPrintItemPaidAmounts,
 } from "@/lib/receivableAdapters";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
+import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder } from "@/lib/TabletBatchService";
+import { applyRegistrationOrder } from "@/lib/registrationOrder";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { tabletMissingFieldsForCategory } from "@/lib/dataCompleteness";
 import {
@@ -170,6 +172,13 @@ export type CreateAdditionalPrintItemInput = {
   isChargeable?: boolean;
   unitPrice?: number | null;
   status?: AdditionalPrintItemStatusValue;
+  /**
+   * V30.3b：寶袋作業號碼識別關聯。只在建立「增加寶袋」US_POCKET_EXTRA 的列印物件時傳入，
+   * 值＝該 US_POCKET_EXTRA RitualRegistrationItem.id。作業號碼一律取自這一筆報名的
+   * registrationOrder，**絕不**沿用 sourceEntry（依附牌位）號碼。基本寶袋不傳（維持 null）。
+   * 以 raw SQL 於**同一 transaction** 寫入（Prisma client 尚未 regenerate，故不走 typed data）。
+   */
+  registrationItemId?: string | null;
 };
 
 /**
@@ -199,6 +208,24 @@ export async function createAdditionalPrintItem(
   const printName = resolvePrintName(input.usesSourceName, context.entry.displayName, input.customPrintName);
   if (!printName) {
     return { ok: false, status: 400, error: "請輸入寶袋列印名稱" };
+  }
+
+  // V30.3b：若指定自身報名識別關聯，必須是**同一 RitualRecord**、未刪除、且型別為 US_POCKET_EXTRA
+  // 的 RitualRegistrationItem，否則拒絕（指令：非 US_POCKET_EXTRA 不可掛號，且不得跨戶指派）。
+  if (input.registrationItemId) {
+    const ok = await client.$queryRaw<{ id: string }[]>`
+      SELECT rri."id"
+      FROM "ritual_registration_items" rri
+      JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
+      WHERE rri."id" = ${input.registrationItemId}
+        AND rri."ritualRecordId" = ${context.ritualRecordId}
+        AND rri."deletedAt" IS NULL
+        AND rit."key" = 'US_POCKET_EXTRA'
+      LIMIT 1
+    `;
+    if (ok.length === 0) {
+      return { ok: false, status: 400, error: "寶袋報名識別關聯無效：必須是同一登記下的『增加寶袋』報名項目" };
+    }
   }
 
   /**
@@ -255,6 +282,17 @@ export async function createAdditionalPrintItem(
       },
     });
 
+    // V30.3b：寶袋自身報名識別關聯——同一 transaction 內以 raw SQL 寫入（client 未 regenerate）。
+    // 只接受「增加寶袋」US_POCKET_EXTRA 的報名項目 id；此處只負責寫入，是否合法（型別＝POCKET）
+    // 由呼叫端保證，讀取端（列印中心）另有 US_POCKET_EXTRA 型別守門，非該型別一律不顯示號碼。
+    if (input.registrationItemId) {
+      await tx.$executeRaw`
+        UPDATE "additional_print_items"
+        SET "registrationItemId" = ${input.registrationItemId}
+        WHERE "id" = ${item.id}
+      `;
+    }
+
     await recordVersion(
       { entityType: "AdditionalPrintItem", entityId: item.id, action: "CREATE", afterData: item, operatorName },
       tx
@@ -265,6 +303,84 @@ export async function createAdditionalPrintItem(
   const created = db ? await runCreate(db) : await prisma.$transaction(runCreate);
 
   return { ok: true, item: created };
+}
+
+/**
+ * V30.3c 額外增加寶袋的**唯一**建立入口（共用服務）。從某一筆已建立牌位（entryId）底下
+ * 「增加寶袋」時呼叫；在**同一 transaction** 建立三筆互相關聯的正式資料：
+ *   1. US_POCKET_EXTRA RitualRegistrationItem（收費與否都建立；amountDue＝是否收費?小計:0）＋registrationOrder。
+ *   2. POCKET AdditionalPrintItem（isExtra=true，sourceEntryId＝該依附牌位 entry，收費旗標沿用輸入）。
+ *   3. AdditionalPrintItem.registrationItemId＝步驟 1 的報名項目 id。
+ *
+ * 收款唯一來源＝步驟 1 的 RitualRegistrationItem（見 receivableAdapters 的 US_POCKET_EXTRA adapter）；
+ * 步驟 2 因帶 registrationItemId，legacy AdditionalPrintItem 應收 adapter 會排除，避免重複計價。
+ * 不勾選收費（isChargeable=false）→ amountDue=0、不產生應收，但仍建立可列印／可補印的寶袋列印物件。
+ */
+export async function createExtraPocket(
+  householdId: string,
+  year: number,
+  entryId: string,
+  input: {
+    usesSourceName: boolean;
+    customPrintName?: string | null;
+    quantity: number;
+    note?: string | null;
+    isChargeable?: boolean;
+    unitPrice?: number | null;
+  },
+  operatorName?: string | null
+): Promise<AdditionalPrintItemMutationResult> {
+  const context = await resolveEntryContext(entryId);
+  if (!context || context.householdId !== householdId || context.year !== year) {
+    return { ok: false, status: 404, error: "找不到這筆普渡登記項目" };
+  }
+  if (!Number.isInteger(input.quantity) || input.quantity < 1) {
+    return { ok: false, status: 400, error: "數量必須是至少 1 的整數" };
+  }
+
+  // 收費與小計（沿用既有寶袋計價三層來源；不收費 → 小計 0、不建立應收）。
+  const isChargeable = input.isChargeable ?? true;
+  let unitPrice = input.unitPrice ?? null;
+  if (isChargeable && (unitPrice === null || unitPrice === undefined)) {
+    const activity = context.templeEventId
+      ? await prisma.templeEvent.findUnique({ where: { id: context.templeEventId }, select: { pocketUnitPrice: true } })
+      : null;
+    unitPrice = resolvePocketUnitPrice(activity?.pocketUnitPrice ? Number(activity.pocketUnitPrice) : null);
+  }
+  const feeResult = computePocketSubtotal({ isChargeable, unitPrice, quantity: input.quantity });
+  if (!feeResult.ok) {
+    return { ok: false, status: 400, error: feeResult.error };
+  }
+  const amountDue = isChargeable ? feeResult.subtotal : 0;
+
+  return prisma.$transaction(async (tx) => {
+    // 1) 先建立本寶袋自身的 US_POCKET_EXTRA 報名項目（唯一收款來源＋registrationOrder）。
+    const reg = await createPocketRegistrationItem(tx, {
+      ritualRecordId: context.ritualRecordId,
+      memberId: null, // 寶袋以家戶為收款單位，比照既有額外寶袋
+      quantity: input.quantity,
+      amountDue,
+    });
+    // 2)+3) 建立 POCKET 列印物件並連結 registrationItemId（createAdditionalPrintItem 內於同一 tx 寫入）。
+    return createAdditionalPrintItem(
+      householdId,
+      year,
+      entryId,
+      {
+        itemType: AdditionalPrintItemType.POCKET,
+        usesSourceName: input.usesSourceName,
+        customPrintName: input.customPrintName ?? null,
+        quantity: input.quantity,
+        isExtra: true,
+        note: input.note ?? null,
+        isChargeable,
+        unitPrice,
+        registrationItemId: reg.id,
+      },
+      operatorName,
+      tx
+    );
+  });
 }
 
 export type UpdateAdditionalPrintItemInput = {
@@ -388,6 +504,28 @@ export async function updateAdditionalPrintItem(
 }
 
 /** 取消一筆附加列印項目（需求「十三」：狀態改為取消，保留歷史，不再出現在待列印清單）。 */
+/**
+ * V30.3c 寶袋生命週期一致：讀出一筆寶袋列印物件連結的 US_POCKET_EXTRA 報名項目（若有）及其
+ * 已收金額。取消／刪除前用來擋「報名項目已收款」的孤兒帳；取消／刪除／恢復時同步報名項目狀態。
+ * registrationItemId 以 raw SQL 讀（client 未 regenerate）。回 null＝無連結（基本 legacy 或牌位物件）。
+ */
+async function getLinkedPocketRegistration(
+  itemId: string,
+  db: DbClient = prisma
+): Promise<{ id: string; amountPaid: number; amountDue: number } | null> {
+  const rows = await db.$queryRaw<{ regId: string | null }[]>`
+    SELECT "registrationItemId" AS "regId" FROM "additional_print_items" WHERE "id" = ${itemId}
+  `;
+  const regId = rows[0]?.regId ?? null;
+  if (!regId) return null;
+  const reg = await db.ritualRegistrationItem.findUnique({
+    where: { id: regId },
+    select: { amountPaid: true, amountDue: true },
+  });
+  if (!reg) return null;
+  return { id: regId, amountPaid: Number(reg.amountPaid), amountDue: Number(reg.amountDue) };
+}
+
 export async function cancelAdditionalPrintItem(
   householdId: string,
   year: number,
@@ -415,12 +553,26 @@ export async function cancelAdditionalPrintItem(
     return { ok: false, status: 409, error: cancelGuard.error };
   }
 
+  // V30.3c：新式寶袋的應收在其 US_POCKET_EXTRA 報名項目上——若該報名項目已收款，同樣不得直接取消。
+  const linkedReg = await getLinkedPocketRegistration(itemId);
+  if (linkedReg && linkedReg.amountPaid > 0) {
+    const linkedGuard = assertNoPaymentBeforeRemoval(linkedReg.amountPaid, "取消");
+    if (linkedGuard.ok === false) return { ok: false, status: 409, error: linkedGuard.error };
+  }
+
   if (existing.status === "CANCELLED") {
     return { ok: false, status: 400, error: "這筆項目已經是取消狀態" };
   }
 
   const updated = await prisma.$transaction(async (tx) => {
     const after = await tx.additionalPrintItem.update({ where: { id: itemId }, data: { status: "CANCELLED" } });
+    // 同步取消連結的寶袋報名項目（不重新編號，保留 registrationOrder），並自待收款移除。
+    if (linkedReg) {
+      await tx.ritualRegistrationItem.update({
+        where: { id: linkedReg.id },
+        data: { status: "CANCELLED", amountUnpaid: 0 },
+      });
+    }
     await recordVersion(
       { entityType: "AdditionalPrintItem", entityId: itemId, action: "UPDATE", beforeData: existing, afterData: after, operatorName, changeNote: "取消" },
       tx
@@ -470,11 +622,25 @@ export async function moveAdditionalPrintItemToRecycleBin(
     return { ok: false, status: 409, error: deleteGuard.error };
   }
 
+  // V30.3c：連結的寶袋報名項目若已收款同樣禁止刪除（避免留下仍計費／已收款的孤兒報名項目）。
+  const linkedRegDel = await getLinkedPocketRegistration(itemId);
+  if (linkedRegDel && linkedRegDel.amountPaid > 0) {
+    const g = assertNoPaymentBeforeRemoval(linkedRegDel.amountPaid, "刪除");
+    if (g.ok === false) return { ok: false, status: 409, error: g.error };
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const after = await tx.additionalPrintItem.update({
       where: { id: itemId },
       data: { deletedAt: new Date(), deletedByName: operatorName?.trim() || null },
     });
+    // 同步軟刪除連結的寶袋報名項目（保留 registrationOrder，自待收款移除），不留計費孤兒。
+    if (linkedRegDel) {
+      await tx.ritualRegistrationItem.update({
+        where: { id: linkedRegDel.id },
+        data: { deletedAt: new Date(), status: "CANCELLED", amountUnpaid: 0, deletedByName: operatorName?.trim() || null },
+      });
+    }
     await recordVersion(
       {
         entityType: "AdditionalPrintItem",
@@ -550,6 +716,17 @@ export async function restoreCancelledAdditionalPrintItem(
         isPaid: restoredState.isPaid,
       },
     });
+    // V30.3c：同步恢復連結的寶袋報名項目（保留原 registrationOrder，不重新編號）；
+    // 依所屬 RitualRecord 狀態決定 DRAFT／CONFIRMED，重回待收款（amountUnpaid＝amountDue）。
+    const linkedRegRestore = await getLinkedPocketRegistration(itemId, tx);
+    if (linkedRegRestore) {
+      const rec = await tx.ritualRecord.findUnique({ where: { id: context.ritualRecordId }, select: { status: true } });
+      const recStatus = rec?.status === "CONFIRMED" ? "CONFIRMED" : "DRAFT";
+      await tx.ritualRegistrationItem.update({
+        where: { id: linkedRegRestore.id },
+        data: { status: recStatus, deletedAt: null, deletedByName: null, amountUnpaid: linkedRegRestore.amountDue },
+      });
+    }
     await recordVersion(
       { entityType: "AdditionalPrintItem", entityId: itemId, action: "RESTORE", beforeData: existing, afterData: after, operatorName, changeNote: "取消後恢復" },
       tx
@@ -679,6 +856,62 @@ export type EnsureTabletPrintObjectsInput = {
  *
  * 預設 POCKET 不收費（isChargeable=false）——額外寶袋才可能產生應收（Part 2.5）。
  */
+/**
+ * V30.3c 寶袋統一編號來源：為「一個寶袋列印物件」建立其對應的 US_POCKET_EXTRA
+ * RitualRegistrationItem，並套用**既有** registrationOrder 架構（同一 advisory lock／unique
+ * index／(templeEventId, US_POCKET_EXTRA) 範圍）。基本寶袋與額外寶袋共用**同一條**寶袋序號序列，
+ * 不另建第二套編號。
+ *
+ * - 基本寶袋：amountDue=0（永遠免費，收款 adapter 以 subtotal>0 過濾自然排除）。
+ * - 額外寶袋：amountDue＝是否收費 ? 小計 : 0；收費與否都建立本報名項目與列印物件。
+ * - 一律不呼叫 linkItemToExistingDetail（寶袋連結走 AdditionalPrintItem.registrationItemId，非 linkedEntryId）。
+ * - 回傳新建報名項目 id，供 AdditionalPrintItem.registrationItemId 於同一 tx 連結。
+ *
+ * 必須在建立寶袋列印物件的**同一 transaction** 內呼叫。
+ */
+export async function createPocketRegistrationItem(
+  tx: Prisma.TransactionClient,
+  params: {
+    ritualRecordId: string;
+    memberId?: string | null;
+    quantity: number;
+    amountDue: number;
+  }
+): Promise<{ id: string; registrationOrder: number | null }> {
+  const pocketType = await tx.registrationItemType.findUnique({
+    where: { key: "US_POCKET_EXTRA" },
+    select: { id: true },
+  });
+  if (!pocketType) {
+    throw new Error("找不到『增加寶袋（US_POCKET_EXTRA）』報名項目設定，無法建立寶袋報名。");
+  }
+  const amount = Math.max(0, Math.round(params.amountDue * 100) / 100);
+  // 應收計時比照 legacy 寶袋：以所屬 RitualRecord 狀態為準（記錄已 CONFIRMED → 本項亦 CONFIRMED
+  // 立即進待收款；DRAFT → 不進待收款）。basic 寶袋 amountDue=0，狀態不影響（永遠 0 應收）。
+  const rec = await tx.ritualRecord.findUnique({
+    where: { id: params.ritualRecordId },
+    select: { status: true },
+  });
+  const status = rec?.status === "CONFIRMED" ? "CONFIRMED" : "DRAFT";
+  const created = await tx.ritualRegistrationItem.create({
+    data: {
+      ritualRecordId: params.ritualRecordId,
+      registrationItemTypeId: pocketType.id,
+      memberId: params.memberId ?? null,
+      quantity: params.quantity,
+      amountDue: amount,
+      amountPaid: 0,
+      amountUnpaid: amount,
+      feeChoice: null,
+      status,
+    },
+    select: { id: true },
+  });
+  // 既有正式編號架構：同一 tx advisory lock + max+1 + unique index（不改防併發規則）。
+  const registrationOrder = await applyRegistrationOrder(tx, created.id, params.ritualRecordId, pocketType.id);
+  return { id: created.id, registrationOrder };
+}
+
 export async function ensureTabletPrintObjects(
   input: EnsureTabletPrintObjectsInput,
   client: Prisma.TransactionClient | typeof prisma = prisma
@@ -719,7 +952,21 @@ export async function ensureTabletPrintObjects(
     createdTablet = true;
   }
   if (!hasPocket) {
-    await client.additionalPrintItem.create({ data: { ...base, itemType: AdditionalPrintItemType.POCKET } });
+    const pocket = await client.additionalPrintItem.create({
+      data: { ...base, itemType: AdditionalPrintItemType.POCKET },
+      select: { id: true },
+    });
+    // V30.3c：基本寶袋也取得自己的 registrationOrder／作業號碼——建立一筆 US_POCKET_EXTRA
+    // 報名項目（amountDue=0 永遠免費）並以 registrationItemId 連結，與額外寶袋共用同一寶袋序號序列。
+    const reg = await createPocketRegistrationItem(client as Prisma.TransactionClient, {
+      ritualRecordId: input.ritualRecordId,
+      memberId: input.memberId ?? null,
+      quantity: 1,
+      amountDue: 0,
+    });
+    await (client as Prisma.TransactionClient).$executeRaw`
+      UPDATE "additional_print_items" SET "registrationItemId" = ${reg.id} WHERE "id" = ${pocket.id}
+    `;
     createdPocket = true;
   }
   return { createdTablet, createdPocket };
@@ -902,6 +1149,12 @@ export type PrintCenterItemView = {
   id: string;
   household: { id: string; name: string };
   sourceEntryId: string;
+  /**
+   * V30.3 普渡報名順序：此列印品來源牌位對應報名項目的 registrationOrder（各活動×項目各自 1 起）。
+   * 列印管理／正式列印／補印查詢一律以此排序；牌位「作業號碼 No.<registrationOrder>」也用此值。
+   * 舊資料未補號時為 null（排在最後）。
+   */
+  registrationOrder: number | null;
   sourceCategory: string;
   sourceCategoryLabel: string;
   sourceDisplayName: string;
@@ -945,6 +1198,11 @@ export type PrintCenterItemView = {
  * 先查符合條件的 AdditionalPrintItem，再一次把對應的 UniversalSalvationEntry
  * 撈出來合併，避免對每一筆都各自查一次資料庫。
  */
+
+// V30.3 寶袋順序防誤取規則：定義在 client-safe 的 TabletBatchService（不 import Prisma，便於單元測試），
+// 已於檔首 import；此處 re-export 供既有呼叫端沿用同一入口。詳見該函式 docstring。
+export { registrationOrderForPrintItem };
+
 export async function listPrintItemsForPrintCenter(
   year: number,
   filters: PrintCenterFilters
@@ -974,6 +1232,43 @@ export async function listPrintItemsForPrintCenter(
       })
     : [];
   const sourceEntryById = new Map(sourceEntries.map((e) => [e.id, e]));
+
+  // V30.3：**牌位（TABLET）**用——來源牌位（UniversalSalvationEntry）對應報名項目的
+  // registrationOrder（raw SQL；不依賴 Prisma client 是否已 regenerate）。寶袋不走這條（見下）。
+  const orderRows = sourceEntryIds.length
+    ? await prisma.$queryRaw<{ eid: string; ord: number | null }[]>`
+        SELECT "universalSalvationEntryId" AS eid, "registrationOrder" AS ord
+        FROM "ritual_registration_items"
+        WHERE "universalSalvationEntryId" IN (${Prisma.join(sourceEntryIds)}) AND "deletedAt" IS NULL
+      `
+    : [];
+  const tabletOrderByEntryId = new Map(orderRows.map((r) => [r.eid, r.ord]));
+
+  // V30.3b：**寶袋（POCKET）**用——由 AdditionalPrintItem.registrationItemId 取自身「增加寶袋」
+  // US_POCKET_EXTRA 報名項目的 registrationOrder。分兩步 raw SQL（client 未 regenerate）：
+  //   (1) 讀每筆列印物件的 registrationItemId；(2) 對非 null 的 id 查報名項目的 key＋registrationOrder。
+  // 只保留 key=US_POCKET_EXTRA 者；讀取端 resolver 對非該型別／找不到／null 一律回 null，絕不 fallback 牌位。
+  const itemIds = items.map((i) => i.id);
+  const printItemRegRows = itemIds.length
+    ? await prisma.$queryRaw<{ id: string; regId: string | null }[]>`
+        SELECT "id", "registrationItemId" AS "regId"
+        FROM "additional_print_items"
+        WHERE "id" IN (${Prisma.join(itemIds)})
+      `
+    : [];
+  const registrationItemIdByPrintItem = new Map(printItemRegRows.map((r) => [r.id, r.regId]));
+  const pocketRegIds = [...new Set(printItemRegRows.map((r) => r.regId).filter((x): x is string => !!x))];
+  const pocketRegRows = pocketRegIds.length
+    ? await prisma.$queryRaw<{ id: string; itemKey: string; ord: number | null }[]>`
+        SELECT rri."id", rit."key" AS "itemKey", rri."registrationOrder" AS ord
+        FROM "ritual_registration_items" rri
+        JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
+        WHERE rri."id" IN (${Prisma.join(pocketRegIds)}) AND rri."deletedAt" IS NULL
+      `
+    : [];
+  const pocketRegistrationById = new Map(
+    pocketRegRows.map((r) => [r.id, { itemKey: r.itemKey, registrationOrder: r.ord }])
+  );
 
   // V14.4：解析最後列印操作人姓名（lastPrintedByUserId → User.name）。
   const lastPrintedByUserIds = [
@@ -1006,6 +1301,18 @@ export async function listPrintItemsForPrintCenter(
       id: item.id,
       household: { id: item.household.id, name: item.household.name },
       sourceEntryId: item.sourceEntryId,
+      // V30.3b 作業號碼／順序來源（唯一規則見 resolvePrintItemRegistrationOrder）：
+      //   TABLET → 由 sourceEntry 對應牌位報名項目取號；
+      //   POCKET → 只由自身 registrationItemId → US_POCKET_EXTRA 報名項目取號，否則 null，
+      //            **絕不**沿用 sourceEntry（依附牌位：祖先／乙位／冤親／無緣）的號碼。
+      registrationOrder: resolvePrintItemRegistrationOrder(
+        {
+          itemType: item.itemType,
+          sourceEntryId: item.sourceEntryId,
+          registrationItemId: registrationItemIdByPrintItem.get(item.id) ?? null,
+        },
+        { tabletOrderByEntryId, pocketRegistrationById }
+      ),
       sourceCategory: source.category,
       sourceCategoryLabel: universalSalvationEntryCategoryLabel[source.category] ?? source.category,
       sourceDisplayName: source.displayName,
@@ -1031,6 +1338,18 @@ export async function listPrintItemsForPrintCenter(
       lastPrintedByName: item.lastPrintedByUserId ? userNameById.get(item.lastPrintedByUserId) ?? null : null,
     });
   }
+
+  // V30.3：列印排序＝每類（sourceCategory）內依 registrationOrder 由小到大；未補號（null）排最後。
+  // 換頁不重新編號（作業號碼＝registrationOrder，與此順序一致）。
+  views.sort((a, b) => {
+    if (a.sourceCategory !== b.sourceCategory) return a.sourceCategory < b.sourceCategory ? -1 : 1;
+    const ao = a.registrationOrder;
+    const bo = b.registrationOrder;
+    if (ao == null && bo == null) return 0;
+    if (ao == null) return 1;
+    if (bo == null) return -1;
+    return ao - bo;
+  });
 
   return views;
 }

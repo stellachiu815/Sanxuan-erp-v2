@@ -9,6 +9,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma, type DbClient } from "@/lib/prisma";
 import { recordVersion } from "@/lib/recordVersion";
+import { applyRegistrationOrder } from "@/lib/registrationOrder";
 import {
   computeRiceQuota,
   computeRiceItemData,
@@ -250,6 +251,8 @@ export async function registerRice(
           notes: q.overbook ? `超量認購（超出後剩餘 ${q.remainingAfter} 斤）｜核准：${actor.name}` : null,
         },
       });
+      // V30.3：白米建立即取號（白米不印牌位，但活動總名單需報名順序）。
+      await applyRegistrationOrder(tx, item.id, record.id, type.id);
 
       await recordVersion(
         {

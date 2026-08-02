@@ -803,7 +803,7 @@ const additionalPrintItemAdapter: ReceivableSourceAdapter = {
     if (filters.sponsorHouseholdId) where.householdId = filters.sponsorHouseholdId;
     if (filters.sponsorMemberId) where.memberId = filters.sponsorMemberId;
 
-    const items = await prisma.additionalPrintItem.findMany({
+    const rawItems = await prisma.additionalPrintItem.findMany({
       where,
       include: {
         household: true,
@@ -814,6 +814,21 @@ const additionalPrintItemAdapter: ReceivableSourceAdapter = {
       orderBy: { createdAt: "desc" },
       take: 500,
     });
+    if (rawItems.length === 0) return [];
+
+    /**
+     * V30.3c 防重複計價：**新式**額外寶袋（AdditionalPrintItem.registrationItemId 非 null）的應收
+     * 唯一來源＝其 US_POCKET_EXTRA RitualRegistrationItem（見 universalSalvationPocketItemAdapter），
+     * 故此 legacy adapter **排除** registrationItemId 非 null 者，避免同一寶袋出現兩筆應收。
+     * 舊式（registrationItemId＝null）額外寶袋維持 legacy 應收不變。
+     * 以 raw SQL 讀 registrationItemId（Prisma client 尚未 regenerate）。
+     */
+    const linkedRows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "additional_print_items"
+      WHERE "id" IN (${Prisma.join(rawItems.map((i) => i.id))}) AND "registrationItemId" IS NOT NULL
+    `;
+    const linkedIds = new Set(linkedRows.map((r) => r.id));
+    const items = rawItems.filter((i) => !linkedIds.has(i.id));
     if (items.length === 0) return [];
 
     const paidMap = await sumAdditionalPrintItemPaid(prisma, items.map((i) => i.id));
@@ -1301,6 +1316,15 @@ const universalSalvationSponsorItemAdapter = makeRegistrationItemAdapter(
   "普渡贊普"
 );
 
+// V30.3c：**新式**額外寶袋（US_POCKET_EXTRA RitualRegistrationItem）＝唯一應收來源。
+// 收費額外寶袋 amountDue>0 → 進待收款；不收費／基本寶袋 amountDue=0 → amountUnpaid 0，自然不計。
+// 對應 legacy additionalPrintItemAdapter 已排除 registrationItemId 非 null 者，兩邊不重複計價。
+const universalSalvationPocketItemAdapter = makeRegistrationItemAdapter(
+  "UNIVERSAL_SALVATION_POCKET_ITEM",
+  ["US_POCKET_EXTRA"],
+  "增加寶袋"
+);
+
 // ============================================================
 // Registry
 // ============================================================
@@ -1319,6 +1343,7 @@ const ADAPTERS: ReceivableSourceAdapter[] = [
   storageTrousersAdapter,
   universalSalvationTabletAdapter,
   universalSalvationSponsorItemAdapter,
+  universalSalvationPocketItemAdapter,
 ];
 
 const ADAPTER_MAP = new Map(ADAPTERS.map((a) => [a.sourceType, a]));

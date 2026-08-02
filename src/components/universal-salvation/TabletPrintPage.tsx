@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   UniversalSalvationTabletSheet,
   buildTabletLayout,
@@ -28,6 +29,7 @@ export default function TabletPrintPage({
   count,
   groups,
   debug = false,
+  showWorkNumber = true,
 }: {
   year: number;
   batchLabel: string;
@@ -35,9 +37,19 @@ export default function TabletPrintPage({
   count: number;
   groups: TabletPrintGroup[];
   debug?: boolean;
+  /** V30.3：是否顯示裁切外作業號碼 No.<registrationOrder>（由 ?workno=0/1 控制，預設顯示）。 */
+  showWorkNumber?: boolean;
 }) {
   const { print } = useTabletPrint(groups.length > 0);
   const sheetsRef = useRef<HTMLDivElement>(null);
+
+  // V30.3：作業號碼開關 href——只翻轉 workno，保留 batch／ids／scope／category 等其餘 query string。
+  const searchParams = useSearchParams();
+  const toggleWorknoHref = (() => {
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    next.set("workno", showWorkNumber ? "0" : "1");
+    return `?${next.toString()}`;
+  })();
 
   // 正式規格：一張 A4 放多筆牌位——每個 documentType 一個 Sheet，records 傳整組（由 buildTabletLayout 打包）。
   // 診斷用：對每組跑相同的 buildTabletLayout（USE，不改引擎），列出每頁每筆綁定的主文/地址/陽上與座標。
@@ -90,7 +102,13 @@ export default function TabletPrintPage({
       <div className="no-print" style={{ position: "sticky", top: 0, zIndex: 10, display: "flex", gap: 12, alignItems: "center", padding: "10px 16px", background: "#faf6ee", borderBottom: "1px solid #e6ddc9" }}>
         <strong>{batchLabel}</strong>
         <span style={{ fontSize: 13, color: "#7a7367" }}>{paperLabel}｜{count} 筆牌位（正式版型：一張 A4 多筆）</span>
-        <button type="button" onClick={print} style={{ marginLeft: "auto", borderRadius: 999, border: "1px solid #cfc8bb", background: "#e7efe4", padding: "6px 16px", fontSize: 14 }}>
+        <Link
+          href={toggleWorknoHref}
+          style={{ marginLeft: "auto", borderRadius: 999, border: "1px solid #cfc8bb", background: showWorkNumber ? "#e7efe4" : "#fff", padding: "6px 16px", fontSize: 14, textDecoration: "none", color: "#2c2a27" }}
+        >
+          {showWorkNumber ? "作業號碼：顯示中（點此隱藏）" : "作業號碼：已隱藏（點此顯示）"}
+        </Link>
+        <button type="button" onClick={print} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#e7efe4", padding: "6px 16px", fontSize: 14 }}>
           🖨 列印
         </button>
         <Link href={`/universal-salvation/${year}/print-center`} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#fff", padding: "6px 16px", fontSize: 14, textDecoration: "none", color: "#2c2a27" }}>
@@ -144,7 +162,7 @@ export default function TabletPrintPage({
         <div ref={sheetsRef} className="flex flex-col items-center gap-8 overflow-x-auto print:gap-0 print:overflow-visible">
           {groups.map((g) => (
             <div key={g.documentType} className="w-full">
-              <UniversalSalvationTabletSheet documentType={g.documentType as TabletDocumentType} records={g.records} mode="print" />
+              <UniversalSalvationTabletSheet documentType={g.documentType as TabletDocumentType} records={g.records} mode="print" showWorkNumber={showWorkNumber} />
             </div>
           ))}
         </div>

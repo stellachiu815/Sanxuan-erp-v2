@@ -18,7 +18,7 @@
 
 export const TABLET_A4_TEMPLATE_ID = "UNIVERSAL_SALVATION_TABLET_A4_V1" as const;
 
-export type TabletDocumentType = "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "UNBORN_CHILD" | "DEBT_CREDITOR";
+export type TabletDocumentType = "ANCESTOR_LINE" | "INDIVIDUAL_SOUL" | "UNBORN_CHILD" | "DEBT_CREDITOR" | "POCKET";
 export type TabletBlockType = "address" | "main" | "yangshang";
 
 /** A4 紙張與集中設定（邊界/間距/offset 皆集中於此，不散落硬編碼）。 */
@@ -63,25 +63,43 @@ const THREE_BLOCK_SIZE: Record<TabletBlockType, { widthMm: number; heightMm: num
   yangshang: { widthMm: 20, heightMm: 70 },
 };
 
-/** 取某型別、某區塊的實體尺寸：冤親債主用 BLOCK_SIZE，其餘三區塊型用緊密成組的 THREE_BLOCK_SIZE。 */
+/**
+ * V30.3 寶袋（POCKET）實體 mm 尺寸（需求方既定，不得擅改）：
+ *   地址 2.5×14cm＝25×140mm、主文 4.5×6cm＝45×60mm、陽上 2.5×6.5cm＝25×65mm。
+ * 與四種牌位共用同一 A4 引擎（固定槽位、mm 座標、3mm 邊界、1mm 最小間距、作業號碼定位）。
+ */
+const POCKET_SIZE: Record<TabletBlockType, { widthMm: number; heightMm: number }> = {
+  address: { widthMm: 25, heightMm: 140 },
+  main: { widthMm: 45, heightMm: 60 },
+  yangshang: { widthMm: 25, heightMm: 65 },
+};
+
+/** 取某型別、某區塊的實體尺寸：冤親債主用 BLOCK_SIZE、寶袋用 POCKET_SIZE、其餘三區塊型用 THREE_BLOCK_SIZE。 */
 export function blockSizeFor(documentType: TabletDocumentType, blockType: TabletBlockType): { widthMm: number; heightMm: number } {
-  return documentType === "DEBT_CREDITOR" ? BLOCK_SIZE[blockType] : THREE_BLOCK_SIZE[blockType];
+  if (documentType === "DEBT_CREDITOR") return BLOCK_SIZE[blockType];
+  if (documentType === "POCKET") return POCKET_SIZE[blockType];
+  return THREE_BLOCK_SIZE[blockType];
 }
 
-/** documentType → 該型別包含哪些區塊（順序即渲染順序）。冤親債主無主文字。 */
+/** documentType → 該型別包含哪些區塊（順序即渲染順序）。冤親債主無主文字；寶袋三區塊。 */
 export const DOCUMENT_BLOCKS: Record<TabletDocumentType, TabletBlockType[]> = {
   ANCESTOR_LINE: ["address", "main", "yangshang"],
   INDIVIDUAL_SOUL: ["address", "main", "yangshang"],
   UNBORN_CHILD: ["address", "main", "yangshang"],
   DEBT_CREDITOR: ["address", "yangshang"],
+  POCKET: ["address", "main", "yangshang"],
 };
 
-/** 每頁固定筆數。 */
+/**
+ * 每頁固定筆數。寶袋＝4（依既定尺寸與 3mm 邊界計算：每筆整組寬≈97mm、高 140mm，
+ * A4 可用 204×291mm 內排 2 欄×2 列＝4 筆；3 欄需 291mm>204、3 列需 420mm>291，皆不可）。
+ */
 export const SLOTS_PER_PAGE: Record<TabletDocumentType, number> = {
   ANCESTOR_LINE: 5,
   INDIVIDUAL_SOUL: 5,
   UNBORN_CHILD: 5,
   DEBT_CREDITOR: 11,
+  POCKET: 4,
 };
 
 type Coord = { x: number; y: number };
@@ -113,12 +131,24 @@ const DEBT_SLOTS: Record<"address" | "yangshang", Coord[]> = {
   ],
 };
 
+/**
+ * V30.3 寶袋固定槽位（4 槽；2 欄×2 列）。每筆整組：地址(25w)→間距1→主文(45w)→間距1→陽上(25w)，
+ * 整組寬 97mm、高 140mm。欄原點 x=3／104；列原點 y=3／150（皆在 3mm 安全區、各格不重疊、間距≥1mm）。
+ *   地址＝格原點；主文＝格原點 x+26；陽上＝格原點 x+72。
+ */
+const POCKET_SLOTS: Record<TabletBlockType, Coord[]> = {
+  address:   [{ x: 3, y: 3 },  { x: 104, y: 3 },  { x: 3, y: 150 },  { x: 104, y: 150 }],
+  main:      [{ x: 29, y: 3 }, { x: 130, y: 3 },  { x: 29, y: 150 }, { x: 130, y: 150 }],
+  yangshang: [{ x: 75, y: 3 }, { x: 176, y: 3 },  { x: 75, y: 150 }, { x: 176, y: 150 }],
+};
+
 /** 取某型別、某區塊、某槽位的「未套 offset」固定座標。 */
 export function slotCoord(docType: TabletDocumentType, blockType: TabletBlockType, slotIndex: number): Coord {
   if (docType === "DEBT_CREDITOR") {
     if (blockType === "main") throw new Error("DEBT_CREDITOR 無主文字區");
     return DEBT_SLOTS[blockType][slotIndex];
   }
+  if (docType === "POCKET") return POCKET_SLOTS[blockType][slotIndex];
   return THREE_BLOCK_SLOTS[blockType][slotIndex];
 }
 

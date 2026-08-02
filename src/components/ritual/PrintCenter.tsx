@@ -16,7 +16,8 @@ import { exportSheetsToPdf } from "./pdfExport";
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 type PrintEntry = PrintTabletEntry;
 
-type PrintCategoryKey = TabletDocumentType;
+// V30.3：家戶牌位列印中心只含四種牌位（不含寶袋 POCKET，寶袋走跨家戶 print-center 的寶袋批次）。
+type PrintCategoryKey = Exclude<TabletDocumentType, "POCKET">;
 
 type PrintCategory = {
   category: PrintCategoryKey;

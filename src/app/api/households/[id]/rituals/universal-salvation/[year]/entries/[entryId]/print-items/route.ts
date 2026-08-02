@@ -4,6 +4,7 @@ import { AdditionalPrintItemType } from "@prisma/client";
 import {
   listAdditionalPrintItemsForEntry,
   createAdditionalPrintItem,
+  createExtraPocket,
   type CreateAdditionalPrintItemInput,
 } from "@/lib/additionalPrintItems";
 import { additionalPrintItemTypeLabel } from "@/lib/labels";
@@ -106,25 +107,39 @@ export async function POST(
     return NextResponse.json({ error: "請輸入自訂寶袋名稱" }, { status: 400 });
   }
 
-  const input: CreateAdditionalPrintItemInput = {
-    itemType: itemType as AdditionalPrintItemType,
-    usesSourceName,
-    customPrintName: toNullableString(body.customPrintName),
-    quantity,
-    isExtra: Boolean(body.isExtra),
-    templateId: toNullableString(body.templateId),
-    note: toNullableString(body.note),
-    isChargeable: Boolean(body.isChargeable),
-    unitPrice: typeof body.unitPrice === "number" ? body.unitPrice : null,
-  };
-
-  const result = await createAdditionalPrintItem(
-    householdId,
-    year,
-    entryId,
-    input,
-    check.operator.name
-  );
+  // V30.3c：POCKET＝額外增加寶袋 → 走**唯一共用服務** createExtraPocket，在同一 transaction 建立
+  // US_POCKET_EXTRA 報名項目（收款唯一來源＋registrationOrder）＋POCKET 列印物件＋registrationItemId 連結。
+  // registrationItemId 一律由服務內部設定，不接受前端傳入。其他 itemType（如手動 TABLET 物件）維持舊路徑。
+  let result;
+  if ((itemType as AdditionalPrintItemType) === AdditionalPrintItemType.POCKET) {
+    result = await createExtraPocket(
+      householdId,
+      year,
+      entryId,
+      {
+        usesSourceName,
+        customPrintName: toNullableString(body.customPrintName),
+        quantity,
+        note: toNullableString(body.note),
+        isChargeable: Boolean(body.isChargeable),
+        unitPrice: typeof body.unitPrice === "number" ? body.unitPrice : null,
+      },
+      check.operator.name
+    );
+  } else {
+    const input: CreateAdditionalPrintItemInput = {
+      itemType: itemType as AdditionalPrintItemType,
+      usesSourceName,
+      customPrintName: toNullableString(body.customPrintName),
+      quantity,
+      isExtra: Boolean(body.isExtra),
+      templateId: toNullableString(body.templateId),
+      note: toNullableString(body.note),
+      isChargeable: Boolean(body.isChargeable),
+      unitPrice: typeof body.unitPrice === "number" ? body.unitPrice : null,
+    };
+    result = await createAdditionalPrintItem(householdId, year, entryId, input, check.operator.name);
+  }
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

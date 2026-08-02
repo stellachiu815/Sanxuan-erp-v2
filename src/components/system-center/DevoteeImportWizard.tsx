@@ -404,24 +404,40 @@ export default function DevoteeImportWizard() {
 
   // V30.1：從 Google Drive 固定讀取最新版「信眾資料.xlsx」直接同步（信眾 Member；不動家戶／永久資料）。
   async function runAnalyzeFromDrive() {
-    if (!operatorUserId) return;
+    // 前端 debug：確認 onClick 真的有觸發（若 console 沒有這行 → 按鈕被 disabled／事件沒進來）。
+    console.log("[Drive同步前端] click");
+    if (analyzing) {
+      console.log("[Drive同步前端] 已在處理中，略過");
+      return;
+    }
+    if (!operatorUserId) {
+      // 不要靜默 return：明確告知，避免「按了完全沒反應」。
+      console.log("[Drive同步前端] 缺少 operatorUserId（未選操作人員）");
+      setAnalyzeError("找不到目前操作人員，請重新登入或於上方選擇操作人員後再試。");
+      return;
+    }
     setAnalyzing(true);
     setAnalyzeError(null);
     setCorrectionMode(true); // Google Drive 同步一律為信眾（Member）校正模式
     try {
+      console.log("[Drive同步前端] fetch start → /api/import/devotee-precheck/analyze-from-drive");
       const res = await fetch("/api/import/devotee-precheck/analyze-from-drive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ operatorUserId }),
       });
-      const data = await res.json();
+      console.log("[Drive同步前端] response", res.status);
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setAnalyzeError(data.error ?? "Google Drive 同步失敗，請確認已連接 Google Drive 且「三玄宮ERP／匯入資料」內有「信眾資料.xlsx」");
+        setAnalyzeError(
+          data.error ?? `Google Drive 同步失敗（HTTP ${res.status}），請確認已連接 Google Drive 且「三玄宮ERP／匯入資料」內有「信眾資料.xlsx」`
+        );
         return;
       }
       setDriveFileInfo(data.driveFile ?? null);
       applyAnalyzeData(data, 3);
-    } catch {
+    } catch (err) {
+      console.log("[Drive同步前端] fetch error", err);
       setAnalyzeError("無法連線到伺服器，請稍後再試");
     } finally {
       setAnalyzing(false);
@@ -657,12 +673,15 @@ export default function DevoteeImportWizard() {
             </p>
             <button
               type="button"
-              disabled={!operatorUserId || analyzing}
+              disabled={analyzing}
               onClick={() => runAnalyzeFromDrive()}
               className="mt-2 min-h-11 w-full rounded-full bg-ink px-6 text-sm text-cream-50 disabled:bg-cream-200 disabled:text-ink-faint sm:w-fit"
             >
-              {analyzing ? "同步中…" : "從 Google Drive 同步信眾資料"}
+              {analyzing ? "正在讀取 Google Drive…" : "從 Google Drive 同步信眾資料"}
             </button>
+            {/* 狀態就在按鈕下方，避免「按了完全沒反應」。 */}
+            {analyzing && <p className="mt-2 text-xs text-ink-soft">正在讀取 Google Drive…</p>}
+            {analyzeError && <p className="mt-2 text-xs text-blossom-300">{analyzeError}</p>}
           </div>
 
           {/* V29：模式選擇——完整匯入 vs 信眾資料校正（只用信眾 Excel、略過家戶） */}

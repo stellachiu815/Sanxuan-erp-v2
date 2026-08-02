@@ -1,4 +1,4 @@
-import { TABLET_FONT_FAMILY, toPrintableTablet, type PrintTabletEntry } from "./shared";
+import { TABLET_FONT_FAMILY, formatWorkNumber, toPrintableTablet, type PrintTabletEntry } from "./shared";
 import {
   A4,
   TABLET_A4_CONFIG,
@@ -94,11 +94,14 @@ export default function UniversalSalvationTabletSheet({
   records,
   offset = ZERO_OFFSET,
   mode = "print",
+  showWorkNumber = true,
 }: {
   documentType: TabletDocumentType;
   records: PrintTabletEntry[];
   offset?: TabletA4Offset;
   mode?: TabletSheetMode;
+  /** V30.3：是否顯示裁切外作業號碼 No.<workNumber>（預設顯示；workno=0 時關閉）。 */
+  showWorkNumber?: boolean;
 }) {
   const layout = buildTabletLayout(
     documentType,
@@ -170,8 +173,57 @@ export default function UniversalSalvationTabletSheet({
           {page.blocks.map((b, i) => (
             <BlockView key={`${b.recordIndex}-${b.blockType}-${i}`} block={b} mode={mode} />
           ))}
+          {/* V30.3 作業號碼 No.<workNumber>：位於每筆牌位「區塊外框左上、往上白邊」，
+              座標由該筆 slot 的 block 外框計算（非 viewport 固定），裁切後正式成品看不到。
+              workNumber 為 null 不顯示；showWorkNumber=false 完全不渲染（不留占位）。 */}
+          {showWorkNumber &&
+            renderWorkNumbers(page.blocks, records, mode)}
         </div>
       ))}
     </div>
   );
+}
+
+/** 依 slot block 外框計算每筆的左上角錨點，於其上方白邊列印 No.<workNumber>。 */
+function renderWorkNumbers(
+  blocks: PositionedBlock[],
+  records: PrintTabletEntry[],
+  mode: TabletSheetMode
+) {
+  // 每筆（recordIndex）取其所有 block 的最小 x/y＝該牌位外框左上角。
+  const anchor = new Map<number, { x: number; y: number }>();
+  for (const b of blocks) {
+    const a = anchor.get(b.recordIndex);
+    if (!a) anchor.set(b.recordIndex, { x: b.xMm, y: b.yMm });
+    else {
+      a.x = Math.min(a.x, b.xMm);
+      a.y = Math.min(a.y, b.yMm);
+    }
+  }
+  return [...anchor.entries()].map(([ri, a]) => {
+    const wn = records[ri]?.workNumber;
+    const label = formatWorkNumber(wn);
+    if (label == null) return null; // 未補號不顯示，不印 No.000
+    return (
+      <div
+        key={`workno-${ri}`}
+        data-workno={wn}
+        style={{
+          position: "absolute",
+          // 錨在該牌位外框左上，往上 4mm 白邊；夾在頁內（不超出頁面上緣）。
+          left: mm(a.x),
+          top: mm(Math.max(0.3, a.y - 4)),
+          writingMode: "horizontal-tb",
+          fontSize: 8,
+          lineHeight: 1,
+          color: mode === "calibration" ? "#c0392b" : "#000",
+          fontFamily: "sans-serif",
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+        }}
+      >
+        {label}
+      </div>
+    );
+  });
 }
