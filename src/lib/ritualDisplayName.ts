@@ -136,11 +136,18 @@ export function classifyRitualName(
   let rest = trimmed, n = 0;
   while (rest.endsWith(suffix)) { rest = rest.slice(0, -suffix.length).trim(); n++; }
 
-  // 疑似類型/文字不一致：歷代祖先含「府」；乙位正魂卻以「姓」結尾（疑似錯類）。
-  const looksAncestorLike = category === "INDIVIDUAL_SOUL" && rest.endsWith("姓") && n === 0;
+  // 畸形：去尾後綴後，**核心中間仍夾帶後綴**（例：王姓歷代祖先姓歷代祖先 → 去尾一次剩「王姓歷代祖先姓」）。
+  // 這類無法安全還原核心（不能盲刪中間文字），一律 NEEDS_REVIEW，不自動改，避免半修。
+  if (core.includes(ANCESTOR_SUFFIX) || core.includes(SOUL_SUFFIX)) {
+    return { classification: "D_TYPE_TEXT_MISMATCH", core, expectedDisplay, autoFixable: false, suggestion: "畸形值：核心仍夾帶後綴，NEEDS_REVIEW（不自動改，需人工還原正確核心）" };
+  }
+  // 疑似類型/文字不一致：歷代祖先含「府」；乙位正魂卻以「姓/氏」結尾（疑似錯類）。
+  const looksAncestorLike = category === "INDIVIDUAL_SOUL" && (rest.endsWith("姓") || rest.endsWith("氏")) && n === 0;
   const hasFu = category === "ANCESTOR_LINE" && rest.endsWith("府");
+  const hasShi = category === "ANCESTOR_LINE" && rest.endsWith("氏");
   if (looksAncestorLike) return { classification: "D_TYPE_TEXT_MISMATCH", core, expectedDisplay, autoFixable: false, suggestion: "type=乙位正魂但文字疑為姓氏，NEEDS_REVIEW（不自動改）" };
-  if (hasFu) return { classification: "D_TYPE_TEXT_MISMATCH", core, expectedDisplay, autoFixable: true, suggestion: "舊「府」慣例→顯示層 resolver 已正規化為「姓」；資料可選擇性正規化" };
+  if (hasFu) return { classification: "D_TYPE_TEXT_MISMATCH", core, expectedDisplay, autoFixable: true, suggestion: "舊「府」→ resolver 已正規化為「姓」；資料可選擇性正規化" };
+  if (hasShi) return { classification: "D_TYPE_TEXT_MISMATCH", core, expectedDisplay, autoFixable: false, suggestion: "以「氏」結尾（藍氏…）；宮方統一用「姓」則需人工確認，NEEDS_REVIEW（不自動改）" };
   if (n >= 2) return { classification: "C_DUP_SUFFIX", core, expectedDisplay, autoFixable: true, suggestion: "重複後綴，可安全正規化為單一後綴（display 已防重）" };
   if (n === 1) return { classification: "B_HAS_SUFFIX", core, expectedDisplay, autoFixable: true, suggestion: "已含後綴，formatter 防重，不急覆寫" };
   return { classification: "A_CORE_OK", core, expectedDisplay, autoFixable: true, suggestion: "核心名稱，顯示層自動補後綴" };

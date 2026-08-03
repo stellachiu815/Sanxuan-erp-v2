@@ -60,7 +60,7 @@ async function main() {
       )) || 0;
     }
     return c;
-  });
+  }, { timeout: 120000 });
   console.log(`\nCOMMIT 完成：正規化 ${n} 筆為核心值（冪等，可重跑）。NEEDS_REVIEW 未動。`);
 }
 

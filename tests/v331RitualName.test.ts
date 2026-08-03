@@ -69,6 +69,18 @@ test("盤點分類：A 核心/B 已含後綴/C 重複後綴/D 府或疑錯類/E 
   assert.equal(classifyRitualName("ANCESTOR_LINE", "王姓歷代祖先歷代祖先").expectedDisplay, "王姓歷代祖先");
 });
 
+test("盤點：畸形（中間夾後綴）與『氏』一律 NEEDS_REVIEW，不自動改", () => {
+  const { classifyRitualName } = require("../src/lib/ritualDisplayName");
+  // 王姓歷代祖先姓歷代祖先 → 去尾一次剩「王姓歷代祖先姓」（中間仍含後綴）→ D、不自動改
+  const bad = classifyRitualName("ANCESTOR_LINE", "王姓歷代祖先姓歷代祖先");
+  assert.equal(bad.classification, "D_TYPE_TEXT_MISMATCH");
+  assert.equal(bad.autoFixable, false);
+  // 藍氏歷代祖先 → 以「氏」結尾 → D、不自動改（人工確認是否統一為「姓」）
+  const shi = classifyRitualName("ANCESTOR_LINE", "藍氏歷代祖先");
+  assert.equal(shi.classification, "D_TYPE_TEXT_MISMATCH");
+  assert.equal(shi.autoFixable, false);
+});
+
 test("V33.2 存核心→顯示完整 round-trip：不再出現重複/錯類後綴", () => {
   // 建立時存核心（normalizeRitualNameForStore），顯示時 resolveRitualDisplayName 補後綴。
   const store = normalizeRitualNameForStore;
