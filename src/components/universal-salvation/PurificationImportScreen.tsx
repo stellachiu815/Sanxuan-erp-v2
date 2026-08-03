@@ -89,6 +89,14 @@ function zh(code: string): string {
   return STATUS_LABEL[code] ?? code;
 }
 
+/** 牌位類別 → 中文標籤（顯示用；讓匯入預覽卡片明確標示辨識到的類別）。 */
+const CATEGORY_LABEL: Record<string, string> = {
+  ANCESTOR_LINE: "歷代祖先",
+  INDIVIDUAL_SOUL: "乙位正魂",
+  DEBT_CREDITOR: "累世冤親債主",
+  UNBORN_CHILD: "無緣子女",
+};
+
 /** 從草稿列（normalizedData + editedData）取出顯示用欄位。 */
 function readRow(r: Row) {
   const nd = { ...(r.normalizedData ?? {}), ...(r.editedData ?? {}) } as Record<string, unknown>;
@@ -338,10 +346,22 @@ export default function PurificationImportScreen({ year }: { year: number }) {
           <div className="flex flex-col gap-2">
             {shown.map((r) => {
               const d = readRow(r);
+              // 卡片標題：冤親本來就沒有牌位姓名，直接顯示「累世冤親債主」，不再顯示「（未填牌位姓名）」；
+              // 其他類別（歷代祖先／乙位正魂／無緣子女）維持原本以牌位姓名／報名姓名顯示。
+              const rowTitle =
+                d.tabletCategory === "DEBT_CREDITOR"
+                  ? CATEGORY_LABEL.DEBT_CREDITOR
+                  : d.tabletName || d.devoteeName || "（未填牌位姓名）";
               return (
                 <div key={r.id} className={`rounded-2xl p-3 shadow-soft ${r.excluded ? "bg-cream-200/50" : "bg-white/70"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-ink">#{r.rowNumber}｜{d.tabletName || d.devoteeName || "（未填牌位姓名）"}</span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-medium text-ink">#{r.rowNumber}｜{rowTitle}</span>
+                      {/* 明確顯示辨識到的牌位類別，避免使用者自行猜測；標題已等於類別時（冤親）不重複顯示。 */}
+                      {CATEGORY_LABEL[d.tabletCategory] && CATEGORY_LABEL[d.tabletCategory] !== rowTitle && (
+                        <span className="rounded-full bg-sage-100 px-2 py-0.5 text-xs text-ink-soft">{CATEGORY_LABEL[d.tabletCategory]}</span>
+                      )}
+                    </span>
                     {/* V15R7.1：徽章精簡——已配對／待建立／已建立／已存在；重複等原因改放下方說明。 */}
                     <span className="flex flex-wrap items-center gap-1">
                       {rowMatched(r) && r.confirmationStatus !== "CONFIRMED" && (
