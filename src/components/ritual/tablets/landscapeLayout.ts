@@ -34,15 +34,15 @@ const PX_PER_MM = 3.7795275591;
 export const LANDSCAPE_A4 = { widthMm: 297, heightMm: 210 } as const;
 export type LandscapeDensity = "standard" | "economy";
 
-/** 密度預設：每群組寬（mm）。可用寬 291、群組間距 3：perPage=floor((291+3)/(gw+3))。
- *  standard 38→7 筆/頁（附件一，含 4mm 裁切安全間距）；economy 26→10 筆/頁（省紙）。 */
+/** 密度預設：每群組寬（mm）。可用內容寬＝297-2×margin-2×edgePad；standard 33→8 筆/頁、economy 25→10 筆/頁。 */
 const DENSITY: Record<LandscapeDensity, { groupWidthMm: number }> = {
-  standard: { groupWidthMm: 38 },
-  economy: { groupWidthMm: 26 },
+  standard: { groupWidthMm: 33 },
+  economy: { groupWidthMm: 25 },
 };
 
 const MARGIN_MM = 3;
 const GROUP_GAP_MM = 3;   // 一戶與一戶之間的明顯間距（含裁切）
+const EDGE_PAD_MM = 3;    // 左右兩側額外內縮，確保最右/最左群組完整、不靠裁切邊、不依賴 overflow
 const NO_XXX_TOP_MM = 5;  // 頂端保留給 No.xxx 的白邊
 const SAFE_GAP_MM = 4;    // 裁切安全間距：主文↔陽上人（垂直，1~3）／欄↔欄（水平，4+）。固定不被字級吃掉。
 
@@ -93,15 +93,18 @@ export function buildLandscapeTabletLayout(
 ): TabletLayout {
   const density = options.density ?? "standard";
   const offset = options.offset ?? ZERO_OFFSET;
-  const usableW = LANDSCAPE_A4.widthMm - MARGIN_MM * 2;
   const contentTop = MARGIN_MM + NO_XXX_TOP_MM;
   const contentBottom = LANDSCAPE_A4.heightMm - MARGIN_MM;
   const contentH = contentBottom - contentTop;
 
-  const gw0 = DENSITY[density].groupWidthMm;
-  const perPage = Math.max(1, Math.floor((usableW + GROUP_GAP_MM) / (gw0 + GROUP_GAP_MM)));
-  const stride = usableW / perPage;
-  const groupW = stride - GROUP_GAP_MM;
+  // 左右各留 margin + edgePad：群組只落在 [leftBound, rightBound] 內，最右/最左群組完整、不靠裁切邊。
+  const leftBound = MARGIN_MM + EDGE_PAD_MM;
+  const rightBound = LANDSCAPE_A4.widthMm - MARGIN_MM - EDGE_PAD_MM;
+  const availW = rightBound - leftBound;
+  const groupW = DENSITY[density].groupWidthMm;
+  const perPage = Math.max(1, Math.floor((availW + GROUP_GAP_MM) / (groupW + GROUP_GAP_MM)));
+  // 群組原點距（含間距）：讓 perPage 個群組平均填滿 availW，slot 0 最右緣＝rightBound、最左群組左緣＝leftBound。
+  const stride = perPage > 1 ? (availW - groupW) / (perPage - 1) : 0;
   const mainMax = documentType === "UNBORN_CHILD" ? UNBORN_MAIN_MAX_PX : MAIN_MAX_PX;
 
   const allBlocks: PositionedBlock[] = [];
@@ -109,7 +112,7 @@ export function buildLandscapeTabletLayout(
   records.forEach((rec, recordIndex) => {
     const pageIndex = Math.floor(recordIndex / perPage);
     const slotIndex = recordIndex % perPage;
-    const xRight = MARGIN_MM + usableW - slotIndex * stride; // slot 0 最右
+    const xRight = rightBound - slotIndex * stride; // slot 0 最右緣＝rightBound（完整、不裁切）
     const xLeft = xRight - groupW;
 
     const addrText = rec.addressText ?? "";

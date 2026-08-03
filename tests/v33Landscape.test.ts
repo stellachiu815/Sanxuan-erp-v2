@@ -146,6 +146,25 @@ test("陽上人縮字後仍在自己欄內（不跨欄、不裁切到相鄰）",
   assert.deepEqual(l.violations, [], "無 OUT_OF_BOUNDS / COLLISION（陽上人不跨欄/跨牌位）");
 });
 
+test("最右/最左群組完整在可列印範圍內（不裁切、不靠裁切邊）", () => {
+  const many = Array.from({ length: 8 }, (_, i) => rec("周姓歷代祖先", "台北市中山區民權東路二段一五二巷二十二弄十一號二樓", ["甲", "乙"], i + 1));
+  const l = buildLandscapeTabletLayout("ANCESTOR_LINE", many);
+  const p0 = l.pages[0].blocks;
+  const maxRight = Math.max(...p0.map((b) => b.xMm + b.widthMm));
+  const minLeft = Math.min(...p0.map((b) => b.xMm));
+  assert.ok(maxRight <= 297 - 3 + 0.01, `最右緣 ${maxRight.toFixed(1)} 未超出可列印右界 294`);
+  assert.ok(maxRight <= 291 + 0.5, "最右群組收在 edgePad 內（rightBound≈291）");
+  assert.ok(minLeft >= 6 - 0.01, `最左緣 ${minLeft.toFixed(1)} ≥ leftBound 6`);
+  assert.deepEqual(l.violations, [], "無 OUT_OF_BOUNDS/COLLISION");
+});
+
+test("寶袋共用同一橫式群組引擎，版面合法（單一 Single Source）", () => {
+  const l = buildLandscapeTabletLayout("POCKET", [rec("周府歷代祖先", "台北市中山區民權東路二段一五二巷", ["周大明"], 1)]);
+  assert.equal(l.pageWidthMm, 297);
+  assert.deepEqual(l.violations, []);
+  assert.ok(l.allBlocks.some((b) => b.blockType === "main"));
+});
+
 test("多筆不重疊（不同筆的區塊無交疊）", () => {
   const many = Array.from({ length: 8 }, (_, i) => rec("周姓歷代祖先", "台北市中山區民權東路二段一五二巷二十二弄十一號二樓", ["周財寶", "陳秀珍"], i + 1));
   const l = buildLandscapeTabletLayout("ANCESTOR_LINE", many);

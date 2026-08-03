@@ -16,8 +16,9 @@ import {
 } from "./universalSalvationTabletA4";
 import { buildLandscapeTabletLayout, type LandscapeDensity } from "./landscapeLayout";
 
-/** V33：四種牌位改用橫式 A4 直書版型；寶袋（POCKET）維持既有直式版型。 */
-const LANDSCAPE_DOC_TYPES: TabletDocumentType[] = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
+/** V33：五種牌位（含寶袋）全部共用同一橫式 A4 直書群組引擎——單一 Single Source of Truth。
+ *  寶袋僅安全區尺寸/主文（指定名稱）不同，版面規則相同（群組、右→左、頂端對齊、4mm 安全間距）。 */
+const LANDSCAPE_DOC_TYPES: TabletDocumentType[] = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD", "POCKET"];
 
 /**
  * UNIVERSAL_SALVATION_TABLET_A4_V1 的**唯一**渲染元件——四種 documentType 共用。

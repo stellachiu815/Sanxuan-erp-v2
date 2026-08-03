@@ -80,7 +80,7 @@ export default function TemplatePreviewPage() {
       <Section title="超拔祖先／乙位正魂" dt="ANCESTOR_LINE" records={ANCESTOR} />
       <Section title="累世冤親債主" dt="DEBT_CREDITOR" records={DEBT} />
       <Section title="無緣子女" dt="UNBORN_CHILD" records={ANCESTOR} />
-      <Section title="寶袋（維持既有直式）" dt="POCKET" records={POCKET} />
+      <Section title="寶袋（共用同一橫式群組引擎）" dt="POCKET" records={POCKET} />
     </main>
   );
 }

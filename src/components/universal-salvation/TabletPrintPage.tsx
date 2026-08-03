@@ -51,9 +51,9 @@ export default function TabletPrintPage({
 }) {
   // 取某 documentType 的模板設定（缺→undefined，sheet 用既有預設）。
   const tplOf = (dt: string): TabletTemplateSetting | undefined => templates?.[dt];
-  // V33：四種牌位＝橫式 A4；此批若含四種牌位 → 頁面方向設 landscape（寶袋批次維持 portrait）。
-  const LANDSCAPE_DTS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
-  const landscape = groups.some((g) => LANDSCAPE_DTS.includes(g.documentType));
+  // V33：五種牌位（含寶袋）皆＝橫式 A4 群組版型（單一引擎）→ 一律 landscape。
+  const LANDSCAPE_DTS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD", "POCKET"];
+  const landscape = groups.length === 0 ? true : groups.some((g) => LANDSCAPE_DTS.includes(g.documentType));
   const { print } = useTabletPrint(groups.length > 0);
   const sheetsRef = useRef<HTMLDivElement>(null);
 
