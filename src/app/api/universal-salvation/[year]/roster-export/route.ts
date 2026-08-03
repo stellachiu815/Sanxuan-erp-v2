@@ -24,10 +24,12 @@ export async function GET(
 
   const data = await getUniversalSalvationRosterExport(year);
   const wb = XLSX.utils.book_new();
-  const add = (name: string, sheet: { header: string[]; rows: (string | number)[][] }) =>
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sheet.header, ...sheet.rows]), name);
+  // 每張工作表頂部放「統計」行（各項目人數），再放表頭與資料列。
+  const add = (name: string, sheet: { header: string[]; stat: string; rows: (string | number)[][] }) =>
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[sheet.stat], sheet.header, ...sheet.rows]), name);
   add("超拔祖先+乙位正魂", data.sheets.ancestorSoul);
   add("累世冤親債主", data.sheets.debtCreditor);
+  add("無緣子女", data.sheets.unborn);
   add("白米", data.sheets.rice);
   add("贊普+隨喜贊普", data.sheets.sponsor);
 

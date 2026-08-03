@@ -9,6 +9,7 @@ import {
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 import { normalizeYangshangNames } from "@/lib/yangshang";
+import { attachPrintMainTextToRecord } from "@/lib/entryPrintMainText";
 /**
  * 修改單一筆普渡登記項目（名稱／陽上姓名／備註）。
  *
@@ -73,6 +74,18 @@ export async function PATCH(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
+
+  // V32 單筆列印主文覆寫（raw SQL；欄位新加、client 未 regenerate）。空白→清除（用系統預設主文）。
+  if ("printMainText" in body) {
+    const { prisma } = await import("@/lib/prisma");
+    const pmt = toNullableString(body.printMainText);
+    // V32 §5：一併更新 updatedAt，讓「已列印後改主文」能被 needsReprint 偵測（raw SQL 不會自動 @updatedAt）。
+    await prisma.$executeRaw`UPDATE "universal_salvation_entries" SET "printMainText" = ${pmt}, "updatedAt" = NOW() WHERE "id" = ${entryId}`;
+  }
+
+  // V32 §一：result.record 是 printMainText 寫入「之前」讀出的快照；此處明確併回
+  // 目前 DB 的 printMainText，讓儲存後的回應／編輯器立即回填正確值（含清空→null）。
+  await attachPrintMainTextToRecord(result.record);
 
   revalidatePath(`/household/${householdId}/rituals/universal-salvation`);
 

@@ -29,6 +29,8 @@ export type EntryJSON = {
   /** V14.1：此筆牌位獨立地址。 */
   tabletAddress: string | null;
   notes: string | null;
+  /** V32：單筆自訂列印主文覆寫（空白／null＝用系統預設主文；有值只覆寫此筆）。 */
+  printMainText?: string | null;
   sortOrder: number;
   /** V27.1：軟刪除時間戳（伺服器只回 null 的，畫面再加一道防線）。 */
   deletedAt?: string | null;

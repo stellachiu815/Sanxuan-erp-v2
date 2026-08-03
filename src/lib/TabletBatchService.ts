@@ -17,6 +17,7 @@
  */
 import type { PrintTabletEntry } from "@/components/ritual/tablets";
 import { formatTabletMainText, composeAncestorMainText } from "@/lib/tabletMainText";
+import { printNumberOf } from "@/lib/workOrder";
 
 // V27.11：re-export 供既有測試/呼叫端沿用同一個共用 formatter（不建立第二套）。
 export { composeAncestorMainText };
@@ -158,12 +159,16 @@ export function isComplete(item: { tabletMissingFields?: string[] }): boolean {
 
 export type BatchItem = {
   id: string;
-  /** V30.3 普渡報名順序（作業號碼＝此值；未補號為 null）。由 PrintCenterItemView 帶入。 */
+  /** V30.3 建立順序（歷史查核；未補號為 null）。 */
   registrationOrder?: number | null;
+  /** V31 正式作業號（列印 No.xxx 一律用此；未指派時回退 registrationOrder）。 */
+  workOrder?: number | null;
   itemType: string;
   sourceCategory: string;
   sourceCategoryLabel: string;
   sourceDisplayName: string;
+  /** V32 單筆列印主文覆寫；有值時列印引擎直接採用（不套 formatter）。 */
+  printMainText?: string | null;
   sourceLocation: string | null;
   sourceYangshangName: string | null;
   sourceYangshangNames: string[];
@@ -176,6 +181,49 @@ export type BatchItem = {
 /** 只留該批次、且為可列印狀態的項目。 */
 export function filterBatchItems<T extends BatchItem>(items: T[], batch: PrintBatchKey): T[] {
   return items.filter((i) => batchOf(i) === batch && isPrintableStatus(i.status));
+}
+
+/**
+ * V32 阻擋修正（冤親等牌位重複）：列印物件層唯一性保證。
+ *
+ * 不變式：一個 UniversalSalvationEntry（sourceEntryId）的**預設**列印物件（isExtra=false）
+ * 每種 itemType 只會有一個（TABLET 一個、基本 POCKET 一個）。DB 已有 partial unique index
+ * 保障，但若正式資料庫存在早於該 index 的遺留重複列，或任何邊界情況產生重複列，
+ * 讀取端仍可能把同一冤親牌位列出兩次、正式列印印兩張。
+ *
+ * 本函式在**資料查詢輸出**就地去重（不只修畫面）：同一 (sourceEntryId, itemType) 的預設物件
+ * 只保留一筆——優先保留已有列印紀錄者（printCount 最大），其次建立較早（createdAt 最早、id 最小），
+ * 確保列印狀態不遺失。額外寶袋（isExtra=true）可多筆，不受影響。純函式、可測試。
+ */
+export function dedupeDefaultPrintObjects<
+  T extends { id: string; sourceEntryId: string; itemType: string; isExtra: boolean; printCount?: number; createdAt?: Date | string | null }
+>(items: T[]): T[] {
+  const bestByKey = new Map<string, T>();
+  const passthrough: T[] = [];
+  const order: string[] = [];
+  const time = (v: Date | string | null | undefined): number => {
+    if (!v) return Number.POSITIVE_INFINITY; // 無 createdAt 視為最晚（不優先保留）
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+  };
+  const better = (a: T, b: T): T => {
+    // printCount 大者優先（保留列印紀錄）；再比 createdAt 早；再比 id 小（穩定）。
+    const pa = a.printCount ?? 0, pb = b.printCount ?? 0;
+    if (pa !== pb) return pa > pb ? a : b;
+    const ta = time(a.createdAt), tb = time(b.createdAt);
+    if (ta !== tb) return ta < tb ? a : b;
+    return a.id <= b.id ? a : b;
+  };
+  for (const it of items) {
+    if (it.isExtra) { passthrough.push(it); continue; }
+    const key = `${it.sourceEntryId}::${it.itemType}`;
+    const cur = bestByKey.get(key);
+    if (!cur) { bestByKey.set(key, it); order.push(key); }
+    else bestByKey.set(key, better(cur, it));
+  }
+  // 維持原本相對出現順序（以各 key 首次出現為序），再接額外物件。
+  const deduped = order.map((k) => bestByKey.get(k)!).filter(Boolean) as T[];
+  return [...deduped, ...passthrough];
 }
 
 export type BatchSummary = {
@@ -232,14 +280,15 @@ const THREE_BLOCK_CATS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"];
 
 function toRecord(i: BatchItem): PrintTabletEntry {
   return {
-    // 主文一律走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女／冤親不變。
-    displayName: formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
+    // V32：有單筆列印主文覆寫（printMainText）時直接採用（不套 formatter，例：本宅地基主）；
+    // 否則走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女／冤親不變。
+    displayName: (i.printMainText ?? "").trim() || formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
     yangshangName: i.sourceYangshangName,
     yangshangNames: i.sourceYangshangNames,
     location: i.sourceLocation,
     notes: null,
-    // V30.3：作業號碼＝報名順序（列印於裁切外白邊）。
-    workNumber: i.registrationOrder ?? null,
+    // V31：作業號碼＝正式作業號 workOrder（未指派時安全回退 registrationOrder）；列印於裁切外白邊。
+    workNumber: printNumberOf(i.workOrder, i.registrationOrder),
   };
 }
 

@@ -66,6 +66,8 @@ export default function EntryRow({
   const [yangshangNames, setYangshangNames] = useState<string[]>(initialNames(entry));
   const [tabletAddress, setTabletAddress] = useState(entry.tabletAddress ?? "");
   const [notes, setNotes] = useState(entry.notes ?? "");
+  // V32 單筆自訂列印主文（空白＝用系統預設主文；有值只覆寫此筆）。
+  const [printMainText, setPrintMainText] = useState((entry as { printMainText?: string | null }).printMainText ?? "");
   // V15R6.1：祖先／正魂編輯時，是否同步更新家戶永久名單（預設勾選，但不偷偷覆蓋）。
   const [syncToHousehold, setSyncToHousehold] = useState(true);
   const [submitting, setSubmitting] = useState<"save" | "delete" | null>(null);
@@ -91,6 +93,7 @@ export default function EntryRow({
     setYangshangNames(initialNames(entry));
     setTabletAddress(entry.tabletAddress ?? "");
     setNotes(entry.notes ?? "");
+    setPrintMainText((entry as { printMainText?: string | null }).printMainText ?? "");
   }
 
   async function handleSave() {
@@ -112,6 +115,8 @@ export default function EntryRow({
             yangshangNames,
             tabletAddress: tabletAddress.trim() || null,
             notes: notes.trim() || null,
+            // V32 單筆列印主文覆寫（空白→清除、用系統預設）。
+            printMainText: printMainText.trim() || null,
             // V15R6.1：只有祖先／正魂顯示牌位地址時，才依使用者勾選同步永久名單。
             ...(showTabletAddress ? { syncToHousehold } : {}),
           }),
@@ -226,6 +231,16 @@ export default function EntryRow({
             </label>
           </>
         )}
+        <div>
+          <label className={labelClass}>自訂列印主文（選填）</label>
+          <input
+            className={inputClass}
+            value={printMainText}
+            onChange={(e) => setPrintMainText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="空白＝用系統預設主文；可填 本宅地基主／地基主／歷代地主…（只覆寫此筆列印主文，不改分類）"
+          />
+        </div>
         <div>
           <label className={labelClass}>備註</label>
           <input

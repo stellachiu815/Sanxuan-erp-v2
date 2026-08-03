@@ -26,7 +26,7 @@ export type { PrintableTabletEntry } from "./shared";
 // UNIVERSAL_SALVATION_TABLET_A4_V1：四種牌位共用的單一 A4 版面引擎與渲染元件
 // （固定 5／11 筆、3mm 邊界、offset、驗證）。舊四支 *Tablet.tsx 暫不移除（驗收後再淘汰）。
 export { default as UniversalSalvationTabletSheet } from "./UniversalSalvationTabletSheet";
-export type { TabletSheetMode } from "./UniversalSalvationTabletSheet";
+export type { TabletSheetMode, TabletTemplateStyle } from "./UniversalSalvationTabletSheet";
 export {
   TABLET_A4_TEMPLATE_ID,
   TABLET_A4_CONFIG,
@@ -34,6 +34,7 @@ export {
   DOCUMENT_BLOCKS,
   BLOCK_SIZE,
   buildTabletLayout,
+  buildAutoTabletLayout,
   validateLayout,
   isOffsetWithinBounds,
   pageIndexOf,
@@ -46,6 +47,8 @@ export type {
   TabletRecordInput,
   PositionedBlock,
   TabletLayout,
+  TabletPackingInfo,
+  AutoLayoutOptions,
   LayoutViolation,
 } from "./universalSalvationTabletA4";
 

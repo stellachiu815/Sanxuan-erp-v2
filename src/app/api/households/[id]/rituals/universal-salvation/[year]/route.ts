@@ -9,6 +9,7 @@ import {
 
 import { assertUniversalSalvationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
+import { attachPrintMainTextToRecord } from "@/lib/entryPrintMainText";
 /**
  * 查詢某戶、某年度的普渡登記資料（主檔＋明細＋歷代祖先/個人乙位正魂/
  * 冤親債主/無緣子女登記項目）。
@@ -48,6 +49,9 @@ export async function GET(
       { status: 404 }
     );
   }
+
+  // V32 §一：明確併回每筆 printMainText，確保編輯器／信眾明細重載時正確回填。
+  await attachPrintMainTextToRecord(record);
 
   return NextResponse.json({ record });
 }

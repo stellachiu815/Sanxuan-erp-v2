@@ -42,14 +42,25 @@ export function addressVerticalAlign(
  * 地址 15mm×150mm 是「文字可容納最大 Bounding Box」——這裡只決定盒**內**垂直排列，
  * 不含任何外框、不改盒尺寸；height:100% 讓 inline 軸＝盒高，text-align:end 才能把短的第二行沿底部對齊。
  */
-export function verticalTextInnerStyle(align: "center" | "end", sizePx: number, soft: boolean) {
-  return {
+export function verticalTextInnerStyle(
+  align: "center" | "end",
+  sizePx: number,
+  soft: boolean,
+  /** V32 §4 模板可調樣式（未提供時維持既有預設，確保未設定模板時輸出不變）。 */
+  style?: { fontFamily?: string | null; fontWeight?: string | null; letterSpacingPx?: number | null; lineHeight?: number | null }
+) {
+  const base = {
     writingMode: "vertical-rl" as const,
     textOrientation: "mixed" as const,
     fontSize: sizePx,
-    lineHeight: 1.15,
+    lineHeight: style?.lineHeight ?? 1.15,
     textAlign: align,
     height: "100%",
     color: soft ? "#333" : "#000",
   };
+  const extra: Record<string, string> = {};
+  if (style?.fontFamily) extra.fontFamily = style.fontFamily;
+  if (style?.fontWeight) extra.fontWeight = style.fontWeight;
+  if (style?.letterSpacingPx != null && style.letterSpacingPx !== 0) extra.letterSpacing = `${style.letterSpacingPx}px`;
+  return { ...base, ...extra };
 }

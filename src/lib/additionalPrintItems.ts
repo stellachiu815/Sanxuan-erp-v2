@@ -13,8 +13,10 @@ import {
   getAdditionalPrintItemPaidAmounts,
 } from "@/lib/receivableAdapters";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
-import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder } from "@/lib/TabletBatchService";
+import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder, dedupeDefaultPrintObjects } from "@/lib/TabletBatchService";
 import { applyRegistrationOrder } from "@/lib/registrationOrder";
+import { printNumberOf } from "@/lib/workOrder";
+import { resolvePrintAddress, needsReprint as computeNeedsReprint, latestIso } from "@/lib/tabletPrintFields";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { tabletMissingFieldsForCategory } from "@/lib/dataCompleteness";
 import {
@@ -1158,6 +1160,8 @@ export type PrintCenterItemView = {
   sourceCategory: string;
   sourceCategoryLabel: string;
   sourceDisplayName: string;
+  /** V32 單筆列印主文覆寫（有值＝列印引擎直接採用；null＝用系統預設 sourceDisplayName 經 formatter）。 */
+  printMainText: string | null;
   itemType: string;
   printName: string;
   quantity: number;
@@ -1188,6 +1192,12 @@ export type PrintCenterItemView = {
   lastPrintedAt: string | null;
   lastPrintedByUserId: string | null;
   lastPrintedByName: string | null;
+  /**
+   * V32 §5 需補印：已列印（printCount>0）且首次列印後內容又被修改
+   * （workOrder／printMainText／tabletAddress／陽上人／牌位名稱／寶袋指定名稱）→ true。
+   * 預覽不解除；只有實際「確認完成列印（補印）」把 lastPrintedAt 推到編輯之後才解除。
+   */
+  needsReprint: boolean;
 };
 
 /**
@@ -1217,11 +1227,15 @@ export async function listPrintItemsForPrintCenter(
   if (filters.status) where.status = filters.status;
   if (filters.printName) where.printName = { contains: filters.printName };
 
-  const items = await prisma.additionalPrintItem.findMany({
+  const itemsRaw = await prisma.additionalPrintItem.findMany({
     where,
     include: { household: true },
     orderBy: [{ createdAt: "desc" }],
   });
+
+  // V32 阻擋修正：列印物件層唯一性——同一 (sourceEntryId, itemType) 的預設物件（isExtra=false）只保留一筆，
+  // 避免遺留重複列導致冤親等牌位在列印管理／正式列印重複出現、印兩張。額外寶袋（isExtra=true）不受影響。
+  const items = dedupeDefaultPrintObjects(itemsRaw);
 
   const sourceEntryIds = [...new Set(items.map((i) => i.sourceEntryId))];
   const sourceEntries = sourceEntryIds.length
@@ -1236,13 +1250,16 @@ export async function listPrintItemsForPrintCenter(
   // V30.3：**牌位（TABLET）**用——來源牌位（UniversalSalvationEntry）對應報名項目的
   // registrationOrder（raw SQL；不依賴 Prisma client 是否已 regenerate）。寶袋不走這條（見下）。
   const orderRows = sourceEntryIds.length
-    ? await prisma.$queryRaw<{ eid: string; ord: number | null }[]>`
-        SELECT "universalSalvationEntryId" AS eid, "registrationOrder" AS ord
+    ? await prisma.$queryRaw<{ eid: string; ro: number | null; wo: number | null; ua: Date | null }[]>`
+        SELECT "universalSalvationEntryId" AS eid, "registrationOrder" AS ro, "workOrder" AS wo, "updatedAt" AS ua
         FROM "ritual_registration_items"
         WHERE "universalSalvationEntryId" IN (${Prisma.join(sourceEntryIds)}) AND "deletedAt" IS NULL
       `
     : [];
-  const tabletOrderByEntryId = new Map(orderRows.map((r) => [r.eid, r.ord]));
+  // V32：牌位 No.xxx＝printNumberOf(workOrder, registrationOrder)。
+  const tabletOrderByEntryId = new Map(orderRows.map((r) => [r.eid, printNumberOf(r.wo, r.ro)]));
+  // V32 §5：牌位對應 RRI 的 updatedAt（workOrder 改號亦更新它）→ 供 needsReprint。
+  const tabletRriUpdatedByEntryId = new Map(orderRows.map((r) => [r.eid, r.ua ? new Date(r.ua).toISOString() : null]));
 
   // V30.3b：**寶袋（POCKET）**用——由 AdditionalPrintItem.registrationItemId 取自身「增加寶袋」
   // US_POCKET_EXTRA 報名項目的 registrationOrder。分兩步 raw SQL（client 未 regenerate）：
@@ -1259,16 +1276,19 @@ export async function listPrintItemsForPrintCenter(
   const registrationItemIdByPrintItem = new Map(printItemRegRows.map((r) => [r.id, r.regId]));
   const pocketRegIds = [...new Set(printItemRegRows.map((r) => r.regId).filter((x): x is string => !!x))];
   const pocketRegRows = pocketRegIds.length
-    ? await prisma.$queryRaw<{ id: string; itemKey: string; ord: number | null }[]>`
-        SELECT rri."id", rit."key" AS "itemKey", rri."registrationOrder" AS ord
+    ? await prisma.$queryRaw<{ id: string; itemKey: string; ro: number | null; wo: number | null; ua: Date | null }[]>`
+        SELECT rri."id", rit."key" AS "itemKey", rri."registrationOrder" AS ro, rri."workOrder" AS wo, rri."updatedAt" AS ua
         FROM "ritual_registration_items" rri
         JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
         WHERE rri."id" IN (${Prisma.join(pocketRegIds)}) AND rri."deletedAt" IS NULL
       `
     : [];
+  // V32：寶袋 No.xxx＝printNumberOf(workOrder, registrationOrder)（寶袋自身 US_POCKET_EXTRA 序列）。
   const pocketRegistrationById = new Map(
-    pocketRegRows.map((r) => [r.id, { itemKey: r.itemKey, registrationOrder: r.ord }])
+    pocketRegRows.map((r) => [r.id, { itemKey: r.itemKey, registrationOrder: printNumberOf(r.wo, r.ro) }])
   );
+  // V32 §5：寶袋對應 RRI 的 updatedAt → 供 needsReprint。
+  const pocketRriUpdatedById = new Map(pocketRegRows.map((r) => [r.id, r.ua ? new Date(r.ua).toISOString() : null]));
 
   // V14.4：解析最後列印操作人姓名（lastPrintedByUserId → User.name）。
   const lastPrintedByUserIds = [
@@ -1278,6 +1298,17 @@ export async function listPrintItemsForPrintCenter(
     ? await prisma.user.findMany({ where: { id: { in: lastPrintedByUserIds } }, select: { id: true, name: true } })
     : [];
   const userNameById = new Map(users.map((u) => [u.id, u.name]));
+
+  // V32：單筆列印主文覆寫（printMainText，raw SQL）＋ 地址 Member.address fallback。
+  const pmtRows = sourceEntryIds.length
+    ? await prisma.$queryRaw<{ id: string; pmt: string | null }[]>`
+        SELECT "id", "printMainText" AS pmt FROM "universal_salvation_entries" WHERE "id" IN (${Prisma.join(sourceEntryIds)})`
+    : [];
+  const printMainTextByEntry = new Map(pmtRows.map((r) => [r.id, r.pmt]));
+  const memberIds2 = [...new Set(items.map((i) => i.memberId).filter((x): x is string => !!x))];
+  const memberAddrById = memberIds2.length
+    ? new Map((await prisma.member.findMany({ where: { id: { in: memberIds2 } }, select: { id: true, address: true } })).map((m) => [m.id, m.address]))
+    : new Map<string, string | null>();
 
   const views: PrintCenterItemView[] = [];
   for (const item of items) {
@@ -1296,6 +1327,22 @@ export async function listPrintItemsForPrintCenter(
     ) {
       continue;
     }
+
+    // V32 §5 需補印：彙整此列印物件的「內容最後變更時間」。
+    //   entry.updatedAt   → 牌位名稱／陽上人／地址／printMainText（含 raw SQL 已同步 updatedAt）
+    //   item.updatedAt    → 寶袋指定名稱（printName）等列印物件本身變更
+    //   RRI.updatedAt     → workOrder 改號（TABLET 取牌位 RRI；POCKET 取自身 US_POCKET_EXTRA RRI）
+    const rriUpdated =
+      item.itemType === "TABLET"
+        ? tabletRriUpdatedByEntryId.get(item.sourceEntryId) ?? null
+        : pocketRriUpdatedById.get(registrationItemIdByPrintItem.get(item.id) ?? "") ?? null;
+    const editedAt = latestIso(
+      source.updatedAt ? source.updatedAt.toISOString() : null,
+      item.updatedAt ? item.updatedAt.toISOString() : null,
+      rriUpdated
+    );
+    const lastPrintedAtIso = (item.lastPrintedAt ?? item.printedAt) ? (item.lastPrintedAt ?? item.printedAt)!.toISOString() : null;
+    const itemNeedsReprint = computeNeedsReprint(item.printCount ?? 0, lastPrintedAtIso, editedAt);
 
     views.push({
       id: item.id,
@@ -1316,6 +1363,8 @@ export async function listPrintItemsForPrintCenter(
       sourceCategory: source.category,
       sourceCategoryLabel: universalSalvationEntryCategoryLabel[source.category] ?? source.category,
       sourceDisplayName: source.displayName,
+      // V32 單筆列印主文覆寫（有值時列印引擎直接採用、不再套 formatter；空白＝用系統預設主文）。
+      printMainText: (printMainTextByEntry.get(item.sourceEntryId) ?? "").trim() || null,
       itemType: item.itemType,
       printName: item.printName,
       quantity: item.quantity,
@@ -1324,8 +1373,8 @@ export async function listPrintItemsForPrintCenter(
       isPrinted: item.isPrinted,
       printedQuantity: item.printedQuantity,
       note: item.note,
-      // V27.9 跨家戶批次牌位 PDF 版面欄位：
-      sourceLocation: source.tabletAddress ?? source.worshipRecord?.location ?? null,
+      // V32 地址唯一規則：entry.tabletAddress → Member.address（絕不 Household；不再用 worshipRecord.location）。
+      sourceLocation: resolvePrintAddress(source.tabletAddress, item.memberId ? memberAddrById.get(item.memberId) : null) || null,
       sourceTabletAddress: source.tabletAddress ?? null,
       sourceYangshangName: source.yangshangName,
       sourceYangshangNames,
@@ -1336,6 +1385,7 @@ export async function listPrintItemsForPrintCenter(
       lastPrintedAt: (item.lastPrintedAt ?? item.printedAt) ? (item.lastPrintedAt ?? item.printedAt)!.toISOString() : null,
       lastPrintedByUserId: item.lastPrintedByUserId ?? null,
       lastPrintedByName: item.lastPrintedByUserId ? userNameById.get(item.lastPrintedByUserId) ?? null : null,
+      needsReprint: itemNeedsReprint,
     });
   }
 
@@ -1368,6 +1418,12 @@ export type PrintObjectView = {
   firstPrintedAt: string | null;
   lastPrintedAt: string | null;
   lastPrintedByName: string | null;
+  /** V32 §5：此列印物件是否需補印。 */
+  needsReprint: boolean;
+  /** V32 §5 搜尋用：正式作業號（No.xxx＝printNumberOf 結果）。 */
+  registrationOrder: number | null;
+  /** V32 §5 搜尋用：單筆列印主文覆寫（供依牌位主文搜尋）。 */
+  printMainText: string | null;
 };
 
 export type GroupedTabletPrintView = {
@@ -1409,6 +1465,9 @@ export async function listUniversalSalvationPrintGroups(
       firstPrintedAt: it.firstPrintedAt,
       lastPrintedAt: it.lastPrintedAt,
       lastPrintedByName: it.lastPrintedByName,
+      needsReprint: it.needsReprint,
+      registrationOrder: it.registrationOrder,
+      printMainText: it.printMainText,
     };
     if (it.itemType === "TABLET" && !it.isExtra) g.tablet = obj;
     else if (it.itemType === "POCKET" && !it.isExtra) g.pocket = obj;

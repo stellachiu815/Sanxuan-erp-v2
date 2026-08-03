@@ -23,6 +23,12 @@ type PrintObject = {
   firstPrintedAt: string | null;
   lastPrintedAt: string | null;
   lastPrintedByName: string | null;
+  /** V32 §5 需補印狀態（首次列印後內容又被修改）。 */
+  needsReprint: boolean;
+  /** V32 §5 搜尋用：正式作業號。 */
+  registrationOrder: number | null;
+  /** V32 §5 搜尋用：牌位主文覆寫。 */
+  printMainText: string | null;
 };
 
 type Group = {
@@ -35,7 +41,7 @@ type Group = {
   extras: PrintObject[];
 };
 
-type StatusFilter = "ALL" | "UNPRINTED" | "PRINTED" | "REPRINTED";
+type StatusFilter = "ALL" | "UNPRINTED" | "PRINTED" | "REPRINT_NEEDED";
 
 function statusOf(o: PrintObject | null): "NONE" | "UNPRINTED" | "PRINTED" | "REPRINTED" {
   if (!o) return "NONE";
@@ -62,7 +68,28 @@ function fmt(iso: string | null): string {
 function matchesFilter(o: PrintObject | null, f: StatusFilter): boolean {
   if (!o) return false;
   if (f === "ALL") return true;
-  return statusOf(o) === f;
+  if (f === "REPRINT_NEEDED") return o.needsReprint;
+  const s = statusOf(o); // NONE/UNPRINTED/PRINTED/REPRINTED
+  if (f === "UNPRINTED") return s === "UNPRINTED";
+  if (f === "PRINTED") return s === "PRINTED" || s === "REPRINTED";
+  return false;
+}
+
+/** V32 §5 搜尋：workOrder（作業號）／姓名／牌位主文／家戶。空字串＝全部通過。 */
+function matchesSearch(o: PrintObject, groupName: string, householdName: string, q: string): boolean {
+  const term = q.trim().toLowerCase();
+  if (!term) return true;
+  const hay = [
+    o.registrationOrder != null ? String(o.registrationOrder) : "",
+    o.registrationOrder != null ? `no.${o.registrationOrder}` : "",
+    o.printName ?? "",
+    o.printMainText ?? "",
+    groupName,
+    householdName,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(term);
 }
 
 export default function PrintObjectCenter({ year }: { year: number }) {
@@ -72,6 +99,7 @@ export default function PrintObjectCenter({ year }: { year: number }) {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("ALL");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewReady, setPreviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -125,9 +153,19 @@ export default function PrintObjectCenter({ year }: { year: number }) {
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
-    if (filter === "ALL") return groups;
-    return groups.filter((g) => matchesFilter(g.tablet, filter) || matchesFilter(g.pocket, filter) || g.extras.some((e) => matchesFilter(e, filter)));
-  }, [groups, filter]);
+    return groups.filter((g) => {
+      const objs = [g.tablet, g.pocket, ...g.extras].filter((o): o is PrintObject => !!o);
+      const passFilter = filter === "ALL" || objs.some((o) => matchesFilter(o, filter));
+      const passSearch = !search.trim() || objs.some((o) => matchesSearch(o, g.sourceDisplayName, g.household.name, search));
+      return passFilter && passSearch;
+    });
+  }, [groups, filter, search]);
+
+  // V32 §5：清單層需補印總數（供工具列提示）。
+  const reprintNeededCount = useMemo(
+    () => allObjects.filter((o) => o.needsReprint).length,
+    [allObjects]
+  );
 
   const pendingCount = selected.size;
 
@@ -241,17 +279,26 @@ export default function PrintObjectCenter({ year }: { year: number }) {
       {/* 篩選 + 快速選取工具列（窄畫面可換行、大按鈕、不依賴 hover） */}
       <div className="flex flex-col gap-3 rounded-3xl bg-white/70 p-4 shadow-card">
         <div className="flex flex-wrap gap-2">
-          {(["ALL", "UNPRINTED", "PRINTED", "REPRINTED"] as StatusFilter[]).map((f) => (
+          {(["ALL", "UNPRINTED", "PRINTED", "REPRINT_NEEDED"] as StatusFilter[]).map((f) => (
             <button key={f} onClick={() => setFilter(f)}
               className={`${btn} ${filter === f ? "bg-ink-soft text-cream-50" : "bg-cream-100 text-ink-soft"}`}>
-              {f === "ALL" ? "全部" : f === "UNPRINTED" ? "未列印" : f === "PRINTED" ? "已列印" : "已補印"}
+              {f === "ALL" ? "全部" : f === "UNPRINTED" ? "未列印" : f === "PRINTED" ? "已列印" : `需要補印${reprintNeededCount > 0 ? `（${reprintNeededCount}）` : ""}`}
             </button>
           ))}
         </div>
+        {/* V32 §5 補印搜尋：作業號／姓名／牌位主文／家戶 */}
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜尋：作業號（No.xxx／數字）、姓名、牌位主文、家戶名稱…"
+          className="w-full rounded-full border border-cream-200 bg-white px-4 py-2 text-sm text-ink placeholder:text-ink-faint"
+        />
         {canPrint && (
           <div className="flex flex-wrap gap-2">
             <button onClick={() => selectWhere((o) => o.itemType === "TABLET" && o.printCount <= 0)} className={`${btn} bg-butter-100 text-ink-soft`}>只選未列印牌位</button>
             <button onClick={() => selectWhere((o) => o.itemType === "POCKET" && o.printCount <= 0)} className={`${btn} bg-butter-100 text-ink-soft`}>只選未列印寶袋</button>
+            <button onClick={() => selectWhere((o) => o.needsReprint)} className={`${btn} bg-amber-100 text-amber-700`}>只選需補印</button>
             <button onClick={() => selectWhere(() => true)} className={`${btn} bg-cream-100 text-ink-soft`}>全選</button>
             <button onClick={() => { setSelected(new Set()); setPreviewReady(false); }} className={`${btn} bg-cream-100 text-ink-soft`}>清除選取</button>
           </div>
@@ -281,7 +328,12 @@ export default function PrintObjectCenter({ year }: { year: number }) {
                         </label>
                       )}
                     </div>
-                    <p className="mt-1 text-sm text-ink">{statusLabel(o)}</p>
+                    <p className="mt-1 text-sm text-ink">
+                      {statusLabel(o)}
+                      {o?.needsReprint && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">需要補印</span>
+                      )}
+                    </p>
                     <p className="mt-1 text-xs text-ink-faint">首印：{fmt(o?.firstPrintedAt ?? null)}</p>
                     <p className="text-xs text-ink-faint">最後：{fmt(o?.lastPrintedAt ?? null)}</p>
                     <p className="text-xs text-ink-faint">操作人：{o?.lastPrintedByName ?? "—"}</p>
@@ -296,6 +348,7 @@ export default function PrintObjectCenter({ year }: { year: number }) {
                   <label key={e.id} className="flex items-center gap-2 text-xs text-ink-soft">
                     {canPrint && <input type="checkbox" className="h-5 w-5" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />}
                     <span>{e.printName}｜{statusLabel(e)}</span>
+                    {e.needsReprint && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">需要補印</span>}
                   </label>
                 ))}
               </div>

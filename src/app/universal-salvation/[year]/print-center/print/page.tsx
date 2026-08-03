@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listPrintItemsForPrintCenter } from "@/lib/additionalPrintItems";
+import { getAllTabletTemplateSettings } from "@/lib/tabletTemplateSettings";
 import TabletPrintPage from "@/components/universal-salvation/TabletPrintPage";
 import {
   PRINT_BATCH_META,
@@ -42,12 +43,14 @@ export default async function TabletBatchPrintRoute({
   searchParams,
 }: {
   params: Promise<{ year: string }>;
-  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string; workno?: string }>;
+  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string; workno?: string; maximize?: string }>;
 }) {
   const { year: yearParam } = await params;
-  const { batch: batchParam, ids: idsParam, debug: debugParam, workno: worknoParam } = await searchParams;
+  const { batch: batchParam, ids: idsParam, debug: debugParam, workno: worknoParam, maximize: maximizeParam } = await searchParams;
   // V30.3：作業號碼開關（?workno=0 隱藏；預設／其他值＝顯示）。
   const showWorkNumber = worknoParam !== "0";
+  // V32 §3：最高密度排版開關（?maximize=1 啟用；預設 false＝既有已驗證版型）。模板設定亦可帶入此參數。
+  const maximize = maximizeParam === "1";
 
   const year = Number(yearParam);
   if (!Number.isInteger(year)) return <Notice year={0} title="年度格式錯誤" />;
@@ -94,6 +97,10 @@ export default async function TabletBatchPrintRoute({
 
   const groups = buildTabletGroups(chosen);
 
+  // V32 §4：載入列印模板設定（每 documentType 一份），正式列印套用位移／字體／校正框／裁切線／預設主文等。
+  const templateList = await getAllTabletTemplateSettings();
+  const templates = Object.fromEntries(templateList.map((t) => [t.documentType, t]));
+
   return (
     <TabletPrintPage
       year={year}
@@ -103,6 +110,8 @@ export default async function TabletBatchPrintRoute({
       groups={groups}
       debug={debugParam === "1"}
       showWorkNumber={showWorkNumber}
+      maximize={maximize}
+      templates={templates}
     />
   );
 }

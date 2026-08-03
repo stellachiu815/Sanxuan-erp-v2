@@ -709,6 +709,11 @@ model RitualRegistrationItem {
   /// 排序範圍＝(templeEventId, registrationItemTypeId)。指派時以 advisory lock＋max+1，
   /// 並由下方 unique index 作為最後防線。修改/補印/取消/恢復一律不改此號。
   registrationOrder Int?
+  /// V31 正式作業編號（宮內紙本號）：與 registrationOrder **完全分離**。registrationOrder 永久保留
+  /// 建立順序、僅供歷史查核、不因列印調整而改；workOrder 為 Excel／總名單／裁切牌位·寶袋 No.xxx／
+  /// 補印搜尋一律使用的正式列印號，可人工輸入/拖曳/交換/依排序重編。各項目各自 1..N，同活動同項目不重號。
+  /// 未人工設定時，顯示層以 workOrder ?? registrationOrder 安全回退。純量、raw SQL 存取（比照 registrationOrder）。
+  workOrder Int?
   /// V30.3：冗餘存一份活動 id（由 RitualRecord.templeEventId 安全回填），供 (活動,項目,順序)
   /// 唯一約束與「本活動全部報名」查詢（比照 PurificationEntry 的 templeEventId 冗餘慣例）。
   /// 純量欄位、不建 relation（不更動 TempleEvent／RitualRecord 既有關聯）。
@@ -895,6 +900,11 @@ model UniversalSalvationEntry {
   /// V14.1：此筆牌位自己的地址（每筆獨立，不依賴共用 WorshipRecord 地址）。
   /// 空值時畫面可帶入家戶地址作為預設，但儲存後以本欄為準，不回寫家戶主檔。
   tabletAddress  String?
+
+  /// V31 單筆列印主文覆寫：**只覆寫這一筆牌位中間主文的列印文字**（例：無緣子女改印「本宅地基主」）。
+  /// 預設空白＝列印時沿用系統正式主文（displayName 經 formatter）。不改分類/收款/統計/registrationItemType，
+  /// 不建立地基主新模組。活動總名單「內容」欄需顯示實際列印主文。nullable、raw SQL 存取（migration 未部署）。
+  printMainText  String?
 
   worshipRecordId String? // 可選：關聯回既有的 WorshipRecord（歷代祖先/個人往生者牌位登記）
   worshipRecord   WorshipRecord? @relation(fields: [worshipRecordId], references: [id])
@@ -3203,6 +3213,31 @@ model SystemSetting {
   updatedByName String?
 
   @@map("system_settings")
+}
+
+/// V32 §4 中元普渡列印模板設定（每一 documentType 一列；新增獨立表，不動既有設定表）。
+/// 全部 nullable／default，安全新增；儲存後正式預覽與正式列印皆生效；恢復預設＝刪除該列回系統預設。
+/// 不改報名分類／收款／registrationOrder；單筆 printMainText 優先於本表 defaultMainText。
+model TabletTemplateSetting {
+  /// ANCESTOR_LINE / INDIVIDUAL_SOUL / DEBT_CREDITOR / UNBORN_CHILD / POCKET
+  documentType String @id
+
+  offsetXmm     Float   @default(0)
+  offsetYmm     Float   @default(0)
+  fontFamily    String? // null＝系統預設牌位字型
+  fontWeight    String? // 例："400"/"700"；null＝預設
+  letterSpacingPx Float @default(0) // 字距（px）
+  lineHeight    Float   @default(1.15) // 行距
+  defaultMainText String? // 模板預設主文（單筆 printMainText 優先）
+  showCalibrationBox Boolean @default(false) // 顯示校正框
+  showCropMarks Boolean @default(false) // 顯示裁切線
+  showWorkNumber Boolean @default(true) // 顯示作業號碼
+  maximize      Boolean @default(false) // 最高密度排版（packing）
+
+  updatedAt     DateTime @updatedAt
+  updatedByName String?
+
+  @@map("tablet_template_settings")
 }
 
 // ============================================================

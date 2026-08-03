@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { normalizeTabletText } from "@/lib/tabletIdentity";
+import { printNumberOf } from "@/lib/workOrder";
 
 /**
  * V15R8：列印中心「資料來源」中文標籤（供顯示與篩選）。
@@ -86,14 +87,14 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
     orderBy: [{ createdAt: "asc" }],
   });
 
-  // V30.3：報名順序（raw SQL，避免依賴 client regenerate）。名單／總表一律以 registrationOrder 排序、顯示。
+  // V32：列印號＝printNumberOf(workOrder, registrationOrder)（workOrder 優先，NULL 回退）。名單/總表以此排序顯示。
   const rowIds = rows.map((r) => r.id);
   const orderRows = rowIds.length
-    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
-        SELECT "id", "registrationOrder" AS ord FROM "ritual_registration_items" WHERE "id" = ANY(${rowIds})
+    ? await prisma.$queryRaw<{ id: string; ro: number | null; wo: number | null }[]>`
+        SELECT "id", "registrationOrder" AS ro, "workOrder" AS wo FROM "ritual_registration_items" WHERE "id" = ANY(${rowIds})
       `
     : [];
-  const orderById = new Map(orderRows.map((o) => [o.id, o.ord]));
+  const orderById = new Map(orderRows.map((o) => [o.id, printNumberOf(o.wo, o.ro)]));
 
   const mapped: PrintCenterRow[] = rows.map((r) => {
     const ext = r as unknown as { lastPrintedAt: Date | null; printedByName: string | null };
@@ -259,14 +260,14 @@ export async function buildItemRoster(
     orderBy: [{ createdAt: "asc" }],
   });
 
-  // V30.3：報名順序（raw SQL；名單一律以 registrationOrder 排序、顯示）。本 roster 為單一項目，各筆同型別。
+  // V32：列印號＝printNumberOf(workOrder, registrationOrder)。本 roster 為單一項目，各筆同型別。
   const rosterIds = rows.map((r) => r.id);
   const rosterOrderRows = rosterIds.length
-    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
-        SELECT "id", "registrationOrder" AS ord FROM "ritual_registration_items" WHERE "id" = ANY(${rosterIds})
+    ? await prisma.$queryRaw<{ id: string; ro: number | null; wo: number | null }[]>`
+        SELECT "id", "registrationOrder" AS ro, "workOrder" AS wo FROM "ritual_registration_items" WHERE "id" = ANY(${rosterIds})
       `
     : [];
-  const rosterOrderById = new Map(rosterOrderRows.map((o) => [o.id, o.ord]));
+  const rosterOrderById = new Map(rosterOrderRows.map((o) => [o.id, printNumberOf(o.wo, o.ro)]));
 
   const rosterRows: RosterRow[] = rows.map((r) => {
     const pr = r as unknown as { printedAt: Date | null; lastPrintedAt: Date | null; printCount: number | null; printedByName: string | null };

@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   UniversalSalvationTabletSheet,
-  buildTabletLayout,
+  buildAutoTabletLayout,
   toPrintableTablet,
   type TabletDocumentType,
 } from "@/components/ritual/tablets";
 import { useTabletPrint } from "@/hooks/useTabletPrint";
 import type { TabletPrintGroup } from "@/lib/TabletBatchService";
+import type { TabletTemplateSetting } from "@/lib/tabletTemplateSettingsShape";
 
 /**
  * V27.11：跨家戶牌位**專用列印頁**。正式版型維持「一張 A4 多筆」——每個 documentType 一個
@@ -30,6 +31,8 @@ export default function TabletPrintPage({
   groups,
   debug = false,
   showWorkNumber = true,
+  maximize = false,
+  templates,
 }: {
   year: number;
   batchLabel: string;
@@ -39,7 +42,13 @@ export default function TabletPrintPage({
   debug?: boolean;
   /** V30.3：是否顯示裁切外作業號碼 No.<registrationOrder>（由 ?workno=0/1 控制，預設顯示）。 */
   showWorkNumber?: boolean;
+  /** V32 §3：是否啟用最高密度排版（由 ?maximize=1／模板設定控制，預設 false＝既有版型）。 */
+  maximize?: boolean;
+  /** V32 §4：各 documentType 的模板設定（來自列印模板管理；套用位移／字體／校正框／裁切線／預設主文等）。 */
+  templates?: Record<string, TabletTemplateSetting>;
 }) {
+  // 取某 documentType 的模板設定（缺→undefined，sheet 用既有預設）。
+  const tplOf = (dt: string): TabletTemplateSetting | undefined => templates?.[dt];
   const { print } = useTabletPrint(groups.length > 0);
   const sheetsRef = useRef<HTMLDivElement>(null);
 
@@ -60,10 +69,14 @@ export default function TabletPrintPage({
           const p = toPrintableTablet(e);
           return { entryId: null, registrationId: null, addressText: p.locationText, mainText: p.displayName, yangshangText: p.yangshangText };
         });
-        const layout = buildTabletLayout(g.documentType as TabletDocumentType, records);
+        // V32 §3/§4：與正式 Sheet 完全相同的版面決策（含 packing 摘要、模板 offset/maximize），確保預覽＝正式列印同配置。
+        const tpl = tplOf(g.documentType);
+        const offset = tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined;
+        const layout = buildAutoTabletLayout(g.documentType as TabletDocumentType, records, offset, { maximize: maximize || !!tpl?.maximize });
         return { documentType: g.documentType, layout };
       }),
-    [groups]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groups, maximize, templates]
   );
 
   const [measured, setMeasured] = useState<{ i: number; w: number; h: number; mains: number; transform: string }[]>([]);
@@ -116,6 +129,18 @@ export default function TabletPrintPage({
         </Link>
       </div>
 
+      {/* V32 §3.9 排版資訊（預覽可見、列印隱藏）：欄×列／每頁筆數／最小字級／警告；預覽與正式列印同配置。 */}
+      <div className="no-print" style={{ margin: "8px 16px", padding: "6px 12px", border: "1px solid #cfe0cf", borderRadius: 8, background: "#f3f8f1", fontSize: 12, color: "#3c5a3c", display: "flex", flexWrap: "wrap", gap: 12 }}>
+        {diag.map(({ documentType, layout }) => {
+          const p = layout.packing;
+          return (
+            <span key={documentType}>
+              <b>{documentType}</b>：{p ? `${p.source === "packed" ? "最高密度" : "固定槽位"} ${p.columns || "-"}欄×${p.rows || "-"}列＝每頁 ${p.perPage} 筆（基準 ${p.baseline}）｜最小字級 ${Math.round(p.minFontPx)}px${p.warnings.length ? `｜⚠️${p.warnings.join(",")}` : ""}${p.fallbackReason ? `｜${p.fallbackReason}` : ""}` : `每頁 ${layout.slotsPerPage} 筆`}
+            </span>
+          );
+        })}
+      </div>
+
       {debug && (
         <div className="no-print" style={{ margin: 16, padding: 12, border: "2px solid #c0392b", borderRadius: 8, background: "#fff8f7", fontSize: 12, fontFamily: "monospace" }}>
           <div style={{ fontWeight: 700, color: "#c0392b" }}>版面診斷（?debug=1，列印隱藏；修好後移除）</div>
@@ -160,11 +185,26 @@ export default function TabletPrintPage({
       ) : (
         // 正式版型：一張 A4 多筆。DOM 階層比照已驗收的 PrintCenter（flex 容器 + w-full + overflow-x-auto）。
         <div ref={sheetsRef} className="flex flex-col items-center gap-8 overflow-x-auto print:gap-0 print:overflow-visible">
-          {groups.map((g) => (
-            <div key={g.documentType} className="w-full">
-              <UniversalSalvationTabletSheet documentType={g.documentType as TabletDocumentType} records={g.records} mode="print" showWorkNumber={showWorkNumber} />
-            </div>
-          ))}
+          {groups.map((g) => {
+            const tpl = tplOf(g.documentType);
+            return (
+              <div key={g.documentType} className="w-full">
+                <UniversalSalvationTabletSheet
+                  documentType={g.documentType as TabletDocumentType}
+                  records={g.records}
+                  mode="print"
+                  offset={tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined}
+                  showWorkNumber={showWorkNumber && (tpl?.showWorkNumber ?? true)}
+                  maximize={maximize || !!tpl?.maximize}
+                  template={tpl ? {
+                    fontFamily: tpl.fontFamily, fontWeight: tpl.fontWeight, letterSpacingPx: tpl.letterSpacingPx,
+                    lineHeight: tpl.lineHeight, showCalibrationBox: tpl.showCalibrationBox, showCropMarks: tpl.showCropMarks,
+                    defaultMainText: tpl.defaultMainText,
+                  } : undefined}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -186,12 +186,30 @@ export type PositionedBlock = {
 };
 
 export type TabletPage = { pageIndex: number; blocks: PositionedBlock[] };
+
+/** V32 §3 版面來源與 packing 摘要（供預覽顯示 columns/rows/perPage/字級/警告）。 */
+export type TabletPackingInfo = {
+  /** "packed"＝採用 packing 最高密度配置；"fixed"＝採用既有固定槽位（含 fallback）。 */
+  source: "packed" | "fixed";
+  columns: number;
+  rows: number;
+  perPage: number;
+  /** 既有固定槽位每頁筆數（基準，供比較）。 */
+  baseline: number;
+  minFontPx: number;
+  warnings: string[];
+  /** 若因 packing 無效／未啟用而回退固定槽位，記錄原因。 */
+  fallbackReason?: string;
+};
+
 export type TabletLayout = {
   documentType: TabletDocumentType;
   slotsPerPage: number;
   offset: TabletA4Offset;
   pages: TabletPage[];
   allBlocks: PositionedBlock[];
+  /** V32 §3：本次版面的 packing 摘要（正式 sheet 一律附帶，預覽顯示、正式列印相同配置）。 */
+  packing?: TabletPackingInfo;
 };
 
 function textFor(docType: TabletDocumentType, blockType: TabletBlockType, rec: TabletRecordInput): string {
@@ -301,6 +319,152 @@ export function validateLayout(layout: TabletLayout): LayoutViolation[] {
     else if (seen !== b.pageIndex) v.push({ code: "CROSS_PAGE", detail: `rec${b.recordIndex} 跨頁 ${seen}/${b.pageIndex}` });
   }
   return v;
+}
+
+// ────────────────────────────────────────────────────────────
+// V32 §3 Packing 正式接入：由 packing 核心決定版面，安全 fallback 至固定槽位
+// ────────────────────────────────────────────────────────────
+
+import { packTabletLayout, type PackDocType, type TabletPackResult } from "./packing";
+import type { TabletFontBox } from "./fontFit";
+
+function packDocTypeOf(d: TabletDocumentType): PackDocType {
+  if (d === "DEBT_CREDITOR") return "DEBT_CREDITOR";
+  if (d === "POCKET") return "POCKET";
+  return "THREE_BLOCK";
+}
+
+/** TabletFontBox → 版面 TabletBlockType（main 與 pocketMain 皆為主文區）。 */
+function blockTypeOfBox(box: TabletFontBox): TabletBlockType {
+  if (box === "address") return "address";
+  if (box === "yangshang") return "yangshang";
+  return "main";
+}
+
+/** 由 packing 結果 + 記錄，產出固定式 buildTabletLayout 相同形狀的版面（未驗證前）。 */
+function layoutFromPacking(
+  documentType: TabletDocumentType,
+  records: TabletRecordInput[],
+  offset: TabletA4Offset,
+  pack: TabletPackResult
+): TabletLayout {
+  const perPage = pack.perPage;
+  const allBlocks: PositionedBlock[] = [];
+  records.forEach((rec, recordIndex) => {
+    const pageIndex = Math.floor(recordIndex / perPage);
+    const slotIndex = recordIndex % perPage;
+    const col = slotIndex % pack.columns;
+    const row = Math.floor(slotIndex / pack.columns);
+    const cellX = pack.colXsMm[col];
+    const cellY = pack.rowYsMm[row];
+    for (const b of pack.blocks) {
+      const blockType = blockTypeOfBox(b.box);
+      // 冤親債主無主文區：packing 的 blocks 已不含 main（Safe Area 未列），此處自然略過。
+      allBlocks.push({
+        recordIndex,
+        pageIndex,
+        slotIndex,
+        blockType,
+        entryId: rec.entryId ?? null,
+        registrationId: rec.registrationId ?? null,
+        xMm: cellX + b.dxMm + offset.offsetXmm,
+        yMm: cellY + b.dyMm + offset.offsetYmm,
+        widthMm: b.widthMm,
+        heightMm: b.heightMm,
+        text: textFor(documentType, blockType, rec),
+      });
+    }
+  });
+  const pageMap = new Map<number, PositionedBlock[]>();
+  for (const b of allBlocks) (pageMap.get(b.pageIndex) ?? pageMap.set(b.pageIndex, []).get(b.pageIndex)!).push(b);
+  const pages: TabletPage[] = Array.from(pageMap.entries()).sort((a, b) => a[0] - b[0]).map(([pageIndex, blocks]) => ({ pageIndex, blocks }));
+  return { documentType, slotsPerPage: perPage, offset, pages, allBlocks };
+}
+
+export type AutoLayoutOptions = {
+  /**
+   * 是否啟用「高於既有固定槽位」的最高密度排版。預設 false＝維持既有已驗證版型（保護實紙裁切對位），
+   * packing 仍會計算並附在 layout.packing 供預覽顯示；true＝當 packing 產出更高且全合法時採用。
+   */
+  maximize?: boolean;
+};
+
+/**
+ * V32 §3 正式版面決策（Preview 與正式列印共用）：
+ *  1) 以 packing 核心依 Safe Area 與批次最大字數計算最高密度合法配置。
+ *  2) 若 maximize 且 packing.perPage > 既有基準、且產出版面通過 validateLayout → 採用 packing 版面。
+ *  3) 否則採用既有固定槽位版面（buildTabletLayout），並附 packing 摘要與 fallback 原因。
+ * 任一步驟例外或無效 → 一律安全 fallback 至固定槽位，絕不讓正式列印失效。
+ */
+export function buildAutoTabletLayout(
+  documentType: TabletDocumentType,
+  records: TabletRecordInput[],
+  offset: TabletA4Offset = ZERO_OFFSET,
+  options: AutoLayoutOptions = {}
+): TabletLayout {
+  const baseline = SLOTS_PER_PAGE[documentType];
+  const fixed = () => buildTabletLayout(documentType, records, offset);
+
+  // 累世冤親債主採「專用固定版面」（地址橫列＋陽上散排的 11 槽特殊排法，非矩形網格）。
+  // 矩形 packing 無法安全重現該排法，且其密度已優化，故一律使用既有固定版面（packing 摘要仍附）。
+  if (documentType === "DEBT_CREDITOR") {
+    const l = fixed();
+    l.packing = { source: "fixed", columns: 0, rows: 0, perPage: baseline, baseline, minFontPx: 0, warnings: [], fallbackReason: "冤親債主採專用固定版面（非矩形網格）" };
+    return l;
+  }
+
+  let pack: TabletPackResult | null = null;
+  try {
+    const maxChars = (pick: (r: TabletRecordInput) => string | undefined) =>
+      records.reduce((m, r) => Math.max(m, (pick(r) ?? "").length), 0);
+    pack = packTabletLayout({
+      docType: packDocTypeOf(documentType),
+      maxCharsByBox: {
+        address: maxChars((r) => r.addressText),
+        main: maxChars((r) => r.mainText),
+        pocketMain: maxChars((r) => r.mainText),
+        yangshang: maxChars((r) => r.yangshangText),
+      },
+      marginMm: TABLET_A4_CONFIG.marginLeftMm,
+      gapMm: TABLET_A4_CONFIG.horizontalGapMm,
+    });
+  } catch {
+    pack = null;
+  }
+
+  const packingInfo = (source: "packed" | "fixed", perPage: number, columns: number, rows: number, fallbackReason?: string): TabletPackingInfo => ({
+    source,
+    columns,
+    rows,
+    perPage,
+    baseline,
+    minFontPx: pack?.minFontPx ?? 0,
+    warnings: pack?.warnings ?? [],
+    fallbackReason,
+  });
+
+  // 未算出、不可行、或未達密度提升 → 固定槽位（附 packing 摘要供預覽）。
+  if (!pack || !pack.feasible || pack.perPage <= 0) {
+    const l = fixed();
+    l.packing = packingInfo("fixed", baseline, 0, 0, pack ? "packing 無合法配置或字溢，回退固定槽位" : "packing 計算例外，回退固定槽位");
+    return l;
+  }
+  if (!options.maximize || pack.perPage <= baseline) {
+    const l = fixed();
+    l.packing = packingInfo("fixed", baseline, pack.columns, pack.rows, !options.maximize ? "未啟用最高密度（保護既有版型）" : "packing 未高於既有基準");
+    return l;
+  }
+
+  // 嘗試採用 packing 版面，並以既有 validateLayout 完整驗證（超界/碰撞/跨頁）。
+  const candidate = layoutFromPacking(documentType, records, offset, pack);
+  const violations = validateLayout(candidate);
+  if (violations.length > 0) {
+    const l = fixed();
+    l.packing = packingInfo("fixed", baseline, pack.columns, pack.rows, `packing 版面驗證未過（${violations[0].code}），回退固定槽位`);
+    return l;
+  }
+  candidate.packing = packingInfo("packed", pack.perPage, pack.columns, pack.rows);
+  return candidate;
 }
 
 /** offset 是否使任何區塊超出安全範圍（供預覽/列印前阻擋）。 */

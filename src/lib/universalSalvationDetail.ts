@@ -14,7 +14,9 @@
 import { prisma } from "@/lib/prisma";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
-import { rowSection, pocketDisplay, pocketAmountDue, summarizeAmounts } from "@/lib/registrationDetailShape";
+import { rowSection, pocketDisplay, pocketAmountDue, summarizeAmounts, summarizeByCategory } from "@/lib/registrationDetailShape";
+import { printNumberOf } from "@/lib/workOrder";
+import { resolvePrintMainText, resolvePrintAddress, needsReprint } from "@/lib/tabletPrintFields";
 
 export type RegistrationDetailRow = {
   id: string;
@@ -39,6 +41,10 @@ export type RegistrationDetailRow = {
   /** ACTIVE＝有效（CONFIRMED 進正式名單/列印）；DRAFT＝草稿（不進正式）；CANCELLED＝歷史。 */
   section: "ACTIVE" | "DRAFT" | "CANCELLED";
   missing: string[]; // DRAFT 缺漏原因（缺地址/缺陽上/缺牌位名）
+  /** §10 群組用：牌位＝自身 entryId；寶袋＝依附牌位 sourceEntryId（無法配對為 null → 未配對區）。 */
+  parentEntryId: string | null;
+  /** §5：已列印後內容又變更 → 需補印。 */
+  needsReprint: boolean;
 };
 
 export type RegistrationDetailSummary = {
@@ -57,6 +63,7 @@ export type RegistrationDetail = {
   empty: boolean; // true＝有 record 但無任何報名物件 → 前端顯示「尚無報名項目」
   editHref: string; // 既有正式編輯頁（不建第二套）
   summary: RegistrationDetailSummary;
+  categorySummary: ReturnType<typeof summarizeByCategory>; // §3 分類摘要（只計有效）
   rows: RegistrationDetailRow[];
 };
 
@@ -82,10 +89,10 @@ export async function getUniversalSalvationRegistrationDetail(
     where: { ritualRecordId, deletedAt: null, registrationItemType: { key: { not: "US_POCKET_EXTRA" } } },
     select: {
       id: true, quantity: true, amountDue: true, amountPaid: true, amountUnpaid: true, status: true,
-      customName: true, printedAt: true, printCount: true, lastPrintedAt: true,
+      customName: true, printedAt: true, printCount: true, lastPrintedAt: true, universalSalvationEntryId: true, memberId: true, updatedAt: true,
       registrationItemType: { select: { key: true, name: true, contentKind: true } },
       member: { select: { name: true } },
-      universalSalvationEntry: { select: { displayName: true, tabletAddress: true, yangshangName: true, yangshangNames: true } },
+      universalSalvationEntry: { select: { displayName: true, tabletAddress: true, yangshangName: true, yangshangNames: true, updatedAt: true } },
     },
     orderBy: [{ registrationItemType: { sortOrder: "asc" } }, { createdAt: "asc" }],
   });
@@ -93,27 +100,40 @@ export async function getUniversalSalvationRegistrationDetail(
   // 2) 寶袋列印物件（基本＋額外）。
   const pockets = await prisma.additionalPrintItem.findMany({
     where: { ritualRecordId, deletedAt: null, itemType: "POCKET" },
-    select: { id: true, printName: true, isExtra: true, isChargeable: true, quantity: true, status: true, printCount: true, printedAt: true, lastPrintedAt: true, subtotal: true, unitPrice: true },
+    select: { id: true, sourceEntryId: true, printName: true, isExtra: true, isChargeable: true, quantity: true, status: true, printCount: true, printedAt: true, lastPrintedAt: true, subtotal: true, unitPrice: true, updatedAt: true },
     orderBy: [{ isExtra: "asc" }, { createdAt: "asc" }],
   });
 
-  // 3) registrationOrder：item 直接取；pocket 經 registrationItemId 取自身 US_POCKET_EXTRA 順序（raw SQL）。
+  // 3) V32 列印號＝printNumberOf(workOrder, registrationOrder)；item 直接取，pocket 經 registrationItemId 取自身序列。
   const itemIds = items.map((i) => i.id);
   const itemOrder = itemIds.length
-    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
-        SELECT "id", "registrationOrder" AS ord FROM "ritual_registration_items" WHERE "id" = ANY(${itemIds})`
+    ? await prisma.$queryRaw<{ id: string; ro: number | null; wo: number | null }[]>`
+        SELECT "id", "registrationOrder" AS ro, "workOrder" AS wo FROM "ritual_registration_items" WHERE "id" = ANY(${itemIds})`
     : [];
-  const itemOrderById = new Map(itemOrder.map((r) => [r.id, r.ord]));
+  const itemOrderById = new Map(itemOrder.map((r) => [r.id, printNumberOf(r.wo, r.ro)]));
 
   const pocketIds = pockets.map((p) => p.id);
   const pocketOrder = pocketIds.length
-    ? await prisma.$queryRaw<{ id: string; ord: number | null }[]>`
-        SELECT api."id", rri."registrationOrder" AS ord
+    ? await prisma.$queryRaw<{ id: string; ro: number | null; wo: number | null }[]>`
+        SELECT api."id", rri."registrationOrder" AS ro, rri."workOrder" AS wo
         FROM "additional_print_items" api
         LEFT JOIN "ritual_registration_items" rri ON rri."id" = api."registrationItemId" AND rri."deletedAt" IS NULL
         WHERE api."id" = ANY(${pocketIds})`
     : [];
-  const pocketOrderById = new Map(pocketOrder.map((r) => [r.id, r.ord]));
+  const pocketOrderById = new Map(pocketOrder.map((r) => [r.id, printNumberOf(r.wo, r.ro)]));
+
+  // V32 printMainText（單筆列印主文覆寫）＋ Member.address（地址 fallback）——raw SQL（欄位新加）。
+  const entryIdsForText = items.map((i) => i.universalSalvationEntryId).filter((x): x is string => !!x);
+  const entryExtra = entryIdsForText.length
+    ? await prisma.$queryRaw<{ id: string; pmt: string | null }[]>`
+        SELECT "id", "printMainText" AS pmt FROM "universal_salvation_entries" WHERE "id" = ANY(${entryIdsForText})`
+    : [];
+  const printMainTextByEntry = new Map(entryExtra.map((e) => [e.id, e.pmt]));
+  const memberIds = items.map((i) => i.memberId).filter((x): x is string => !!x);
+  const members = memberIds.length
+    ? await prisma.member.findMany({ where: { id: { in: memberIds } }, select: { id: true, address: true } })
+    : [];
+  const memberAddrById = new Map(members.map((m) => [m.id, m.address]));
 
   const rows: RegistrationDetailRow[] = [];
 
@@ -128,15 +148,22 @@ export async function getUniversalSalvationRegistrationDetail(
           : "OTHER";
     const entry = it.universalSalvationEntry;
     const yang = entry ? resolveYangshangNames(entry.yangshangNames, entry.yangshangName) : [];
-    const subject =
+    // V32：牌位主文套單筆 printMainText 覆寫（有值只覆寫此筆；地基主仍歸類無緣子女）。
+    const defaultSubject =
       key === "US_YUANQIN"
         ? displayDebtCreditorName(entry?.displayName ?? it.member?.name ?? "")
         : entry?.displayName ?? it.customName ?? it.member?.name ?? it.registrationItemType.name;
+    const subject =
+      kind === "TABLET"
+        ? resolvePrintMainText(defaultSubject, it.universalSalvationEntryId ? printMainTextByEntry.get(it.universalSalvationEntryId) : null)
+        : defaultSubject;
+    // V32：地址唯一規則 entry.tabletAddress → Member.address（絕不 Household）。
+    const address = resolvePrintAddress(entry?.tabletAddress, it.memberId ? memberAddrById.get(it.memberId) : null);
     // DRAFT 缺漏原因（僅牌位需地址/陽上/名稱；供畫面提示「草稿＋缺漏」）。
     const missing: string[] = [];
     if (kind === "TABLET") {
       if (!subject || !subject.trim()) missing.push("缺牌位名稱");
-      if ((key === "US_ANCESTOR" || key === "US_ZHENGHUN") && !(entry?.tabletAddress ?? "").trim()) missing.push("缺地址");
+      if ((key === "US_ANCESTOR" || key === "US_ZHENGHUN") && !address.trim()) missing.push("缺地址");
       if ((key === "US_ANCESTOR" || key === "US_ZHENGHUN") && yang.length === 0) missing.push("缺陽上人");
     }
     rows.push({
@@ -148,7 +175,7 @@ export async function getUniversalSalvationRegistrationDetail(
       quantity: it.quantity,
       quantityUnit: kind === "RICE" ? "斤" : null,
       yangshang: yang.length > 0 ? yang : it.member?.name ? [it.member.name] : [],
-      address: entry?.tabletAddress ?? null,
+      address: address || null,
       amountDue: Number(it.amountDue),
       amountPaid: Number(it.amountPaid),
       amountUnpaid: Number(it.amountUnpaid),
@@ -161,6 +188,13 @@ export async function getUniversalSalvationRegistrationDetail(
       printName: null,
       section: rowSection(it.status),
       missing,
+      parentEntryId: it.universalSalvationEntryId ?? null,
+      needsReprint: needsReprint(
+        it.printCount ?? 0,
+        (it.lastPrintedAt ?? it.printedAt)?.toISOString() ?? null,
+        // 內容最後變更＝item 與 entry updatedAt 之較晚者（涵蓋主文/地址/陽上/名稱編輯）。
+        new Date(Math.max(it.updatedAt.getTime(), entry?.updatedAt.getTime() ?? 0)).toISOString()
+      ),
     });
   }
 
@@ -189,9 +223,12 @@ export async function getUniversalSalvationRegistrationDetail(
       printName: p.printName,
       section: rowSection(p.status),
       missing: [],
+      parentEntryId: p.sourceEntryId ?? null,
+      needsReprint: needsReprint(p.printCount ?? 0, (p.lastPrintedAt ?? p.printedAt)?.toISOString() ?? null, p.updatedAt.toISOString()),
     });
   }
 
+  const categorySummary = summarizeByCategory(rows);
   const amounts = summarizeAmounts(rows);
   const summary: RegistrationDetailSummary = {
     itemCount: items.length,
@@ -209,6 +246,7 @@ export async function getUniversalSalvationRegistrationDetail(
     empty: rows.length === 0,
     editHref: `/registration/${record.id}`,
     summary,
+    categorySummary,
     rows,
   };
 }

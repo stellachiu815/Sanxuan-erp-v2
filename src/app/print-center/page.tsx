@@ -144,6 +144,9 @@ function PrintCenterInner() {
         </div>
         <p className="mt-2 text-xs text-ink-faint">＊各報名項目的「報名總名單」也可從下方「依項目快速彙總」進入；報名總名單為名冊，牌位／寶袋正式列印請走上方 mm 版型入口。</p>
         <div className="mt-3 flex flex-wrap gap-2">
+          <Link href="/print-center/work-orders" className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink hover:bg-mist-300">正式作業編號管理（workOrder）</Link>
+          <Link href="/print-center/tablet-templates" className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink hover:bg-mist-300">列印模板管理</Link>
+          <Link href="/universal-salvation/template-preview" className="rounded-full bg-cream-100 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-200">列印模板測試預覽</Link>
           <a href={`/api/universal-salvation/${year}/roster-export`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">⬇ 匯出活動總名單 Excel（祖先＋乙位／冤親／白米／贊普）</a>
           <Link href="/system-center/universal-salvation-check" className="rounded-full bg-cream-100 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-200">普渡上線前檢查（唯讀）</Link>
         </div>
