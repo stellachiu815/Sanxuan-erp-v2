@@ -111,7 +111,7 @@ export default function TabletLandscapeSheetV34({
           --v34-col-gap: 3mm;        /* 家戶（欄）間距 */
           --v34-no-top: 1mm;         /* No.xxx 距格頂 */
           --v34-content-top: 5.5mm;  /* 內容距格頂（留給 No.xxx，不相壓） */
-          --v34-main-size: 9mm;      /* 主文字級 */
+          --v34-main-size: 9.9mm;    /* 主文字級（本輪 +10%：9mm→9.9mm；字體/字重/位置不變） */
           --v34-yang-size: 3.6mm;    /* 陽上人字級 */
           --v34-addr-size: 3.2mm;    /* 地址字級 */
           --v34-header-title: 5mm;
