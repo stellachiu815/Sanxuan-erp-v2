@@ -23,7 +23,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { recordVersion } from "@/lib/recordVersion";
 import { displayPersonalAddress } from "@/lib/personalAddress";
-import { formatIndividualSoulDisplayName, formatAncestorDisplayName } from "@/lib/ritualDisplayName";
+import { formatIndividualSoulDisplayName, formatAncestorDisplayName, normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import {
   createWorshipRecordInTransaction,
@@ -358,12 +358,14 @@ export async function joinUniversalSalvation(params: {
       );
     }
 
+    const entryCategory = record.type === "ANCESTOR_LINE" ? "ANCESTOR_LINE" : "INDIVIDUAL_SOUL";
     const entry = await tx.universalSalvationEntry.create({
       data: {
         universalSalvationId: detail.id,
         // 乙位正魂 → INDIVIDUAL_SOUL；歷代祖先 → ANCESTOR_LINE
-        category: record.type === "ANCESTOR_LINE" ? "ANCESTOR_LINE" : "INDIVIDUAL_SOUL",
-        displayName: record.displayName,
+        category: entryCategory,
+        // V33.2：由家戶牌位帶入普渡也只存核心名稱（去後綴、依 category）；來源殘留舊格式亦正規化。
+        displayName: normalizeRitualNameForStore(entryCategory, record.displayName),
         yangshangName: record.yangshangName,
         worshipRecordId: record.id,
       },

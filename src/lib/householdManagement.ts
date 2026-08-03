@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma, type DbClient } from "@/lib/prisma";
+import { normalizeRitualNameForStore, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { recordVersion } from "@/lib/recordVersion";
 import {
   syncMemberHouseholdReferences,
@@ -1229,7 +1230,8 @@ export async function splitHousehold(params: {
           data: {
             householdId: created.id,
             type: w.type,
-            displayName: w.displayName,
+            // V33.2：分戶複製也只存核心名稱（去後綴、依類別）；來源即使殘留舊格式也正規化。
+            displayName: normalizeRitualNameForStore(categoryFromWorshipType(w.type) ?? "", w.displayName),
             location: w.location,
             yangshangName: w.yangshangName,
             notes: w.notes,

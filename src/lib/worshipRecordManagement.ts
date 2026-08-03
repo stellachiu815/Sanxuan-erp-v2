@@ -1,6 +1,6 @@
 import { WorshipType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
+import { normalizeRitualNameForStore, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { recordVersion } from "@/lib/recordVersion";
 import { normalizeYangshangName } from "@/lib/printChinese";
 
@@ -47,9 +47,9 @@ export async function updateWorshipRecord(
   if (input.displayName !== undefined) {
     const n = input.displayName.trim();
     if (!n) return { ok: false, status: 400, error: "請輸入牌位名稱" };
-    // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重、姓非府；type 依既有 WorshipType 欄位）。
+    // V33.2：歷代祖先／乙位正魂 只存核心名稱（去後綴）；type 依既有 WorshipType 欄位，不猜名稱。
     const cat = categoryFromWorshipType(input.type ?? existing.type);
-    data.displayName = cat === "ANCESTOR_LINE" || cat === "INDIVIDUAL_SOUL" ? resolveRitualDisplayName(cat, n) : n;
+    data.displayName = cat === "ANCESTOR_LINE" || cat === "INDIVIDUAL_SOUL" ? normalizeRitualNameForStore(cat, n) : n;
   }
   if (input.location !== undefined) data.location = input.location?.trim() || null;
   if (input.yangshangName !== undefined) {

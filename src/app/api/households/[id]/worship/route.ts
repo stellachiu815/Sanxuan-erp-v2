@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { WorshipType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeYangshangName } from "@/lib/printChinese";
+import { normalizeRitualNameForStore, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { worshipTypeLabel } from "@/lib/labels";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
@@ -63,7 +64,9 @@ export async function POST(
     data: {
       householdId,
       type: type as WorshipType,
-      displayName,
+      // V33.2：只存「核心名稱」（歷代祖先→王姓、乙位正魂→陳永育）；後綴一律不入庫，顯示時由 resolver 補上。
+      // 使用者誤輸入完整名稱（王姓歷代祖先）亦於此去除後綴、依類別正規化。
+      displayName: normalizeRitualNameForStore(categoryFromWorshipType(type) ?? "", displayName),
       /**
        * V13.1 指令六：陽上人一律經過 normalizeYangshangName() 正規化——
        * 頓號／逗號／換行統一成「、」、去空白、去重複。

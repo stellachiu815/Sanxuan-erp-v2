@@ -69,6 +69,31 @@ test("盤點分類：A 核心/B 已含後綴/C 重複後綴/D 府或疑錯類/E 
   assert.equal(classifyRitualName("ANCESTOR_LINE", "王姓歷代祖先歷代祖先").expectedDisplay, "王姓歷代祖先");
 });
 
+test("V33.2 存核心→顯示完整 round-trip：不再出現重複/錯類後綴", () => {
+  // 建立時存核心（normalizeRitualNameForStore），顯示時 resolveRitualDisplayName 補後綴。
+  const store = normalizeRitualNameForStore;
+  const show = resolveRitualDisplayName;
+  // 歷代祖先：輸入完整或核心，存核心「王姓」，顯示「王姓歷代祖先」（非重複）
+  for (const input of ["王姓", "王姓歷代祖先", "王姓歷代祖先歷代祖先"]) {
+    const stored = store("ANCESTOR_LINE", input);
+    assert.equal(stored, "王姓");
+    assert.equal(show("ANCESTOR_LINE", stored), "王姓歷代祖先");
+  }
+  // 謝姓（歷代祖先）：存「謝姓」，顯示「謝姓歷代祖先」，絕不變乙位正魂
+  const s = store("ANCESTOR_LINE", "謝姓歷代祖先");
+  assert.equal(s, "謝姓");
+  assert.equal(show("ANCESTOR_LINE", s), "謝姓歷代祖先");
+  assert.ok(!show("ANCESTOR_LINE", s).includes("乙位正魂"));
+  // 乙位正魂：輸入完整或核心，存核心「陳永育」，顯示「陳永育乙位正魂」
+  for (const input of ["陳永育", "陳永育乙位正魂"]) {
+    const stored = store("INDIVIDUAL_SOUL", input);
+    assert.equal(stored, "陳永育");
+    assert.equal(show("INDIVIDUAL_SOUL", stored), "陳永育乙位正魂");
+  }
+  // 存核心後，同一核心不會因儲存值帶後綴而重複（王姓歷代祖先歷代祖先 已不可能發生）
+  assert.equal(show("ANCESTOR_LINE", store("ANCESTOR_LINE", "王姓歷代祖先")), "王姓歷代祖先");
+});
+
 test("空值維持空值（由既有必填規則處理）", () => {
   assert.equal(formatAncestorDisplayName(""), "");
   assert.equal(formatIndividualSoulDisplayName(null), "");

@@ -26,6 +26,7 @@ import type { MemberRole } from "@prisma/client";
 import { assertSystemPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
 import { addHouseholdYangshangBatch } from "@/lib/householdYangshang";
+import { normalizeRitualNameForStore, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 
 export async function POST(
   request: Request,
@@ -130,7 +131,8 @@ export async function POST(
             data: {
               householdId,
               type: w.type,
-              displayName: w.displayName,
+              // V33.2：匯入 commit 也只存核心名稱（去後綴、依類別）；顯示時由 resolver 補後綴。
+              displayName: normalizeRitualNameForStore(categoryFromWorshipType(w.type) ?? "", w.displayName),
               location: w.location,
               yangshangName: w.yangshangName,
               memberId: createdMember.id,

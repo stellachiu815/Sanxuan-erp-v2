@@ -1,6 +1,6 @@
 import { Prisma, type ImportRowStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
+import { normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 import { isGenderConflict } from "@/lib/genderNormalize";
 import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
 import { randomUUID } from "node:crypto";
@@ -1830,9 +1830,9 @@ export async function commitDevoteeImport(
         let wseed = worshipNamesByHousehold.get(householdId);
         if (!wseed) worshipNamesByHousehold.set(householdId, (wseed = { ancestors: new Set(), spirits: new Set() }));
         for (const rawName of r.ancestorNames) {
-          // V33.1：Excel 值可能是核心（王姓）或完整（王姓歷代祖先），一律正規化為完整顯示名稱後去重與儲存。
-          // tabletLocation/tabletYangshang 仍以 Excel 原始名稱為 key 查找。
-          const displayName = resolveRitualDisplayName("ANCESTOR_LINE", rawName);
+          // V33.2：Excel 值可能是核心（王姓）或完整（王姓歷代祖先），一律去後綴為**核心名稱**後去重與儲存。
+          // tabletLocation/tabletYangshang 仍以 Excel 原始名稱為 key 查找；顯示時由 resolver 補後綴。
+          const displayName = normalizeRitualNameForStore("ANCESTOR_LINE", rawName);
           if (!displayName || wseed.ancestors.has(displayName)) continue;
           wseed.ancestors.add(displayName);
           const id = randomUUID();
@@ -1850,7 +1850,7 @@ export async function commitDevoteeImport(
           ancestorsCreated++;
         }
         for (const rawName of r.spiritNames) {
-          const displayName = resolveRitualDisplayName("INDIVIDUAL_SOUL", rawName);
+          const displayName = normalizeRitualNameForStore("INDIVIDUAL_SOUL", rawName);
           if (!displayName || wseed.spirits.has(displayName)) continue;
           wseed.spirits.add(displayName);
           const id = randomUUID();

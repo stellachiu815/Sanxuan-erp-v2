@@ -1,6 +1,7 @@
 import type { DbClient } from "@/lib/prisma";
 import { prisma } from "@/lib/prisma";
 import { normalizeTabletText } from "@/lib/tabletIdentity";
+import { normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 import { resolveYangshangNames } from "@/lib/yangshang";
 
 /**
@@ -54,7 +55,8 @@ export async function syncEntryToHouseholdWorshipRecord(
 ): Promise<string | null> {
   const worshipType = CATEGORY_TO_WORSHIP_TYPE[input.category];
   if (!worshipType) return null;
-  const name = (input.displayName ?? "").trim();
+  // V33.2：同步進家戶 WorshipRecord 也只存核心名稱（去後綴、依 category 欄位）；顯示由 resolver 補後綴。
+  const name = normalizeRitualNameForStore(input.category, (input.displayName ?? "").trim());
   if (!name) return null; // 缺牌位姓名不同步（避免灌入空白牌位）
 
   // 動態載入版本紀錄（recordVersion 於模組頂層載入 prisma；改為函式內載入，

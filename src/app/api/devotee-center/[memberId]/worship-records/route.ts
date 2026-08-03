@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { worshipTypeLabel } from "@/lib/labels";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
+import { normalizeRitualNameForStore, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 
 /**
  * POST /api/devotee-center/xxx/worship-records
@@ -54,7 +55,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     data: {
       householdId,
       type: type as WorshipType,
-      displayName,
+      // V33.2：只存核心名稱（去後綴、依類別）；顯示時由 resolveRitualDisplayName 補後綴。
+      displayName: normalizeRitualNameForStore(categoryFromWorshipType(type) ?? "", displayName),
       yangshangName: toNullableString(body.yangshangName),
       location: toNullableString(body.location),
       notes: toNullableString(body.notes),

@@ -9,6 +9,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma, type DbClient } from "@/lib/prisma";
+import { normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 import { recordVersion } from "@/lib/recordVersion";
 import { parseSpreadsheetBuffer } from "@/lib/smartImport";
 import {
@@ -438,11 +439,13 @@ export async function confirmPurificationImportBatch(input: {
 
           if (action === "UPDATE") {
             // 使用者明確更新既有牌位：只更新牌位欄位，不重建寶袋/白米/贊普以免重複。
+            // V33.2：歷代祖先／乙位正魂 只存核心名稱（去後綴、依 category）；同步進家戶亦同。
+            const storeDisplayName = normalizeRitualNameForStore(category, displayName);
             await tx.universalSalvationEntry.update({
               where: { id: decisionHit!.id },
-              data: { displayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], yangshangName: edited.yangshangNames?.[0] ?? null, notes: edited.note ?? null },
+              data: { displayName: storeDisplayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], yangshangName: edited.yangshangNames?.[0] ?? null, notes: edited.note ?? null },
             });
-            if (doSync) await syncEntryToHouseholdWorshipRecord(tx, { householdId, category, displayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], operatorName: input.actor.name });
+            if (doSync) await syncEntryToHouseholdWorshipRecord(tx, { householdId, category, displayName: storeDisplayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], operatorName: input.actor.name });
             await tx.purificationImportRow.update({
               where: { id: row.id },
               data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, matchedHouseholdId: householdId, matchedDevoteeId: memberId, resolved: true, errorMessage: null } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),

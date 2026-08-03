@@ -5,7 +5,7 @@ import { recordVersion } from "@/lib/recordVersion";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 import { formatTabletMainText } from "@/lib/tabletMainText";
-import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
+import { normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
@@ -245,7 +245,8 @@ export async function copyUniversalSalvationFromPreviousYear(
               ? {
                   create: universalSalvation.entries.map((entry) => ({
                     category: entry.category,
-                    displayName: entry.displayName,
+                    // V33.2：沿用去年資料複製 entry 也只存核心名稱（去後綴、依 category）；來源殘留舊格式亦正規化。
+                    displayName: normalizeRitualNameForStore(entry.category, entry.displayName),
                     yangshangName: entry.yangshangName,
                     // V14.4 Part 6A：多位陽上人與每筆牌位地址可安全沿用（純內容，非財務/列印）。
                     yangshangNames: entry.yangshangNames ?? [],
@@ -606,10 +607,10 @@ export async function createUniversalSalvationEntry(
   db?: DbClient
 ): Promise<EntryMutationResult> {
   const client = db ?? prisma;
-  // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重後綴、歷代祖先用「姓」不用「府」）。
-  // 使用者輸入核心（王姓／陳永育）或完整皆可，一律正規化；其他類型不動。
+  // V33.2：歷代祖先／乙位正魂 只存「核心名稱」（王姓／陳永育）；後綴一律不入庫，顯示時由 resolver 補上。
+  // 使用者輸入核心或完整皆可，一律去後綴正規化；其他類型不動。
   if (input.category === "ANCESTOR_LINE" || input.category === "INDIVIDUAL_SOUL") {
-    input = { ...input, displayName: resolveRitualDisplayName(input.category, input.displayName) };
+    input = { ...input, displayName: normalizeRitualNameForStore(input.category, input.displayName) };
   }
   const existing = await client.ritualRecord.findUnique({
     where: {
@@ -896,10 +897,10 @@ export async function updateUniversalSalvationEntry(
 
   const data: Prisma.UniversalSalvationEntryUpdateInput = {};
   if (input.displayName !== undefined) {
-    // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重、姓非府）；type 依既有 entry.category 欄位。
+    // V33.2：歷代祖先／乙位正魂 只存核心名稱（去後綴）；type 依既有 entry.category 欄位，不猜名稱。
     data.displayName =
       entry.category === "ANCESTOR_LINE" || entry.category === "INDIVIDUAL_SOUL"
-        ? resolveRitualDisplayName(entry.category, input.displayName)
+        ? normalizeRitualNameForStore(entry.category, input.displayName)
         : input.displayName;
   }
   if (input.yangshangName !== undefined) data.yangshangName = input.yangshangName;

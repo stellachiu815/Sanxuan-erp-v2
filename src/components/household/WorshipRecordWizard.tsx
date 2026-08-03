@@ -114,7 +114,8 @@ export default function WorshipRecordWizard({
         );
         if (!firstAncestor && data.household?.name) {
           const surname = String(data.household.name).trim().charAt(0);
-          if (surname) setDisplayName(formatAncestorDisplayName(`${surname}姓`));
+          // V33.2：輸入框只填核心名稱（王姓）；完整「王姓歷代祖先」由 formatter 於預覽/顯示時補上。
+          if (surname) setDisplayName(`${surname}姓`);
         }
       } catch {
         if (!cancelled) setError("載入資料時發生連線問題");
@@ -155,8 +156,8 @@ export default function WorshipRecordWizard({
           body: JSON.stringify({
             operatorUserId,
             householdId,
-            // V28.3：新增歷代祖先便利補字（非「歷代祖先」結尾則補上，已是則不重複）。
-            displayName: ensureAncestorLineName(displayName),
+            // V33.2：送出核心名稱（王姓）；後端只存核心、去除任何後綴。使用者誤填完整名稱也由後端正規化。
+            displayName: displayName.trim(),
             location: location.trim() || null,
             // 儲存的是**正規化後的姓名**，不含「叩薦」、不含任何稱謂
             yangshangName: normalizeYangshangName(yangshangName),
