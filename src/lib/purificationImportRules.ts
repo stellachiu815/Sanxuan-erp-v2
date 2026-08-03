@@ -81,6 +81,8 @@ export type MatchStatus = "MATCHED" | "NEW" | "AMBIGUOUS" | "CONFLICT" | "INVALI
 export type ImportRowInput = {
   householdCode?: string | null;
   devoteeName?: string | null;
+  /** 正式普渡 Excel 常把報名者姓名放在「報名人」欄（對應 primaryContact）；冤親以此為建立姓名之一。 */
+  primaryContact?: string | null;
   phone?: string | null;
   address?: string | null;
   tabletCategory?: string | null;
@@ -106,8 +108,14 @@ function matchNamesFor(row: ImportRowInput): string[] {
     // 祖先／乙位正魂：Excel 沒有信眾姓名，用陽上人姓名配對（退回 devoteeName 相容舊格式）。
     return [...new Set([...yang, devotee].filter((s) => s.length > 0))];
   }
-  // 冤親（DEBT_CREDITOR）與其他：用報名姓名（devoteeName；相容 tabletName 存報名姓名的舊格式）。
-  return [...new Set([devotee, (row.tabletName ?? "").toString().trim()].filter((s) => s.length > 0))];
+  // 冤親（DEBT_CREDITOR）與其他：以「報名者姓名」建立，相容名字可能填在
+  //   信眾姓名(devoteeName)／牌位姓名(tabletName)／報名人(primaryContact)／陽上人(yangshang) 任一欄。
+  const primary = (row.primaryContact ?? "").toString().trim();
+  return [
+    ...new Set(
+      [devotee, primary, (row.tabletName ?? "").toString().trim(), ...yang].filter((s) => s.length > 0)
+    ),
+  ];
 }
 
 /**

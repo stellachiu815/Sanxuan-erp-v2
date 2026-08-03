@@ -50,11 +50,33 @@ type ImportRowExtra = {
   resolutionAction: string | null;
 };
 
+/**
+ * 這一列的牌位建立姓名（analyze 去重與 confirm 物化共用同一套，確保一致）。
+ * 冤親（DEBT_CREDITOR）以「報名者姓名」建立，相容名字填在
+ *   牌位姓名／信眾姓名／報名人(primaryContact)／陽上人(yangshang) 任一欄。
+ */
+function rowDisplayName(n: {
+  tabletCategory: string | null;
+  tabletName: string | null;
+  devoteeName: string | null;
+  primaryContact?: string | null;
+  yangshangNames?: string[] | null;
+}): string {
+  const direct = (n.tabletName ?? n.devoteeName ?? "").trim();
+  if (direct) return direct;
+  if ((n.tabletCategory ?? "") === "DEBT_CREDITOR") {
+    const alt =
+      (n.primaryContact ?? "").trim() ||
+      ((n.yangshangNames ?? []).map((s) => (s ?? "").trim()).find((s) => s.length > 0) ?? "");
+    if (alt) return alt;
+  }
+  return "牌位";
+}
+
 /** 這一列的牌位顯示名稱／類別（與 confirm 物化一致）。 */
 function rowTabletIdentity(n: NormalizedRow): { category: string; displayName: string } {
   const category = n.tabletCategory ?? "ANCESTOR_LINE";
-  const displayName = n.tabletName ?? n.devoteeName ?? "牌位";
-  return { category, displayName };
+  return { category, displayName: rowDisplayName(n) };
 }
 
 type NormalizedRow = {
@@ -152,7 +174,8 @@ export async function analyzePurificationImport(input: {
   const names = [
     ...new Set(
       normalized
-        .flatMap((n) => [n.devoteeName ?? "", ...(n.yangshangNames ?? [])])
+        // 冤親報名者姓名可能填在「報名人」欄（primaryContact）；一併納入候選信眾查詢。
+        .flatMap((n) => [n.devoteeName ?? "", n.primaryContact ?? "", ...(n.yangshangNames ?? [])])
         .map((s) => s.trim())
         .filter((x) => x.length > 0)
     ),
@@ -224,9 +247,9 @@ export async function analyzePurificationImport(input: {
 
     for (let i = 0; i < normalized.length; i++) {
       const n = normalized[i];
-      const rowInput: ImportRowInput = { householdCode: n.householdCode, devoteeName: n.devoteeName, phone: n.phone, address: n.address, tabletCategory: n.tabletCategory, tabletName: n.tabletName, yangshangNames: n.yangshangNames };
-      // 候選＝這一列可能用到的所有配對姓名（報名姓名＋全部陽上人）對應的既有信眾（去重）。
-      const rowNames = [n.devoteeName ?? "", ...(n.yangshangNames ?? [])].map((s) => s.trim()).filter((s) => s.length > 0);
+      const rowInput: ImportRowInput = { householdCode: n.householdCode, devoteeName: n.devoteeName, primaryContact: n.primaryContact, phone: n.phone, address: n.address, tabletCategory: n.tabletCategory, tabletName: n.tabletName, yangshangNames: n.yangshangNames };
+      // 候選＝這一列可能用到的所有配對姓名（報名姓名＋報名人＋全部陽上人）對應的既有信眾（去重）。
+      const rowNames = [n.devoteeName ?? "", n.primaryContact ?? "", ...(n.yangshangNames ?? [])].map((s) => s.trim()).filter((s) => s.length > 0);
       const candMap = new Map<string, DevoteeCandidate>();
       for (const nm of rowNames) for (const c of candidatesByName.get(nm) ?? []) candMap.set(c.id, c);
       const cands = [...candMap.values()];
@@ -368,7 +391,7 @@ export async function confirmPurificationImportBatch(input: {
 
     const ext = row as unknown as ImportRowExtra;
     const category = (edited.tabletCategory ?? "ANCESTOR_LINE") as UniversalSalvationEntryCategory;
-    const displayName = edited.tabletName ?? edited.devoteeName ?? "牌位";
+    const displayName = rowDisplayName(edited);
     const doSync = ext.syncToHousehold && isSyncableWorshipCategory(category);
     const existingHouseholdId = row.matchedHouseholdId ?? null;
 
