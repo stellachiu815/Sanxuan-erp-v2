@@ -122,7 +122,12 @@ function BlockView({ block, mode, documentType, style }: { block: PositionedBloc
         soft={block.blockType !== "main"}
         // V33：橫式版由 vAlign 指定（主文置中、地址/陽上人靠上＝start）；未指定沿用 V30.5 地址兩行底部對齊規則。
         align={block.vAlign ? block.vAlign : block.blockType === "address" ? addressVerticalAlign(block.text.length, block.heightMm, fit.px) : "center"}
-        style={style}
+        // V33 陽上人縮字：以區塊自帶 lineHeight/letterSpacingPx 收緊（只作用該區塊），其餘沿用模板樣式。
+        style={{
+          ...(style ?? {}),
+          ...(block.lineHeight != null ? { lineHeight: block.lineHeight } : {}),
+          ...(block.letterSpacingPx != null ? { letterSpacingPx: block.letterSpacingPx } : {}),
+        }}
       />
       {mode === "calibration" && (
         <div
@@ -131,13 +136,14 @@ function BlockView({ block, mode, documentType, style }: { block: PositionedBloc
           #{block.recordIndex}·slot{block.slotIndex}·{block.blockType}·{block.widthMm}×{block.heightMm}·{fit.px}px
         </div>
       )}
-      {/* V31：連最小字級仍放不下 → 明確 overflow 警告（不裁字）；正式列印前需人工確認。 */}
+      {/* V33：連最小字級＋最緊字距/行距仍放不下 → 顯示「需人工調整」（不裁字、不跨欄）；操作人需先處理再列印。 */}
       {fit.overflow && (
         <div
           style={{ position: "absolute", bottom: 0, right: 0, fontSize: 7, color: "#fff", background: "#c0392b", padding: "0 1px", writingMode: "horizontal-tb" }}
           data-overflow="1"
+          data-needs-manual={block.blockType === "yangshang" ? "1" : undefined}
         >
-          字overflow
+          {block.blockType === "yangshang" ? "陽上人需人工調整" : "字overflow"}
         </div>
       )}
     </div>

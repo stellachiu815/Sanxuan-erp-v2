@@ -188,10 +188,14 @@ export type PositionedBlock = {
    * 有值時渲染端直接採用（不再各自 fontFit），確保預覽＝正式列印完全相同字級。
    */
   fontPx?: number;
-  /** V33：即使最小字級仍放不下（極端長字）→ true，渲染端顯示警告、不裁字。 */
+  /** V33：即使最小字級＋最緊字距/行距仍放不下（極端長字）→ true，渲染端顯示「需人工調整」、不裁字/不跨欄。 */
   overflow?: boolean;
   /** V33：直書對齊（主文置中、地址與陽上人靠上）。未指定沿用既有規則。 */
   vAlign?: "center" | "start" | "end";
+  /** V33 陽上人縮字：CSS line-height（直書欄距）。未指定用預設。 */
+  lineHeight?: number;
+  /** V33 陽上人縮字：CSS letter-spacing（px，直書字距，負值收緊）。未指定＝0。 */
+  letterSpacingPx?: number;
 };
 
 export type TabletPage = { pageIndex: number; blocks: PositionedBlock[] };

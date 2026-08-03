@@ -22,7 +22,7 @@
  *   - 累世冤親債主／無緣子女與祖先/乙位**完全同版型**，唯一差別是主文文字（上游 mainText 帶入）。
  */
 
-import { fitVerticalFont } from "./fontFit";
+import { fitVerticalFont, fitYangshangVertical } from "./fontFit";
 import { formatYangshangAcclaim } from "@/lib/yangshang";
 import type {
   TabletDocumentType, TabletA4Offset, PositionedBlock, TabletPage, TabletLayout, TabletRecordInput, LayoutViolation,
@@ -35,28 +35,28 @@ export const LANDSCAPE_A4 = { widthMm: 297, heightMm: 210 } as const;
 export type LandscapeDensity = "standard" | "economy";
 
 /** 密度預設：每群組寬（mm）。可用寬 291、群組間距 3：perPage=floor((291+3)/(gw+3))。
- *  standard 33→8 筆/頁（附件一）；economy 26→10 筆/頁（省紙）。 */
+ *  standard 38→7 筆/頁（附件一，含 4mm 裁切安全間距）；economy 26→10 筆/頁（省紙）。 */
 const DENSITY: Record<LandscapeDensity, { groupWidthMm: number }> = {
-  standard: { groupWidthMm: 33 },
+  standard: { groupWidthMm: 38 },
   economy: { groupWidthMm: 26 },
 };
 
 const MARGIN_MM = 3;
 const GROUP_GAP_MM = 3;   // 一戶與一戶之間的明顯間距（含裁切）
 const NO_XXX_TOP_MM = 5;  // 頂端保留給 No.xxx 的白邊
-const COL_GAP_MM = 1;     // 群組內欄間距（緊密）
+const SAFE_GAP_MM = 4;    // 裁切安全間距：主文↔陽上人（垂直，1~3）／欄↔欄（水平，4+）。固定不被字級吃掉。
 
-/** 三欄模式（4+）欄寬佔比。 */
-const MAIN_W_RATIO = 0.52;   // 主文欄（右，最寬＝最大字）
-const YANG_W_RATIO = 0.22;   // 陽上人欄（中，獨立直欄，容多位）
-// 地址欄＝其餘（左）。
+/**
+ * 主文「固定安全區」——主文字級**只**由主文字數與此固定區計算，不受陽上人人數／地址長度影響，
+ * 故同類型（同字數）主文字級一致（周姓/柯姓/邱姓歷代祖先皆同大小）。1~3 與 4+ 皆用同一 Wm/Hm。
+ */
+const MAIN_W_RATIO = 0.42;   // 主文欄寬佔群組寬（1~3 與 4+ 皆同 → 主文字級一致）
+const MAIN_H_RATIO = 0.62;   // 主文安全區高佔內容高（足夠 6 字；主文靠上、下方留白）
+/** 4+ 三欄時，扣除主文與 2×4mm 間距後，陽上人欄佔剩餘寬比例（其餘給地址）。 */
+const YANG_REMAIN_RATIO = 0.42;
 
 /** 陽上人達此人數（含）採「三欄」；低於此（1~3）採「主文上下組合」。 */
 const YANGSHANG_THREE_COL_THRESHOLD = 4;
-/** 1~3 人（上下組合）時主文佔上半比例（主文優先最大；陽上人置其下）。 */
-const MAIN_TOP_RATIO_WHEN_STACK = 0.72;
-/** 上下組合時地址獨立欄寬佔比（左）。 */
-const STACK_ADDR_W_RATIO = 0.30;
 
 const MAIN_MAX_PX = 150, MAIN_MIN_PX = 22;
 const ADDR_MAX_PX = 30, ADDR_MIN_PX = 10;
@@ -120,41 +120,48 @@ export function buildLandscapeTabletLayout(
 
     const push = (
       blockType: PositionedBlock["blockType"], x: number, y: number, w: number, h: number, text: string,
-      font: { px: number; overflow: boolean }, vAlign: PositionedBlock["vAlign"]
+      font: { px: number; overflow: boolean; lineHeight?: number; letterSpacingPx?: number }, vAlign: PositionedBlock["vAlign"]
     ) => {
       allBlocks.push({
         recordIndex, pageIndex, slotIndex, blockType,
         entryId: rec.entryId ?? null, registrationId: rec.registrationId ?? null,
         xMm: x + offset.offsetXmm, yMm: y + offset.offsetYmm, widthMm: w, heightMm: h,
         text, fontPx: font.px, overflow: font.overflow, vAlign,
+        lineHeight: font.lineHeight, letterSpacingPx: font.letterSpacingPx,
       });
     };
+    // 陽上人專用縮字（只縮陽上人：字級→字距→行距→警告；不影響主文/地址）。
+    const yangCfg = { maxPx: YANG_MAX_PX, minPx: YANG_MIN_PX, stepPx: 2 };
+    const fitYang = (w: number, h: number) => fitYangshangVertical(yangText.length, w, h, yangCfg);
 
-    // 地址欄（左，滿高）永遠獨立一欄。
+    // 主文固定安全區（1~3 與 4+ 皆同）→ 主文字級一致、不受陽上人/地址影響。全部欄位一律頂端對齊（start）。
+    const wMain = groupW * MAIN_W_RATIO;
+    const hMain = contentH * MAIN_H_RATIO;
+    const mainFont = maximizeFont(mainText.length, wMain, hMain, mainMax, MAIN_MIN_PX);
+
     if (!threeCol) {
-      // 1~3 人：主文上下組合——地址（左，滿高）｜[主文(上，最大) + 陽上人(下)]（右欄）
-      const wAddr = Math.max(6, groupW * STACK_ADDR_W_RATIO);
-      const wRight = groupW - wAddr - COL_GAP_MM;
+      // 1~3 人：地址（左，滿高，頂端）｜右欄[主文(頂端，固定安全區) → 4mm 安全間距 → 陽上人(其下，頂端)]
+      const wAddr = groupW - wMain - SAFE_GAP_MM;
       const xAddr = xLeft;
-      const xRightCol = xLeft + wAddr + COL_GAP_MM;
-      const mainH = contentH * MAIN_TOP_RATIO_WHEN_STACK;
-      const gapV = 3;
-      const yYang = contentTop + mainH + gapV;
-      const yangH = contentBottom - yYang;
+      const xRightCol = xLeft + wAddr + SAFE_GAP_MM;
+      const yYang = contentTop + hMain + SAFE_GAP_MM; // 固定 4mm，不被字級吃掉
+      const yangH = Math.max(4, contentBottom - yYang);
       push("address", xAddr, contentTop, wAddr, contentH, addrText, maximizeFont(addrText.length, wAddr, contentH, ADDR_MAX_PX, ADDR_MIN_PX), "start");
-      push("main", xRightCol, contentTop, wRight, mainH, mainText, maximizeFont(mainText.length, wRight, mainH, mainMax, MAIN_MIN_PX), "center");
-      push("yangshang", xRightCol, yYang, wRight, yangH, yangText, maximizeFont(yangText.length, wRight, yangH, YANG_MAX_PX, YANG_MIN_PX), "center");
+      push("main", xRightCol, contentTop, wMain, hMain, mainText, mainFont, "start");
+      // 陽上人：只縮陽上人（字級→字距→行距→警告），完整放入 4mm 間距後的剩餘高度；不縮主文、不取消 4mm、不跨欄/裁字。
+      push("yangshang", xRightCol, yYang, wMain, yangH, yangText, fitYang(wMain, yangH), "start");
     } else {
-      // 4+ 人：三欄——右→左 主文（滿高，不縮小）｜陽上人（獨立直欄，滿高、容多位）｜地址（左，滿高）
-      const wMain = groupW * MAIN_W_RATIO;
-      const wYang = groupW * YANG_W_RATIO;
-      const wAddr = Math.max(6, groupW - wMain - wYang - COL_GAP_MM * 2);
+      // 4+ 人：三欄（右→左）主文｜陽上人｜地址，欄間固定 4mm 水平安全間距，全部頂端對齊、滿高。
+      const remain = groupW - wMain - SAFE_GAP_MM * 2; // 主文＋2×4mm 之後給 陽上人＋地址
+      const wYang = remain * YANG_REMAIN_RATIO;
+      const wAddr = remain - wYang;
       const xAddr = xLeft;
-      const xYang = xLeft + wAddr + COL_GAP_MM;
-      const xMain = xYang + wYang + COL_GAP_MM;
+      const xYang = xLeft + wAddr + SAFE_GAP_MM;
+      const xMain = xYang + wYang + SAFE_GAP_MM;
       push("address", xAddr, contentTop, wAddr, contentH, addrText, maximizeFont(addrText.length, wAddr, contentH, ADDR_MAX_PX, ADDR_MIN_PX), "start");
-      push("yangshang", xYang, contentTop, wYang, contentH, yangText, maximizeFont(yangText.length, wYang, contentH, YANG_MAX_PX, YANG_MIN_PX), "start");
-      push("main", xMain, contentTop, wMain, contentH, mainText, maximizeFont(mainText.length, wMain, contentH, mainMax, MAIN_MIN_PX), "center");
+      // 陽上人獨立欄：只縮陽上人（字級→字距→行距→警告）；主文/地址不受影響。
+      push("yangshang", xYang, contentTop, wYang, contentH, yangText, fitYang(wYang, contentH), "start");
+      push("main", xMain, contentTop, wMain, hMain, mainText, mainFont, "start");
     }
   });
 

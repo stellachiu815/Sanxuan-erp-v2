@@ -61,6 +61,46 @@ export const FONT_CONFIG = {
   pocketMain: { maxPx: 30, minPx: 16, stepPx: 2 } as FontFitConfig,
 };
 
+/**
+ * V33 陽上人專用縮字：確保「姓名＋叩薦」完整放入固定欄，絕不跨欄/裁字。處理順序（規格）：
+ *   1) 逐級縮小字級（maxPx→minPx）。
+ *   2) 仍放不下 → 於最小字級縮小**字距**（letterSpacing，直書字元間距，負值收緊）。
+ *   3) 仍放不下 → 再縮小**行距**（lineHeight，直書欄間距）。
+ *   4) 皆放不下 → overflow=true（呼叫端顯示「需人工調整」，不裁字、不跨欄）。
+ * 只作用於陽上人；主文/地址各自獨立計算、不受影響。回傳 CSS 用 fontPx/lineHeight/letterSpacingPx。
+ */
+export type YangshangFitResult = { px: number; lineHeight: number; letterSpacingPx: number; overflow: boolean };
+
+export function fitYangshangVertical(
+  charCount: number,
+  boxWidthMm: number,
+  boxHeightMm: number,
+  cfg: FontFitConfig
+): YangshangFitResult {
+  const PX_PER_MM = 3.7795275591;
+  // 單字寬不超欄：字級上限。
+  const widthCapPx = Math.max(cfg.minPx, Math.floor((boxWidthMm * PX_PER_MM) / 1.08));
+  const capMax = Math.min(cfg.maxPx, widthCapPx);
+
+  // 1) 正常字距/行距下逐級縮字級。
+  const normal = fitVerticalFont(charCount, boxWidthMm, boxHeightMm, { maxPx: capMax, minPx: cfg.minPx, stepPx: cfg.stepPx }, { lineHeight: 1.15, colSpacing: 1.08 });
+  if (!normal.overflow) return { px: normal.px, lineHeight: 1.08, letterSpacingPx: 0, overflow: false };
+
+  const minCfg = { maxPx: cfg.minPx, minPx: cfg.minPx, stepPx: 1 };
+  // 2) 最小字級下，收緊「字距」（fitVerticalFont 的 lineHeight＝直書字元前進量）。
+  for (const ls of [1.05, 0.98, 0.9]) {
+    const r = fitVerticalFont(charCount, boxWidthMm, boxHeightMm, minCfg, { lineHeight: ls, colSpacing: 1.08 });
+    if (!r.overflow) return { px: cfg.minPx, lineHeight: 1.08, letterSpacingPx: Math.round((ls - 1.15) * cfg.minPx), overflow: false };
+  }
+  // 3) 再收緊「行距」（colSpacing＝直書欄前進量 → CSS line-height）。
+  for (const cs of [1.0, 0.92, 0.85]) {
+    const r = fitVerticalFont(charCount, boxWidthMm, boxHeightMm, minCfg, { lineHeight: 0.9, colSpacing: cs });
+    if (!r.overflow) return { px: cfg.minPx, lineHeight: cs, letterSpacingPx: Math.round((0.9 - 1.15) * cfg.minPx), overflow: false };
+  }
+  // 4) 仍放不下 → 需人工調整（不裁字、不跨欄；呼叫端顯示警告）。
+  return { px: cfg.minPx, lineHeight: 0.85, letterSpacingPx: Math.round((0.9 - 1.15) * cfg.minPx), overflow: true };
+}
+
 export type TabletFontBox = "main" | "address" | "yangshang" | "pocketMain";
 
 /** 取某盒的字級設定（單一來源；祖先與無緣子女主文都取 FONT_CONFIG.main，不各自 hard-code）。 */
