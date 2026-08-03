@@ -119,7 +119,8 @@ test("16. 建立／修改 entry 使用 transaction（失敗全 rollback）", () 
   const createFn = ritual.slice(ritual.indexOf("export async function createUniversalSalvationEntry"), ritual.indexOf("export type UpdateUniversalSalvationEntryInput"));
   assert.equal(createFn.includes("prisma.$transaction"), true);
   const updateFn = ritual.slice(ritual.indexOf("export async function updateUniversalSalvationEntry"));
-  assert.equal(updateFn.slice(0, 1500).includes("prisma.$transaction"), true);
+  // V33.1：更新函式前段加入名稱正規化，$transaction 位置後移，放寬掃描範圍（仍驗證使用 transaction）。
+  assert.equal(updateFn.slice(0, 2200).includes("prisma.$transaction"), true);
 });
 
 test("13. 帶入家戶地址只複製字串，寫入不動家戶主檔", () => {

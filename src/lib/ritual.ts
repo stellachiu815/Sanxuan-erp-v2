@@ -5,6 +5,7 @@ import { recordVersion } from "@/lib/recordVersion";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { resolveYangshangNames, formatYangshangAcclaim } from "@/lib/yangshang";
 import { formatTabletMainText } from "@/lib/tabletMainText";
+import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import { ensureLinkedTabletItem, cancelLinkedTabletItem, syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { resolveTabletAddress } from "@/lib/dataCompleteness";
@@ -605,6 +606,11 @@ export async function createUniversalSalvationEntry(
   db?: DbClient
 ): Promise<EntryMutationResult> {
   const client = db ?? prisma;
+  // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重後綴、歷代祖先用「姓」不用「府」）。
+  // 使用者輸入核心（王姓／陳永育）或完整皆可，一律正規化；其他類型不動。
+  if (input.category === "ANCESTOR_LINE" || input.category === "INDIVIDUAL_SOUL") {
+    input = { ...input, displayName: resolveRitualDisplayName(input.category, input.displayName) };
+  }
   const existing = await client.ritualRecord.findUnique({
     where: {
       householdId_year_activityType: {
@@ -889,7 +895,13 @@ export async function updateUniversalSalvationEntry(
   }
 
   const data: Prisma.UniversalSalvationEntryUpdateInput = {};
-  if (input.displayName !== undefined) data.displayName = input.displayName;
+  if (input.displayName !== undefined) {
+    // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重、姓非府）；type 依既有 entry.category 欄位。
+    data.displayName =
+      entry.category === "ANCESTOR_LINE" || entry.category === "INDIVIDUAL_SOUL"
+        ? resolveRitualDisplayName(entry.category, input.displayName)
+        : input.displayName;
+  }
   if (input.yangshangName !== undefined) data.yangshangName = input.yangshangName;
   if (input.yangshangNames !== undefined) {
     data.yangshangNames = input.yangshangNames;

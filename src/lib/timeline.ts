@@ -1,5 +1,6 @@
 import type { ActivityType, RitualRecordStatus, UniversalSalvationEntryCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import {
   activityTypeLabel,
   ritualRecordStatusLabel,
@@ -162,7 +163,8 @@ export async function getHouseholdTimeline(householdId: string): Promise<Househo
         entries: detail.entries.map((e) => ({
           category: e.category,
           categoryLabel: universalSalvationEntryCategoryLabel[e.category] ?? e.category,
-          displayName: e.displayName,
+          // V33.1：正式顯示名稱經共用 resolver（type 依 category 欄位）。
+          displayName: resolveRitualDisplayName(e.category, e.displayName),
           yangshangName: e.yangshangName,
           notes: e.notes,
         })),

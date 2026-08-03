@@ -15,6 +15,7 @@ import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import { orderCell, sortByRegistrationOrder, sortByTypeThenOrder } from "@/lib/rosterSort";
 import { printNumberOf } from "@/lib/workOrder";
 import { resolvePrintMainText, resolvePrintAddress } from "@/lib/tabletPrintFields";
+import { resolveRitualDisplayName, categoryFromItemKey } from "@/lib/ritualDisplayName";
 
 // 排序純函式已抽到 client-safe 的 rosterSort（便於單元測試）；此處 re-export 供既有呼叫端沿用同一入口。
 export { orderCell, sortByRegistrationOrder, sortByTypeThenOrder };
@@ -95,6 +96,10 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
   const raw: (Raw & { typeName: string; address: string; unpaid: number; printStatus: string })[] = items.map((it) => {
     const entryName = it.universalSalvationEntry?.displayName ?? null;
     const pmt = it.universalSalvationEntryId ? pmtByEntry.get(it.universalSalvationEntryId) : null;
+    // V33.1：先以共用 resolver 取完整顯示名稱（type 依 item key 欄位，不猜名稱），再套 printMainText 覆寫。
+    const nameCategory = categoryFromItemKey(it.registrationItemType.key);
+    const resolvedName = nameCategory ? resolveRitualDisplayName(nameCategory, entryName ?? "") : "";
+    const baseName = resolvedName || entryName || it.customName || it.member?.name || it.registrationItemType.name;
     return {
       id: it.id,
       key: it.registrationItemType.key,
@@ -106,7 +111,7 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
       memberName: it.member?.name ?? null,
       customName: it.customName,
       // V32：Excel 主文顯示實際列印主文（printMainText 有值優先）。
-      entryName: resolvePrintMainText(entryName ?? it.customName ?? it.member?.name ?? it.registrationItemType.name, pmt),
+      entryName: resolvePrintMainText(baseName, pmt),
       // V32：地址 entry → Member（絕不 Household）。
       address: resolvePrintAddress(it.universalSalvationEntry?.tabletAddress, it.memberId ? memberAddr.get(it.memberId) : null),
       yangshang: it.universalSalvationEntry

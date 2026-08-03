@@ -4,6 +4,7 @@ import Link from "next/link";
 import BackButton from "@/components/navigation/BackButton";
 import { Fragment, Suspense, useEffect, useRef, useState, use as usePromise } from "react";
 import { useSearchParams } from "next/navigation";
+import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import { canDevotee, type Role } from "@/lib/permissions";
 import OperatorBar from "@/components/system/OperatorBar";
@@ -1548,7 +1549,7 @@ function HouseholdTab({
           <div className="mt-2 flex flex-col gap-2">
             {household.worshipRecords.map((w) => (
               <div key={w.id} className="rounded-2xl bg-blossom-50 px-4 py-3 text-sm">
-                <span className="text-ink">{w.displayName}</span>
+                <span className="text-ink">{resolveRitualDisplayName(categoryFromWorshipType(w.type) ?? "", w.displayName)}</span>
                 <span className="ml-2 rounded-full bg-white/70 px-2 py-0.5 text-xs text-ink-soft">
                   {WORSHIP_TYPE_LABEL[w.type] ?? w.type}
                 </span>

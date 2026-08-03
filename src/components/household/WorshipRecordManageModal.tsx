@@ -5,6 +5,7 @@ import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/system/ConfirmDialog";
 import { useOperator } from "@/lib/operatorClient";
 import { worshipTypeLabel } from "@/lib/labels";
+import { resolveRitualDisplayName, ritualCoreName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass, errorTextClass } from "./formStyles";
 
 export type ManageWorshipRecord = {
@@ -74,7 +75,8 @@ export default function WorshipRecordManageModal({ householdId, records, onClose
   function beginEdit(r: ManageWorshipRecord) {
     setEditingId(r.id);
     setForm({
-      displayName: r.displayName,
+      // V33.1：編輯框只回填核心名稱（歷代祖先→王姓、乙位正魂→亡者姓名；type 依欄位）。
+      displayName: ritualCoreName(categoryFromWorshipType(r.type) ?? "", r.displayName),
       location: r.location ?? "",
       yangshangName: r.yangshangName ?? "",
       notes: r.notes ?? "",
@@ -234,7 +236,7 @@ export default function WorshipRecordManageModal({ householdId, records, onClose
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-base text-ink">{r.displayName}</span>
+                    <span className="text-base text-ink">{resolveRitualDisplayName(categoryFromWorshipType(r.type) ?? "", r.displayName)}</span>
                     <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs text-ink-soft">
                       {worshipTypeLabel[r.type] ?? r.type}
                     </span>
@@ -274,7 +276,7 @@ export default function WorshipRecordManageModal({ householdId, records, onClose
           {archived.map((r) => (
             <div key={r.id} className="rounded-2xl bg-mist-50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base text-ink">{r.displayName}</span>
+                <span className="text-base text-ink">{resolveRitualDisplayName(categoryFromWorshipType(r.type) ?? "", r.displayName)}</span>
                 <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs text-ink-soft">
                   {worshipTypeLabel[r.type] ?? r.type}
                 </span>
@@ -311,7 +313,7 @@ export default function WorshipRecordManageModal({ householdId, records, onClose
           message={
             <>
               即將封存{" "}
-              <span className="font-medium text-ink">{confirmArchive.displayName}</span>
+              <span className="font-medium text-ink">{resolveRitualDisplayName(categoryFromWorshipType(confirmArchive.type) ?? "", confirmArchive.displayName)}</span>
               （{worshipTypeLabel[confirmArchive.type] ?? confirmArchive.type}）。
               <br />
               封存後這筆牌位不會出現在使用中名單，也不會再帶入未來年度普渡；但既有年度報名、列印快照、收款與收據都不受影響。

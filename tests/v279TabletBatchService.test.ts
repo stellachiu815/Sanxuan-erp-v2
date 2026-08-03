@@ -78,21 +78,21 @@ test("buildTabletGroups：依 documentType 固定順序分組，僅含牌位", (
   const groups = buildTabletGroups(items);
   assert.deepEqual(groups.map((g) => g.documentType), ["ANCESTOR_LINE", "DEBT_CREDITOR"]);
   assert.equal(groups[0].records.length, 2);
-  // 歷代祖先主文會正名為○府歷代祖先（見 composeAncestorMainText）。
-  assert.equal(groups[0].records[0].displayName, "祖先A府歷代祖先");
+  // V33.1：歷代祖先主文＝「核心姓＋歷代祖先」（用「姓」不用「府」、防重）。
+  assert.equal(groups[0].records[0].displayName, "祖先A歷代祖先");
   assert.equal(groups[1].records.length, 1);
 });
 
-test("composeAncestorMainText：歷代祖先主文＝姓氏＋府＋歷代祖先（含截斷/複姓修正）", () => {
-  assert.equal(composeAncestorMainText("蔡姓歷代祖先"), "蔡府歷代祖先");
-  assert.equal(composeAncestorMainText("蔡姓"), "蔡府歷代祖先"); // 被截斷成「蔡姓」也修正
-  assert.equal(composeAncestorMainText("蔡府歷代祖先"), "蔡府歷代祖先"); // 已正確 → 不變
-  assert.equal(composeAncestorMainText("蔡歷代祖先"), "蔡府歷代祖先");
-  assert.equal(composeAncestorMainText("歐陽姓歷代祖先"), "歐陽府歷代祖先"); // 複姓
-  assert.equal(composeAncestorMainText("司馬府歷代祖先"), "司馬府歷代祖先");
+test("composeAncestorMainText：歷代祖先主文＝核心＋歷代祖先（V33.1 用姓、防重、府→姓）", () => {
+  assert.equal(composeAncestorMainText("蔡姓歷代祖先"), "蔡姓歷代祖先");
+  assert.equal(composeAncestorMainText("蔡姓"), "蔡姓歷代祖先");
+  assert.equal(composeAncestorMainText("蔡府歷代祖先"), "蔡姓歷代祖先"); // 舊「府」正規化為「姓」
+  assert.equal(composeAncestorMainText("蔡姓歷代祖先歷代祖先"), "蔡姓歷代祖先"); // 重複後綴 → 單一
+  assert.equal(composeAncestorMainText("歐陽姓歷代祖先"), "歐陽姓歷代祖先"); // 複姓
+  assert.equal(composeAncestorMainText("司馬府歷代祖先"), "司馬姓歷代祖先");
 });
 
-test("buildTabletGroups：歷代祖先主文正名為○府歷代祖先，乙位/冤親不受影響", () => {
+test("buildTabletGroups：歷代祖先主文正名為○姓歷代祖先，乙位/冤親不受影響", () => {
   const items = [
     item({ id: "1", itemType: "TABLET", sourceCategory: "ANCESTOR_LINE", sourceDisplayName: "蔡姓歷代祖先" }),
     item({ id: "2", itemType: "TABLET", sourceCategory: "INDIVIDUAL_SOUL", sourceDisplayName: "林錦輝乙位正魂" }),
@@ -103,7 +103,7 @@ test("buildTabletGroups：歷代祖先主文正名為○府歷代祖先，乙位
   const threeBlock = groups.find((g) => g.documentType === "ANCESTOR_LINE")!;
   const debt = groups.find((g) => g.documentType === "DEBT_CREDITOR")!;
   assert.equal(groups.length, 2);
-  assert.equal(threeBlock.records[0].displayName, "蔡府歷代祖先"); // 歷代祖先正名
+  assert.equal(threeBlock.records[0].displayName, "蔡姓歷代祖先"); // V33.1 歷代祖先正名（姓）
   assert.equal(threeBlock.records[1].displayName, "林錦輝乙位正魂"); // 乙位正魂同組、主文不變
   assert.equal(debt.records[0].displayName, "累世冤親債主"); // 冤親不受影響
 });

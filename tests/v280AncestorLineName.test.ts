@@ -14,7 +14,8 @@ test("非「歷代祖先」結尾 → 自動補上", () => {
 
 test("已是「○歷代祖先」→ 不重複補字", () => {
   assert.equal(ensureAncestorLineName("林姓歷代祖先"), "林姓歷代祖先");
-  assert.equal(ensureAncestorLineName("歷代祖先"), "歷代祖先");
+  // V33.1：僅後綴、無核心姓氏 → 核心為空 → 空字串（由必填規則處理；不再保留無姓氏的「歷代祖先」）。
+  assert.equal(ensureAncestorLineName("歷代祖先"), "");
 });
 
 test("前後空白去除；空字串不動", () => {

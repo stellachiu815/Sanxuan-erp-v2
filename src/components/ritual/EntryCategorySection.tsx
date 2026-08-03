@@ -11,6 +11,7 @@ import EntryRow from "./EntryRow";
 import YangshangEditor from "./YangshangEditor";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
 import type { EntryAddMode, EntryCategory, EntryJSON, RecordJSON, WorshipOptionJSON } from "./types";
+import { resolveRitualDisplayName, formatAncestorDisplayName } from "@/lib/ritualDisplayName";
 import { buildWorshipPickList } from "./worshipPickList";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
@@ -262,7 +263,7 @@ function SurnameAddForm({
       setError("請輸入姓氏");
       return;
     }
-    const displayName = `${trimmed}姓歷代祖先`;
+    const displayName = formatAncestorDisplayName(`${trimmed}姓`);
     if (entries.some((e) => e.displayName === displayName)) {
       setPendingDuplicate(displayName);
       return;
@@ -315,7 +316,7 @@ function SurnameAddForm({
                   }`}
                 >
                   {already ? "✓ " : "＋ "}
-                  {opt.displayName}
+                  {resolveRitualDisplayName("ANCESTOR_LINE", opt.displayName)}
                 </button>
               );
             })}
@@ -336,7 +337,7 @@ function SurnameAddForm({
           disabled={submitting}
         />
         {surname.trim() && (
-          <p className="mt-1 text-xs text-ink-faint">→ {surname.trim()}姓歷代祖先</p>
+          <p className="mt-1 text-xs text-ink-faint">→ {formatAncestorDisplayName(`${surname.trim()}姓`)}</p>
         )}
       </div>
 
@@ -538,7 +539,7 @@ function NameAddForm({
                   }`}
                 >
                   {already ? "✓ " : "＋ "}
-                  {opt.displayName}
+                  {resolveRitualDisplayName("INDIVIDUAL_SOUL", opt.displayName)}
                 </button>
               );
             })}

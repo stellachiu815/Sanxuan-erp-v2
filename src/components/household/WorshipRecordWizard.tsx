@@ -10,6 +10,7 @@ import {
   errorTextClass,
 } from "./formStyles";
 import { printYangshangName, splitYangshangNames, normalizeYangshangName } from "@/lib/printChinese";
+import { resolveRitualDisplayName, categoryFromWorshipType, formatAncestorDisplayName } from "@/lib/ritualDisplayName";
 
 /**
  * V13.1 指令六／七／十四／十六：歷代祖先建立精靈。
@@ -43,6 +44,7 @@ type ExistingRecord = {
 
 type Duplicate = {
   id: string;
+  type?: "ANCESTOR_LINE" | "INDIVIDUAL";
   displayName: string;
   location: string | null;
   reason: string;
@@ -56,13 +58,10 @@ type Props = {
 };
 
 /**
- * V28.3：新增歷代祖先「輸入便利」——輸入若最後不是「歷代祖先」，自動補上（如「林姓」→「林姓歷代祖先」）；
- * 已是「○歷代祖先」則不重複補。**僅本『新增歷代祖先牌位』精靈生效**，不影響編輯、列印、搜尋、匯入、既有資料。
+ * V33.1：改為委派共用 formatter（唯一名稱來源；防重後綴、姓非府）。保留函式名相容既有呼叫。
  */
 export function ensureAncestorLineName(name: string): string {
-  const n = name.trim();
-  if (!n) return n;
-  return n.endsWith("歷代祖先") ? n : `${n}歷代祖先`;
+  return formatAncestorDisplayName(name);
 }
 
 export default function WorshipRecordWizard({
@@ -115,7 +114,7 @@ export default function WorshipRecordWizard({
         );
         if (!firstAncestor && data.household?.name) {
           const surname = String(data.household.name).trim().charAt(0);
-          if (surname) setDisplayName(`${surname}姓歷代祖先`);
+          if (surname) setDisplayName(formatAncestorDisplayName(`${surname}姓`));
         }
       } catch {
         if (!cancelled) setError("載入資料時發生連線問題");
@@ -204,7 +203,7 @@ export default function WorshipRecordWizard({
                 <ul className="space-y-1 text-xs text-ink-soft">
                   {duplicates.map((d) => (
                     <li key={d.id}>
-                      {d.displayName}
+                      {resolveRitualDisplayName(categoryFromWorshipType(d.type) ?? "", d.displayName)}
                       {d.location && `（${d.location}）`}－{d.reason}
                     </li>
                   ))}
@@ -244,7 +243,7 @@ export default function WorshipRecordWizard({
                 />
                 {existing.length > 0 && (
                   <p className="mt-1 text-xs text-ink-faint">
-                    這一戶既有牌位：{existing.map((e) => e.displayName).join("、")}
+                    這一戶既有牌位：{existing.map((e) => resolveRitualDisplayName(categoryFromWorshipType(e.type) ?? "", e.displayName)).join("、")}
                   </p>
                 )}
               </div>

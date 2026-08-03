@@ -1,5 +1,6 @@
 import { Prisma, type ImportRowStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import { isGenderConflict } from "@/lib/genderNormalize";
 import { recordVersion, toJsonSnapshot } from "@/lib/recordVersion";
 import { randomUUID } from "node:crypto";
@@ -1828,8 +1829,11 @@ export async function commitDevoteeImport(
         const tabletYangshang = (name: string): string | null => r.tabletYangshang?.[name] ?? null;
         let wseed = worshipNamesByHousehold.get(householdId);
         if (!wseed) worshipNamesByHousehold.set(householdId, (wseed = { ancestors: new Set(), spirits: new Set() }));
-        for (const displayName of r.ancestorNames) {
-          if (wseed.ancestors.has(displayName)) continue;
+        for (const rawName of r.ancestorNames) {
+          // V33.1：Excel 值可能是核心（王姓）或完整（王姓歷代祖先），一律正規化為完整顯示名稱後去重與儲存。
+          // tabletLocation/tabletYangshang 仍以 Excel 原始名稱為 key 查找。
+          const displayName = resolveRitualDisplayName("ANCESTOR_LINE", rawName);
+          if (!displayName || wseed.ancestors.has(displayName)) continue;
           wseed.ancestors.add(displayName);
           const id = randomUUID();
           worshipCreateData.push({
@@ -1837,16 +1841,17 @@ export async function commitDevoteeImport(
             householdId,
             type: "ANCESTOR_LINE",
             displayName,
-            location: tabletLocation(displayName),
-            yangshangName: tabletYangshang(displayName),
+            location: tabletLocation(rawName),
+            yangshangName: tabletYangshang(rawName),
             createdByName: operatorName ?? null,
           });
           newWorshipIds.push(id);
           worshipAuditNote.set(id, "信眾資料匯入預檢中心：正式匯入（歷代祖先）");
           ancestorsCreated++;
         }
-        for (const displayName of r.spiritNames) {
-          if (wseed.spirits.has(displayName)) continue;
+        for (const rawName of r.spiritNames) {
+          const displayName = resolveRitualDisplayName("INDIVIDUAL_SOUL", rawName);
+          if (!displayName || wseed.spirits.has(displayName)) continue;
           wseed.spirits.add(displayName);
           const id = randomUUID();
           worshipCreateData.push({
@@ -1854,8 +1859,8 @@ export async function commitDevoteeImport(
             householdId,
             type: "INDIVIDUAL",
             displayName,
-            location: tabletLocation(displayName),
-            yangshangName: tabletYangshang(displayName),
+            location: tabletLocation(rawName),
+            yangshangName: tabletYangshang(rawName),
             createdByName: operatorName ?? null,
           });
           newWorshipIds.push(id);

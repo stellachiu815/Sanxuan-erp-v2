@@ -17,6 +17,7 @@ import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import { rowSection, pocketDisplay, pocketAmountDue, summarizeAmounts, summarizeByCategory } from "@/lib/registrationDetailShape";
 import { printNumberOf } from "@/lib/workOrder";
 import { resolvePrintMainText, resolvePrintAddress, needsReprint } from "@/lib/tabletPrintFields";
+import { resolveRitualDisplayName, categoryFromItemKey } from "@/lib/ritualDisplayName";
 
 export type RegistrationDetailRow = {
   id: string;
@@ -148,11 +149,12 @@ export async function getUniversalSalvationRegistrationDetail(
           : "OTHER";
     const entry = it.universalSalvationEntry;
     const yang = entry ? resolveYangshangNames(entry.yangshangNames, entry.yangshangName) : [];
-    // V32：牌位主文套單筆 printMainText 覆寫（有值只覆寫此筆；地基主仍歸類無緣子女）。
+    // V33.1：牌位完整顯示名稱一律經共用 resolver（type 依 registration item key 欄位，不猜名稱）；
+    //         歷代祖先→王姓歷代祖先、乙位正魂→○乙位正魂、冤親→累世冤親債主、無緣→原核心。
+    const nameCategory = categoryFromItemKey(key);
+    const resolvedName = nameCategory ? resolveRitualDisplayName(nameCategory, entry?.displayName ?? "") : "";
     const defaultSubject =
-      key === "US_YUANQIN"
-        ? displayDebtCreditorName(entry?.displayName ?? it.member?.name ?? "")
-        : entry?.displayName ?? it.customName ?? it.member?.name ?? it.registrationItemType.name;
+      resolvedName || (entry?.displayName ?? it.customName ?? it.member?.name ?? it.registrationItemType.name);
     const subject =
       kind === "TABLET"
         ? resolvePrintMainText(defaultSubject, it.universalSalvationEntryId ? printMainTextByEntry.get(it.universalSalvationEntryId) : null)

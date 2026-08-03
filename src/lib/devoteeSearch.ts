@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import { memberSearchOrConditions, householdSearchOrConditions } from "@/lib/devoteeSearchFields";
 
 /**
@@ -217,7 +218,8 @@ async function searchRituals(q: string): Promise<DevoteeSearchResult[]> {
     return {
       category: "RITUAL" as const,
       id: e.id,
-      title: e.displayName,
+      // V33.1：搜尋結果正式顯示名稱經共用 resolver（type 依 category 欄位）。
+      title: resolveRitualDisplayName(e.category, e.displayName),
       subtitle: `${CATEGORY_LABEL[e.category] ?? e.category}・${household.name}（${household.id}）`,
       href: `/household/${household.id}/rituals/universal-salvation`,
     };

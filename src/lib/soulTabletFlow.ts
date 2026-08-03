@@ -23,6 +23,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { recordVersion } from "@/lib/recordVersion";
 import { displayPersonalAddress } from "@/lib/personalAddress";
+import { formatIndividualSoulDisplayName, formatAncestorDisplayName } from "@/lib/ritualDisplayName";
 import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import {
   createWorshipRecordInTransaction,
@@ -83,7 +84,7 @@ export async function buildSoulTabletPreview(
     alreadyExists: existing !== null,
     existingId: existing?.id ?? null,
     memberId: member.id,
-    displayName: `${member.name} 乙位正魂`,
+    displayName: formatIndividualSoulDisplayName(member.name),
     householdId: member.householdId,
     householdName: member.household.name,
     // V25：牌位地址帶入順序＝個人地址 → 家戶地址（快捷預填，非規則；使用者可改）。
@@ -445,7 +446,7 @@ export async function buildAncestorLinePreview(
   // 使用者可以完全改掉——不是規則。
   const sourceName = household.members[0]?.name ?? household.name ?? "";
   const surname = sourceName.trim().charAt(0);
-  const suggestedDisplayName = surname ? `${surname}姓歷代祖先` : "";
+  const suggestedDisplayName = surname ? formatAncestorDisplayName(`${surname}姓`) : "";
 
   return {
     householdId: household.id,

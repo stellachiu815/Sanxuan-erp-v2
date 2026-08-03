@@ -279,7 +279,7 @@ test("無牌位類型欄（正式七欄清單格式）：annotate 回 false，�
 
 test("正式匯入寫入 WorshipRecord.yangshangName／location（陽上＋安奉地落地）", () => {
   const batch = read("src/lib/devoteeImportBatch.ts");
-  assert.ok(/yangshangName: tabletYangshang\(displayName\)/.test(batch), "祖先／乙位正魂建立時帶入陽上姓名");
+  assert.ok(/yangshangName: tabletYangshang\((?:rawName|displayName)\)/.test(batch), "祖先／乙位正魂建立時帶入陽上姓名（V33.1 以 rawName 為 Excel 原始 key）");
   assert.ok(/buildTabletYangshang/.test(batch), "陽上姓名於預檢階段落地供 commit 使用");
 });
 

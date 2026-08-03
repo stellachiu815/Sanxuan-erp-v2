@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getHouseholdDetail } from "@/lib/household";
 import { worshipTypeLabel, activityTypeLabel, memberRoleLabel } from "@/lib/labels";
+import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import HeaderSearchBar from "@/components/HeaderSearchBar";
 import QuickActionsPanel from "@/components/household/QuickActionsPanel";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
@@ -162,7 +163,8 @@ export default async function HouseholdPage({
             {household.worshipRecords.map((w) => (
               <div key={w.id} className="rounded-2xl bg-blossom-50 px-5 py-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-base text-ink">{w.displayName}</span>
+                  {/* V33.1：正式顯示名稱經共用 resolver（type 依 WorshipType 欄位，不依賴儲存值格式）。 */}
+                  <span className="text-base text-ink">{resolveRitualDisplayName(categoryFromWorshipType(w.type) ?? "", w.displayName)}</span>
                   <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs text-ink-soft">
                     {worshipTypeLabel[w.type] ?? w.type}
                   </span>

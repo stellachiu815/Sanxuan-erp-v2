@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import { composeDevoteeSummary, DEVOTEE_SUMMARY_INCLUDE } from "@/lib/devoteeProfile";
 import { getMemberOfferingHistory } from "@/lib/offeringClaims";
 import { getDevoteeTagsForMember } from "@/lib/devoteeTags";
@@ -130,7 +131,8 @@ async function getBasicAndHousehold(memberId: string) {
       worshipRecords: member.household.worshipRecords.map((w) => ({
         id: w.id,
         type: w.type,
-        displayName: w.displayName,
+        // V33.1：正式顯示名稱一律經共用 resolver（type 依 WorshipType 欄位，不猜名稱、不依賴儲存值格式）。
+        displayName: resolveRitualDisplayName(categoryFromWorshipType(w.type) ?? "", w.displayName),
         location: w.location,
         yangshangName: w.yangshangName,
         notes: w.notes,

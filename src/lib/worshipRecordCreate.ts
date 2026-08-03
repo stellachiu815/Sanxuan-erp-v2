@@ -15,6 +15,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma, WorshipType } from "@prisma/client";
 import { normalizeYangshangName, detectKinshipTerms } from "@/lib/printChinese";
+import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 
 // ────────────────────────────────────────────────────────────
 // 陽上人快速帶入（指令六）
@@ -269,11 +270,18 @@ export async function createWorshipRecordInTransaction(
   }
   const n = validation.normalized;
 
+  // V33.1：歷代祖先／乙位正魂 儲存前正規化為完整顯示名稱（防重後綴、姓非府；type 依 WorshipType 欄位）。
+  const nameCategory = categoryFromWorshipType(input.type);
+  const normalizedDisplayName =
+    nameCategory === "ANCESTOR_LINE" || nameCategory === "INDIVIDUAL_SOUL"
+      ? resolveRitualDisplayName(nameCategory, n.displayName)
+      : n.displayName;
+
   return tx.worshipRecord.create({
     data: {
       householdId: input.householdId,
       type: input.type,
-      displayName: n.displayName,
+      displayName: normalizedDisplayName,
       location: n.location,
       yangshangName: n.yangshangName,
       memberId: input.memberId ?? null,

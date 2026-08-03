@@ -11,6 +11,7 @@ import {
 import AdditionalPrintItemsPanel from "./AdditionalPrintItemsPanel";
 import YangshangEditor from "./YangshangEditor";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
+import { ritualCoreName, resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import type { EntryJSON, RecordJSON } from "./types";
 
 import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
@@ -62,7 +63,8 @@ export default function EntryRow({
   requireTabletAddress = false,
 }: Props) {
   const [editing, setEditing] = useState(false);
-  const [displayName, setDisplayName] = useState(entry.displayName);
+  // V33.1：編輯框只回填「核心名稱」（歷代祖先→王姓、乙位正魂→陳永育；依 entry.category 欄位，不猜名稱）。
+  const [displayName, setDisplayName] = useState(ritualCoreName(entry.category, entry.displayName));
   const [yangshangNames, setYangshangNames] = useState<string[]>(initialNames(entry));
   const [tabletAddress, setTabletAddress] = useState(entry.tabletAddress ?? "");
   const [notes, setNotes] = useState(entry.notes ?? "");
@@ -89,7 +91,7 @@ export default function EntryRow({
   function cancelEdit() {
     setEditing(false);
     setError(null);
-    setDisplayName(entry.displayName);
+    setDisplayName(ritualCoreName(entry.category, entry.displayName));
     setYangshangNames(initialNames(entry));
     setTabletAddress(entry.tabletAddress ?? "");
     setNotes(entry.notes ?? "");
@@ -180,6 +182,13 @@ export default function EntryRow({
             onKeyDown={handleKeyDown}
             autoFocus
           />
+          {/* V33.1：核心名稱輸入提示；完整顯示由系統自動組成，不需重複輸入後綴。 */}
+          {entry.category === "ANCESTOR_LINE" && (
+            <p className="mt-1 text-xs text-ink-faint">請輸入姓氏，例如「王姓」；系統會自動顯示為「{resolveRitualDisplayName("ANCESTOR_LINE", displayName || "王姓")}」。</p>
+          )}
+          {entry.category === "INDIVIDUAL_SOUL" && (
+            <p className="mt-1 text-xs text-ink-faint">請輸入亡者姓名，例如「陳永育」；系統會自動顯示為「{resolveRitualDisplayName("INDIVIDUAL_SOUL", displayName || "陳永育")}」。</p>
+          )}
         </div>
         {/* V27：四類牌位都可查看／增修既有陽上人（重新開啟時已由 initialNames 回填）。 */}
         {showYangshang && (
@@ -272,7 +281,8 @@ export default function EntryRow({
     <div className="rounded-xl bg-white/80 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm text-ink">{displayDebtCreditorName(entry.displayName)}</p>
+          {/* V33.1：非編輯的唯讀顯示一律用共用 resolver 顯示完整名稱（依 category 欄位，不猜名稱）。 */}
+          <p className="text-sm text-ink">{resolveRitualDisplayName(entry.category, entry.displayName)}</p>
           {(() => {
             const names = initialNames(entry);
             const hasAny = names.length > 0 || entry.tabletAddress || entry.notes;
@@ -342,7 +352,7 @@ export default function EntryRow({
           householdId={householdId}
           year={year}
           entryId={entry.id}
-          sourceDisplayName={entry.displayName}
+          sourceDisplayName={resolveRitualDisplayName(entry.category, entry.displayName)}
         />
       )}
     </div>

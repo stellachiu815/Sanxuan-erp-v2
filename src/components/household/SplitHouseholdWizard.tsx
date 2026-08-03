@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Modal from "@/components/Modal";
 import { useOperator } from "@/lib/operatorClient";
+import { resolveRitualDisplayName, categoryFromWorshipType } from "@/lib/ritualDisplayName";
 import {
   inputClass,
   labelClass,
@@ -205,7 +206,7 @@ export default function SplitHouseholdWizard({ householdId, members, worshipReco
                     <div className="flex flex-col gap-2">
                       {worshipRecords.map((w) => (
                         <div key={w.id} className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="text-ink-soft">{w.displayName}</span>
+                          <span className="text-ink-soft">{resolveRitualDisplayName(categoryFromWorshipType(w.type) ?? "", w.displayName)}</span>
                           <select
                             className="rounded-full border border-cream-300 bg-white px-3 py-1 text-xs"
                             value={worshipHandling[w.id] ?? "KEEP"}

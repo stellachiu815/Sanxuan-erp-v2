@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { printNumberOf } from "@/lib/workOrder";
+import { resolveRitualDisplayName, categoryFromItemKey } from "@/lib/ritualDisplayName";
 
 /** 一批 item 的 registrationOrder 與 workOrder（供各輸出以 printNumberOf 統一取號）。 */
 export async function getOrderNumbers(itemIds: string[]): Promise<Map<string, { registrationOrder: number | null; workOrder: number | null }>> {
@@ -62,7 +63,8 @@ export async function listWorkOrderRows(year: number, itemKey: string): Promise<
     workOrder: r.wo,
     itemKey: r.key,
     itemName: r.name,
-    subject: r.displayName ?? r.customName ?? r.member ?? "",
+    // V33.1：完整顯示名稱經共用 resolver（type 依 registration item key 欄位，不猜名稱）。
+    subject: resolveRitualDisplayName(categoryFromItemKey(r.key) ?? "", r.displayName ?? "") || r.customName || r.member || "",
     household: r.household,
     yangshang: (r.yang && r.yang.length > 0 ? r.yang : r.yang1 ? [r.yang1] : []).join("、"),
     status: r.status,

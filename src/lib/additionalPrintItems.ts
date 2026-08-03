@@ -17,6 +17,7 @@ import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder, dedup
 import { applyRegistrationOrder } from "@/lib/registrationOrder";
 import { printNumberOf } from "@/lib/workOrder";
 import { resolvePrintAddress, needsReprint as computeNeedsReprint, latestIso } from "@/lib/tabletPrintFields";
+import { resolveRitualDisplayName } from "@/lib/ritualDisplayName";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { tabletMissingFieldsForCategory } from "@/lib/dataCompleteness";
 import {
@@ -1362,7 +1363,9 @@ export async function listPrintItemsForPrintCenter(
       ),
       sourceCategory: source.category,
       sourceCategoryLabel: universalSalvationEntryCategoryLabel[source.category] ?? source.category,
-      sourceDisplayName: source.displayName,
+      // V33.1：完整顯示名稱一律經共用 resolver（type 依 category 欄位，不猜名稱）——
+      // 列印管理／作業編號／補印搜尋／寶袋來源牌位名稱皆用此一致值。
+      sourceDisplayName: resolveRitualDisplayName(source.category, source.displayName),
       // V32 單筆列印主文覆寫（有值時列印引擎直接採用、不再套 formatter；空白＝用系統預設主文）。
       printMainText: (printMainTextByEntry.get(item.sourceEntryId) ?? "").trim() || null,
       itemType: item.itemType,
