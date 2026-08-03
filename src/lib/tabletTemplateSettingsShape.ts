@@ -10,8 +10,12 @@ export type TabletTemplateDocType =
   | "UNBORN_CHILD"
   | "POCKET";
 
+export type TabletTemplateDensity = "standard" | "economy";
+
 export type TabletTemplateSetting = {
   documentType: TabletTemplateDocType;
+  /** V33 橫式密度：standard（附件一密度）／economy（省紙）。 */
+  density: TabletTemplateDensity;
   offsetXmm: number;
   offsetYmm: number;
   fontFamily: string | null;
@@ -37,6 +41,7 @@ export const TEMPLATE_DOC_TYPES: { docType: TabletTemplateDocType; label: string
 export function defaultTemplateSetting(docType: TabletTemplateDocType): TabletTemplateSetting {
   return {
     documentType: docType,
+    density: "standard",
     offsetXmm: 0,
     offsetYmm: 0,
     fontFamily: null,
@@ -66,6 +71,7 @@ export function mergeTemplateSetting(
 export function sanitizeTemplateInput(input: Partial<TabletTemplateSetting>): Partial<TabletTemplateSetting> {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   const out: Partial<TabletTemplateSetting> = {};
+  if (input.density !== undefined) out.density = input.density === "economy" ? "economy" : "standard";
   if (input.offsetXmm !== undefined) out.offsetXmm = clamp(Number(input.offsetXmm) || 0, -50, 50);
   if (input.offsetYmm !== undefined) out.offsetYmm = clamp(Number(input.offsetYmm) || 0, -50, 50);
   if (input.letterSpacingPx !== undefined) out.letterSpacingPx = clamp(Number(input.letterSpacingPx) || 0, -5, 20);

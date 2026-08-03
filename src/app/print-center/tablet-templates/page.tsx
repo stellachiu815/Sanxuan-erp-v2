@@ -191,6 +191,12 @@ function Inner() {
           {/* 設定表單 */}
           <div className="flex flex-col gap-3 rounded-2xl bg-white/70 p-4 shadow-card">
             <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1"><span className={labelCls}>密度（橫式）</span>
+                <select className={field} value={form.density} onChange={(e) => set("density", e.target.value === "economy" ? "economy" : "standard")}>
+                  <option value="standard">標準密度（附件一）</option>
+                  <option value="economy">省紙密度</option>
+                </select></label>
+              <div />
               <label className="flex flex-col gap-1"><span className={labelCls}>X Offset（mm）</span>
                 <input type="number" step="0.5" className={field} value={form.offsetXmm} onChange={(e) => set("offsetXmm", Number(e.target.value))} /></label>
               <label className="flex flex-col gap-1"><span className={labelCls}>Y Offset（mm）</span>
@@ -236,6 +242,7 @@ function Inner() {
                   mode="print"
                   offset={{ offsetXmm: form.offsetXmm, offsetYmm: form.offsetYmm }}
                   showWorkNumber={form.showWorkNumber}
+                  density={form.density}
                   maximize={form.maximize}
                   template={template}
                 />

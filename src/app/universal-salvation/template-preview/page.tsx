@@ -49,32 +49,38 @@ const POCKET: PrintTabletEntry[] = [
 
 export default function TemplatePreviewPage() {
   const [workno, setWorkno] = useState(true);
-  const [maximize, setMaximize] = useState(false);
+  const [density, setDensity] = useState<"standard" | "economy">("standard");
+  // V33：預覽＝正式列印效果（mode=print，無任何 Debug/框線/slot）。
   const Section = ({ title, dt, records }: { title: string; dt: string; records: PrintTabletEntry[] }) => (
     <section className="mb-10">
       <h2 className="mb-2 text-base text-ink">{title}（{records.length} 筆）</h2>
       <div className="overflow-x-auto bg-white/60 p-4">
-        <UniversalSalvationTabletSheet documentType={dt as never} records={records} mode="calibration" showWorkNumber={workno} maximize={maximize} />
+        <UniversalSalvationTabletSheet documentType={dt as never} records={records} mode="print" showWorkNumber={workno} density={density} />
       </div>
     </section>
   );
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8">
+    <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg text-ink">V31 中元普渡列印模板測試頁（不寫 DB）</h1>
+        <h1 className="text-lg text-ink">中元普渡列印模板測試頁（不寫 DB，正式列印效果）</h1>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-ink-soft">
             <input type="checkbox" checked={workno} onChange={(e) => setWorkno(e.target.checked)} /> 顯示作業號碼 No.xxx
           </label>
           <label className="flex items-center gap-2 text-sm text-ink-soft">
-            <input type="checkbox" checked={maximize} onChange={(e) => setMaximize(e.target.checked)} /> 最高密度排版（packing）
+            密度
+            <select className="rounded border border-cream-200 bg-white px-2 py-1" value={density} onChange={(e) => setDensity(e.target.value === "economy" ? "economy" : "standard")}>
+              <option value="standard">標準（附件一）</option>
+              <option value="economy">省紙</option>
+            </select>
           </label>
         </div>
       </div>
-      <p className="mb-4 text-xs text-ink-faint">校正模式：顯示各區塊 Bounding Box、實際字級 px 與「字overflow」警告。含短/一行/兩行/第二行短/超長地址、短/超長牌位名、單/多陽上人、No.001~1000 與 NULL。</p>
-      <Section title="超拔祖先／乙位正魂／無緣子女（每頁 5，6 筆＝5+1）" dt="ANCESTOR_LINE" records={ANCESTOR} />
-      <Section title="累世冤親債主（每頁 11，12 筆＝11+1）" dt="DEBT_CREDITOR" records={DEBT} />
-      <Section title="寶袋（每頁 4，5 筆＝4+1）" dt="POCKET" records={POCKET} />
+      <p className="mb-4 text-xs text-ink-faint">此即正式列印版面（橫式 A4 直書、群組排列），無任何框線／slot／Debug。含短/長地址、短/長主文、單/多陽上人、No.001~1000 與 NULL。</p>
+      <Section title="超拔祖先／乙位正魂" dt="ANCESTOR_LINE" records={ANCESTOR} />
+      <Section title="累世冤親債主" dt="DEBT_CREDITOR" records={DEBT} />
+      <Section title="無緣子女" dt="UNBORN_CHILD" records={ANCESTOR} />
+      <Section title="寶袋（維持既有直式）" dt="POCKET" records={POCKET} />
     </main>
   );
 }

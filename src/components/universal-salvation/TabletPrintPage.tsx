@@ -6,9 +6,11 @@ import { useSearchParams } from "next/navigation";
 import {
   UniversalSalvationTabletSheet,
   buildAutoTabletLayout,
+  buildLandscapeTabletLayout,
   toPrintableTablet,
   type TabletDocumentType,
 } from "@/components/ritual/tablets";
+import { resolveYangshangNames } from "@/lib/yangshang";
 import { useTabletPrint } from "@/hooks/useTabletPrint";
 import type { TabletPrintGroup } from "@/lib/TabletBatchService";
 import type { TabletTemplateSetting } from "@/lib/tabletTemplateSettingsShape";
@@ -49,6 +51,9 @@ export default function TabletPrintPage({
 }) {
   // 取某 documentType 的模板設定（缺→undefined，sheet 用既有預設）。
   const tplOf = (dt: string): TabletTemplateSetting | undefined => templates?.[dt];
+  // V33：四種牌位＝橫式 A4；此批若含四種牌位 → 頁面方向設 landscape（寶袋批次維持 portrait）。
+  const LANDSCAPE_DTS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
+  const landscape = groups.some((g) => LANDSCAPE_DTS.includes(g.documentType));
   const { print } = useTabletPrint(groups.length > 0);
   const sheetsRef = useRef<HTMLDivElement>(null);
 
@@ -67,12 +72,15 @@ export default function TabletPrintPage({
       groups.map((g) => {
         const records = g.records.map((e) => {
           const p = toPrintableTablet(e);
-          return { entryId: null, registrationId: null, addressText: p.locationText, mainText: p.displayName, yangshangText: p.yangshangText };
+          return { entryId: null, registrationId: null, addressText: p.locationText, mainText: p.displayName, yangshangText: p.yangshangText, yangshangNames: resolveYangshangNames(e.yangshangNames ?? null, e.yangshangName) };
         });
-        // V32 §3/§4：與正式 Sheet 完全相同的版面決策（含 packing 摘要、模板 offset/maximize），確保預覽＝正式列印同配置。
+        // V33/§3/§4：與正式 Sheet 完全相同的版面決策，確保預覽＝正式列印同配置。四種牌位＝橫式；寶袋＝直式。
         const tpl = tplOf(g.documentType);
         const offset = tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined;
-        const layout = buildAutoTabletLayout(g.documentType as TabletDocumentType, records, offset, { maximize: maximize || !!tpl?.maximize });
+        const isLandscape = LANDSCAPE_DTS.includes(g.documentType);
+        const layout = isLandscape
+          ? buildLandscapeTabletLayout(g.documentType as TabletDocumentType, records, { density: (tpl?.density as "standard" | "economy" | undefined) ?? "standard", offset })
+          : buildAutoTabletLayout(g.documentType as TabletDocumentType, records, offset, { maximize: maximize || !!tpl?.maximize });
         return { documentType: g.documentType, layout };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,17 +137,14 @@ export default function TabletPrintPage({
         </Link>
       </div>
 
-      {/* V32 §3.9 排版資訊（預覽可見、列印隱藏）：欄×列／每頁筆數／最小字級／警告；預覽與正式列印同配置。 */}
-      <div className="no-print" style={{ margin: "8px 16px", padding: "6px 12px", border: "1px solid #cfe0cf", borderRadius: 8, background: "#f3f8f1", fontSize: 12, color: "#3c5a3c", display: "flex", flexWrap: "wrap", gap: 12 }}>
-        {diag.map(({ documentType, layout }) => {
-          const p = layout.packing;
-          return (
-            <span key={documentType}>
-              <b>{documentType}</b>：{p ? `${p.source === "packed" ? "最高密度" : "固定槽位"} ${p.columns || "-"}欄×${p.rows || "-"}列＝每頁 ${p.perPage} 筆（基準 ${p.baseline}）｜最小字級 ${Math.round(p.minFontPx)}px${p.warnings.length ? `｜⚠️${p.warnings.join(",")}` : ""}${p.fallbackReason ? `｜${p.fallbackReason}` : ""}` : `每頁 ${layout.slotsPerPage} 筆`}
-            </span>
-          );
-        })}
-      </div>
+      {/* V33 §8：正式列印/預覽不得有任何 Debug/排版資訊。以下排版摘要僅在 ?debug=1 顯示、且列印隱藏。 */}
+      {debug && (
+        <div className="no-print" style={{ margin: "8px 16px", padding: "6px 12px", border: "1px solid #cfe0cf", borderRadius: 8, background: "#f3f8f1", fontSize: 12, color: "#3c5a3c", display: "flex", flexWrap: "wrap", gap: 12 }}>
+          {diag.map(({ documentType, layout }) => (
+            <span key={documentType}><b>{documentType}</b>：每頁 {layout.slotsPerPage} 筆｜最小字級 {Math.round(layout.packing?.minFontPx ?? 0)}px{layout.packing?.warnings.length ? `｜⚠️${layout.packing.warnings.join(",")}` : ""}</span>
+          ))}
+        </div>
+      )}
 
       {debug && (
         <div className="no-print" style={{ margin: 16, padding: 12, border: "2px solid #c0392b", borderRadius: 8, background: "#fff8f7", fontSize: 12, fontFamily: "monospace" }}>
@@ -195,6 +200,7 @@ export default function TabletPrintPage({
                   mode="print"
                   offset={tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined}
                   showWorkNumber={showWorkNumber && (tpl?.showWorkNumber ?? true)}
+                  density={(tpl?.density as "standard" | "economy" | undefined) ?? "standard"}
                   maximize={maximize || !!tpl?.maximize}
                   template={tpl ? {
                     fontFamily: tpl.fontFamily, fontWeight: tpl.fontWeight, letterSpacingPx: tpl.letterSpacingPx,
@@ -209,7 +215,7 @@ export default function TabletPrintPage({
       )}
 
       <style>{`
-        @page { size: A4; margin: 0; }
+        @page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 0; }
         @media print {
           .no-print { display: none !important; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }

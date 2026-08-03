@@ -3222,6 +3222,8 @@ model TabletTemplateSetting {
   /// ANCESTOR_LINE / INDIVIDUAL_SOUL / DEBT_CREDITOR / UNBORN_CHILD / POCKET
   documentType String @id
 
+  /// V33 橫式密度：standard（附件一密度）／economy（省紙）。
+  density       String  @default("standard")
   offsetXmm     Float   @default(0)
   offsetYmm     Float   @default(0)
   fontFamily    String? // null＝系統預設牌位字型

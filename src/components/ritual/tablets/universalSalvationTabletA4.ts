@@ -183,6 +183,15 @@ export type PositionedBlock = {
   heightMm: number;
   /** 該區塊列印文字。 */
   text: string;
+  /**
+   * V33 橫式版：由版面引擎直接算好的字級（px）——已依「可列印範圍最大化且不裁字/不超寬」計算。
+   * 有值時渲染端直接採用（不再各自 fontFit），確保預覽＝正式列印完全相同字級。
+   */
+  fontPx?: number;
+  /** V33：即使最小字級仍放不下（極端長字）→ true，渲染端顯示警告、不裁字。 */
+  overflow?: boolean;
+  /** V33：直書對齊（主文置中、地址與陽上人靠上）。未指定沿用既有規則。 */
+  vAlign?: "center" | "start" | "end";
 };
 
 export type TabletPage = { pageIndex: number; blocks: PositionedBlock[] };
@@ -210,6 +219,14 @@ export type TabletLayout = {
   allBlocks: PositionedBlock[];
   /** V32 §3：本次版面的 packing 摘要（正式 sheet 一律附帶，預覽顯示、正式列印相同配置）。 */
   packing?: TabletPackingInfo;
+  /**
+   * V33 橫式版：頁面實際尺寸（mm）。橫式＝297×210；未指定沿用既有直式 210×297。
+   * 渲染端依此設定 .print-sheet 寬高與 @page 方向。
+   */
+  pageWidthMm?: number;
+  pageHeightMm?: number;
+  /** V33：版面自帶的違規（橫式引擎以自身頁面尺寸計算，避免用直式 USABLE 誤判）。 */
+  violations?: LayoutViolation[];
 };
 
 function textFor(docType: TabletDocumentType, blockType: TabletBlockType, rec: TabletRecordInput): string {

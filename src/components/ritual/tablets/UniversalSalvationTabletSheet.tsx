@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { TABLET_FONT_FAMILY, formatWorkNumber, toPrintableTablet, type PrintTabletEntry } from "./shared";
+import { resolveYangshangNames } from "@/lib/yangshang";
 import { addressVerticalAlign, verticalTextInnerStyle } from "./addressLayout";
 import { fitVerticalFont, fontConfigFor, type TabletFontBox } from "./fontFit";
 import {
@@ -10,8 +11,13 @@ import {
   type TabletDocumentType,
   type TabletA4Offset,
   type PositionedBlock,
+  type TabletLayout,
   ZERO_OFFSET,
 } from "./universalSalvationTabletA4";
+import { buildLandscapeTabletLayout, type LandscapeDensity } from "./landscapeLayout";
+
+/** V33：四種牌位改用橫式 A4 直書版型；寶袋（POCKET）維持既有直式版型。 */
+const LANDSCAPE_DOC_TYPES: TabletDocumentType[] = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"];
 
 /**
  * UNIVERSAL_SALVATION_TABLET_A4_V1 的**唯一**渲染元件——四種 documentType 共用。
@@ -49,8 +55,8 @@ function VerticalText({
   text: string;
   sizePx: number;
   soft?: boolean;
-  /** V30.5：直式文字沿 inline（垂直）軸的對齊。地址兩行時用 "end" 讓第二行向下對齊、兩行底部齊平。 */
-  align?: "center" | "end";
+  /** V30.5/V33：直式文字沿 inline（垂直）軸的對齊。end＝底部（地址兩行）；start＝頂端（橫式地址/陽上人）。 */
+  align?: "center" | "end" | "start";
   /** V32 §4 模板樣式覆寫。 */
   style?: TabletTemplateStyle;
 }) {
@@ -85,7 +91,9 @@ function fontFitFor(block: PositionedBlock, documentType: TabletDocumentType, li
 }
 
 function BlockView({ block, mode, documentType, style }: { block: PositionedBlock; mode: TabletSheetMode; documentType: TabletDocumentType; style?: TabletTemplateStyle }) {
-  const fit = fontFitFor(block, documentType, style?.lineHeight ?? null);
+  // V33 橫式版：版面引擎已算好 fontPx（最大化）→ 直接採用，確保預覽＝正式列印同字級；
+  // 其餘（寶袋直式）沿用 fontFitFor 逐級縮放。
+  const fit = block.fontPx != null ? { px: block.fontPx, overflow: !!block.overflow } : fontFitFor(block, documentType, style?.lineHeight ?? null);
   // 校正模式或模板「顯示校正框」→ 畫區塊外框（螢幕預覽用；正式列印無框）。
   const showBox = mode === "calibration" || !!style?.showCalibrationBox;
   return (
@@ -112,8 +120,8 @@ function BlockView({ block, mode, documentType, style }: { block: PositionedBloc
         text={block.text}
         sizePx={fit.px}
         soft={block.blockType !== "main"}
-        // V30.5：只有「地址」在折成兩行時沿底部對齊；主文／陽上人維持置中不變。
-        align={block.blockType === "address" ? addressVerticalAlign(block.text.length, block.heightMm, fit.px) : "center"}
+        // V33：橫式版由 vAlign 指定（主文置中、地址/陽上人靠上＝start）；未指定沿用 V30.5 地址兩行底部對齊規則。
+        align={block.vAlign ? block.vAlign : block.blockType === "address" ? addressVerticalAlign(block.text.length, block.heightMm, fit.px) : "center"}
         style={style}
       />
       {mode === "calibration" && (
@@ -170,6 +178,7 @@ export default function UniversalSalvationTabletSheet({
   showWorkNumber = true,
   maximize = false,
   template,
+  density,
 }: {
   documentType: TabletDocumentType;
   records: PrintTabletEntry[];
@@ -181,27 +190,32 @@ export default function UniversalSalvationTabletSheet({
   maximize?: boolean;
   /** V32 §4 模板可調樣式（字型／字重／字距／行距／校正框／裁切線／預設主文）。未提供＝既有預設。 */
   template?: TabletTemplateStyle;
+  /** V33 橫式密度：standard＝附件一密度；economy＝省紙。僅四種牌位橫式版型套用。 */
+  density?: LandscapeDensity;
 }) {
-  // V32 §3：正式版面由 packing 核心決定（Preview 與正式列印共用完全相同配置）；
-  // 未啟用 maximize 或 packing 無提升／無效時，安全 fallback 至既有固定槽位版面。
-  const layout = buildAutoTabletLayout(
-    documentType,
-    records.map((e) => {
-      const p = toPrintableTablet(e);
-      return {
-        entryId: null,
-        registrationId: null,
-        addressText: p.locationText,
-        // V32 §4：主文空白時採模板預設主文（單筆 printMainText 已於上游優先套用於 p.displayName）。
-        mainText: p.displayName || (template?.defaultMainText ?? ""),
-        yangshangText: p.yangshangText,
-      };
-    }),
-    offset,
-    { maximize }
-  );
-  const violations = validateLayout(layout);
+  const useLandscape = LANDSCAPE_DOC_TYPES.includes(documentType);
+  // 統一把 records 轉為版面輸入（含陽上人姓名陣列供 §4 排版切換）。
+  const layoutRecords = records.map((e) => {
+    const p = toPrintableTablet(e);
+    return {
+      entryId: null,
+      registrationId: null,
+      addressText: p.locationText,
+      // V32 §4：主文空白時採模板預設主文（單筆 printMainText 已於上游優先套用於 p.displayName）。
+      mainText: p.displayName || (template?.defaultMainText ?? ""),
+      yangshangText: p.yangshangText,
+      yangshangNames: resolveYangshangNames(e.yangshangNames ?? null, e.yangshangName),
+    };
+  });
+  // V33：四種牌位＝橫式 A4 直書（附件一）；寶袋維持既有直式（V32 packing）。
+  const layout: TabletLayout = useLandscape
+    ? buildLandscapeTabletLayout(documentType, layoutRecords, { density, offset })
+    : buildAutoTabletLayout(documentType, layoutRecords, offset, { maximize });
+  // 橫式引擎自帶 violations（以橫式頁面尺寸計算）；直式用 validateLayout。
+  const violations = layout.violations ?? validateLayout(layout);
   const packing = layout.packing;
+  const pageWmm = layout.pageWidthMm ?? A4.widthMm;
+  const pageHmm = layout.pageHeightMm ?? A4.heightMm;
 
   if (violations.length > 0) {
     // offset/資料使版面超界或衝突 → 阻擋正式輸出，顯示錯誤（呼叫端據此擋 PDF/列印）。
@@ -226,8 +240,8 @@ export default function UniversalSalvationTabletSheet({
           className="print-sheet tablet-a4-page"
           style={{
             position: "relative",
-            width: mm(A4.widthMm),
-            height: mm(A4.heightMm),
+            width: mm(pageWmm),
+            height: mm(pageHmm),
             background: "#fff",
             breakAfter: "page",
             overflow: "hidden",

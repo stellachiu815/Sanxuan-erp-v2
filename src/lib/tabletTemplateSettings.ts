@@ -21,6 +21,7 @@ const DOC_TYPES = TEMPLATE_DOC_TYPES.map((t) => t.docType);
 
 type Row = {
   documentType: string;
+  density: string | null;
   offsetXmm: number | null;
   offsetYmm: number | null;
   fontFamily: string | null;
@@ -89,10 +90,11 @@ export async function saveTabletTemplateSetting(
   try {
     await prisma.$executeRaw`
       INSERT INTO "tablet_template_settings"
-        ("documentType","offsetXmm","offsetYmm","fontFamily","fontWeight","letterSpacingPx","lineHeight","defaultMainText","showCalibrationBox","showCropMarks","showWorkNumber","maximize","updatedAt","updatedByName")
+        ("documentType","density","offsetXmm","offsetYmm","fontFamily","fontWeight","letterSpacingPx","lineHeight","defaultMainText","showCalibrationBox","showCropMarks","showWorkNumber","maximize","updatedAt","updatedByName")
       VALUES
-        (${docType},${next.offsetXmm},${next.offsetYmm},${next.fontFamily},${next.fontWeight},${next.letterSpacingPx},${next.lineHeight},${next.defaultMainText},${next.showCalibrationBox},${next.showCropMarks},${next.showWorkNumber},${next.maximize},CURRENT_TIMESTAMP,${byName})
+        (${docType},${next.density},${next.offsetXmm},${next.offsetYmm},${next.fontFamily},${next.fontWeight},${next.letterSpacingPx},${next.lineHeight},${next.defaultMainText},${next.showCalibrationBox},${next.showCropMarks},${next.showWorkNumber},${next.maximize},CURRENT_TIMESTAMP,${byName})
       ON CONFLICT ("documentType") DO UPDATE SET
+        "density" = EXCLUDED."density",
         "offsetXmm" = EXCLUDED."offsetXmm",
         "offsetYmm" = EXCLUDED."offsetYmm",
         "fontFamily" = EXCLUDED."fontFamily",

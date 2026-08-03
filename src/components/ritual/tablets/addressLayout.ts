@@ -43,7 +43,7 @@ export function addressVerticalAlign(
  * 不含任何外框、不改盒尺寸；height:100% 讓 inline 軸＝盒高，text-align:end 才能把短的第二行沿底部對齊。
  */
 export function verticalTextInnerStyle(
-  align: "center" | "end",
+  align: "center" | "end" | "start",
   sizePx: number,
   soft: boolean,
   /** V32 §4 模板可調樣式（未提供時維持既有預設，確保未設定模板時輸出不變）。 */

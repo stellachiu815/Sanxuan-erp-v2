@@ -226,6 +226,35 @@ export function dedupeDefaultPrintObjects<
   return [...deduped, ...passthrough];
 }
 
+/**
+ * V33 §9 診斷／修復用：找出**應被視為重複、可安全去除**的預設列印物件 id。
+ * 對同一 (sourceEntryId, itemType) 的預設物件（isExtra=false、未刪除），保留一筆（同 dedupe 規則），
+ * 其餘回報為「移除候選」。額外寶袋（isExtra=true）永不列入。純函式（供 dry-run 腳本與測試共用）。
+ * 回傳每組：{ sourceEntryId, itemType, keepId, removeIds }。
+ */
+export function duplicateDefaultPrintObjects<
+  T extends { id: string; sourceEntryId: string; itemType: string; isExtra: boolean; printCount?: number; createdAt?: Date | string | null }
+>(items: T[]): { sourceEntryId: string; itemType: string; keepId: string; removeIds: string[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const it of items) {
+    if (it.isExtra) continue;
+    const key = `${it.sourceEntryId}::${it.itemType}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(it);
+  }
+  const out: { sourceEntryId: string; itemType: string; keepId: string; removeIds: string[] }[] = [];
+  for (const [, list] of groups) {
+    if (list.length <= 1) continue; // 無重複
+    const kept = dedupeDefaultPrintObjects(list)[0];
+    out.push({
+      sourceEntryId: list[0].sourceEntryId,
+      itemType: list[0].itemType,
+      keepId: kept.id,
+      removeIds: list.filter((x) => x.id !== kept.id).map((x) => x.id),
+    });
+  }
+  return out;
+}
+
 export type BatchSummary = {
   unprintedTotal: number;
   printableComplete: number;

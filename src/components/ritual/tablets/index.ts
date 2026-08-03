@@ -27,6 +27,8 @@ export type { PrintableTabletEntry } from "./shared";
 // （固定 5／11 筆、3mm 邊界、offset、驗證）。舊四支 *Tablet.tsx 暫不移除（驗收後再淘汰）。
 export { default as UniversalSalvationTabletSheet } from "./UniversalSalvationTabletSheet";
 export type { TabletSheetMode, TabletTemplateStyle } from "./UniversalSalvationTabletSheet";
+export { buildLandscapeTabletLayout, LANDSCAPE_A4 } from "./landscapeLayout";
+export type { LandscapeDensity } from "./landscapeLayout";
 export {
   TABLET_A4_TEMPLATE_ID,
   TABLET_A4_CONFIG,

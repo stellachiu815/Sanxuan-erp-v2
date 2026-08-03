@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
       : await saveTabletTemplateSetting(
           documentType,
           {
+            density: body.density as "standard" | "economy" | undefined,
             offsetXmm: body.offsetXmm as number | undefined,
             offsetYmm: body.offsetYmm as number | undefined,
             fontFamily: body.fontFamily as string | undefined,
