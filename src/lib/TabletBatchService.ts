@@ -17,6 +17,7 @@
  */
 import type { PrintTabletEntry } from "@/components/ritual/tablets";
 import { formatTabletMainText, composeAncestorMainText } from "@/lib/tabletMainText";
+import { DEBT_CREDITOR_CANONICAL } from "@/lib/debtCreditorName";
 import { printNumberOf } from "@/lib/workOrder";
 
 // V27.11：re-export 供既有測試/呼叫端沿用同一個共用 formatter（不建立第二套）。
@@ -372,12 +373,29 @@ function toRecord(i: BatchItem): PrintTabletEntry {
     i.itemType === "POCKET" && i.usesSourceName === false && (i.printName ?? "").trim()
       ? (i.printName as string).trim()
       : null;
+
+  // V36.9：冤親（DEBT_CREDITOR）主文**固定**「累世冤親債主」——不得用報名人/陽上人姓名取代
+  //   （匯入可能把報名人姓名存進 entry.displayName，導致 formatter 印出人名）。只影響冤親牌位。
+  const isCreditorTablet = i.itemType === "TABLET" && i.sourceCategory === "DEBT_CREDITOR";
+  const creditorFixedMain = isCreditorTablet ? DEBT_CREDITOR_CANONICAL : null;
+  // 陽上人欄顯示報名人姓名：優先用既有陽上人；若冤親沒有陽上人陣列，退回其 entry 顯示名（多為報名人姓名，
+  //   但不採已正名成「累世冤親債主」者），確保報名人姓名出現在陽上人欄、不落入主文。
+  const creditorPerson =
+    isCreditorTablet && i.sourceDisplayName && i.sourceDisplayName !== DEBT_CREDITOR_CANONICAL
+      ? i.sourceDisplayName
+      : null;
+  const yangshangNames =
+    i.sourceYangshangNames && i.sourceYangshangNames.length > 0
+      ? i.sourceYangshangNames
+      : creditorPerson
+        ? [creditorPerson]
+        : (i.sourceYangshangNames ?? []);
   return {
     // V32：有單筆列印主文覆寫（printMainText）時直接採用（不套 formatter，例：本宅地基主）；
-    // 否則走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女／冤親不變。
-    displayName: pocketOwnName || (i.printMainText ?? "").trim() || formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
-    yangshangName: i.sourceYangshangName,
-    yangshangNames: i.sourceYangshangNames,
+    // V36.9：冤親固定「累世冤親債主」；其餘走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女不變。
+    displayName: pocketOwnName || (i.printMainText ?? "").trim() || creditorFixedMain || formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
+    yangshangName: i.sourceYangshangName || (creditorPerson ?? null),
+    yangshangNames,
     location: i.sourceLocation,
     notes: null,
     // V31：作業號碼＝正式作業號 workOrder（未指派時安全回退 registrationOrder）；列印於裁切外白邊。
