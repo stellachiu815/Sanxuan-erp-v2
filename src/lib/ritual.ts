@@ -998,6 +998,14 @@ export async function deleteUniversalSalvationEntry(
     // V14.2：牌位刪除時，連動取消其計價項目（未收款才取消，已收款保留歷史）。
     await cancelLinkedTabletItem(tx, entryId, operatorName);
 
+    // V34.3B 防禦：牌位封存時，一併軟刪其「預設」列印物件（TABLET／基本 POCKET，isExtra=false），
+    //   避免留下孤立列印物件仍被列印查詢取出。重新報名時 ensureTabletPrintObjects 會恢復同一筆（對稱）。
+    //   額外寶袋（isExtra=true）有自身報名項目與收款，維持既有處理，不在此連動。
+    await tx.additionalPrintItem.updateMany({
+      where: { sourceEntryId: entryId, sourceEntryType: "UNIVERSAL_SALVATION_ENTRY", isExtra: false, deletedAt: null },
+      data: { deletedAt: new Date(), deletedByName: operatorName?.trim() || "系統：牌位封存連動" },
+    });
+
     await recordVersion(
       {
         entityType: "UniversalSalvationEntry",

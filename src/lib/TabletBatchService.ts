@@ -157,6 +157,25 @@ export function isComplete(item: { tabletMissingFields?: string[] }): boolean {
   return (item.tabletMissingFields?.length ?? 0) === 0;
 }
 
+/**
+ * V34.3B：列印物件的「來源牌位／報名項目」是否應被排除（不進列印清單）。
+ * 純函式（client-safe，供 listPrintItemsForPrintCenter 與單元測試共用）。
+ * 一律排除：來源牌位查無／已封存（deletedAt）、或其 1:1 報名項目已刪除／狀態 CANCELLED。
+ * TABLET 與 POCKET 都以其 sourceEntry（POCKET 的 sourceEntry＝所依附牌位）判斷。
+ */
+export function shouldExcludeLeakedPrintSource(input: {
+  sourceExists: boolean;
+  sourceDeletedAt?: Date | string | null;
+  registrationItemStatus?: string | null;
+  registrationItemDeleted?: boolean;
+}): boolean {
+  if (!input.sourceExists) return true; // 查無（含查詢已用 deletedAt:null 濾掉的封存牌位）
+  if (input.sourceDeletedAt) return true; // 防禦：來源牌位已封存
+  if (input.registrationItemDeleted) return true; // 關聯報名項目已刪除
+  if (input.registrationItemStatus === "CANCELLED") return true; // 關聯報名項目已取消
+  return false;
+}
+
 export type BatchItem = {
   id: string;
   /** V30.3 建立順序（歷史查核；未補號為 null）。 */

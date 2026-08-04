@@ -13,7 +13,7 @@ import {
   getAdditionalPrintItemPaidAmounts,
 } from "@/lib/receivableAdapters";
 import { universalSalvationEntryCategoryLabel } from "@/lib/labels";
-import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder, dedupeDefaultPrintObjects } from "@/lib/TabletBatchService";
+import { registrationOrderForPrintItem, resolvePrintItemRegistrationOrder, dedupeDefaultPrintObjects, shouldExcludeLeakedPrintSource } from "@/lib/TabletBatchService";
 import { applyRegistrationOrder } from "@/lib/registrationOrder";
 import { printNumberOf } from "@/lib/workOrder";
 import { resolvePrintAddress, needsReprint as computeNeedsReprint, latestIso } from "@/lib/tabletPrintFields";
@@ -919,18 +919,24 @@ export async function ensureTabletPrintObjects(
   input: EnsureTabletPrintObjectsInput,
   client: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<{ createdTablet: boolean; createdPocket: boolean }> {
+  // V34.3B：一併查出「已封存（deletedAt 非 null）」的預設列印物件，讓重新報名時**恢復**同一筆，
+  //   而不是又建立一筆新的（與 deleteUniversalSalvationEntry 的封存連動對稱，避免孤立/重複列印物件）。
   const existing = await client.additionalPrintItem.findMany({
     where: {
       sourceEntryId: input.sourceEntryId,
       sourceEntryType: "UNIVERSAL_SALVATION_ENTRY",
       isExtra: false,
-      deletedAt: null,
       itemType: { in: [AdditionalPrintItemType.TABLET, AdditionalPrintItemType.POCKET] },
     },
-    select: { itemType: true },
+    select: { id: true, itemType: true, deletedAt: true },
+    orderBy: { createdAt: "asc" },
   });
-  const hasTablet = existing.some((e) => e.itemType === AdditionalPrintItemType.TABLET);
-  const hasPocket = existing.some((e) => e.itemType === AdditionalPrintItemType.POCKET);
+  const activeTablet = existing.find((e) => e.itemType === AdditionalPrintItemType.TABLET && !e.deletedAt);
+  const activePocket = existing.find((e) => e.itemType === AdditionalPrintItemType.POCKET && !e.deletedAt);
+  const softTablet = existing.find((e) => e.itemType === AdditionalPrintItemType.TABLET && e.deletedAt);
+  const softPocket = existing.find((e) => e.itemType === AdditionalPrintItemType.POCKET && e.deletedAt);
+  const hasTablet = !!activeTablet;
+  const hasPocket = !!activePocket;
 
   const base = {
     ritualRecordId: input.ritualRecordId,
@@ -951,10 +957,19 @@ export async function ensureTabletPrintObjects(
   let createdTablet = false;
   let createdPocket = false;
   if (!hasTablet) {
-    await client.additionalPrintItem.create({ data: { ...base, itemType: AdditionalPrintItemType.TABLET } });
+    if (softTablet) {
+      // 恢復先前封存的同一筆 TABLET 列印物件（保留列印歷史／id），不新增重複。
+      await client.additionalPrintItem.update({ where: { id: softTablet.id }, data: { deletedAt: null, deletedByName: null } });
+    } else {
+      await client.additionalPrintItem.create({ data: { ...base, itemType: AdditionalPrintItemType.TABLET } });
+    }
     createdTablet = true;
   }
-  if (!hasPocket) {
+  if (!hasPocket && softPocket) {
+    // 恢復先前封存的同一筆 POCKET 列印物件（其 registrationItemId／寶袋報名項目沿用，不新增第二筆）。
+    await client.additionalPrintItem.update({ where: { id: softPocket.id }, data: { deletedAt: null, deletedByName: null } });
+    createdPocket = true;
+  } else if (!hasPocket) {
     const pocket = await client.additionalPrintItem.create({
       data: { ...base, itemType: AdditionalPrintItemType.POCKET },
       select: { id: true },
@@ -1241,12 +1256,24 @@ export async function listPrintItemsForPrintCenter(
   const sourceEntryIds = [...new Set(items.map((i) => i.sourceEntryId))];
   const sourceEntries = sourceEntryIds.length
     ? await prisma.universalSalvationEntry.findMany({
-        where: { id: { in: sourceEntryIds } },
+        // V34.3B：來源牌位若已封存（deletedAt 非 null）不得進列印清單——只取未封存的牌位，
+        //   封存牌位不在此 Map，組裝時的 `if (!source) continue` 會直接跳過其列印物件（TABLET／POCKET 皆然）。
+        where: { id: { in: sourceEntryIds }, deletedAt: null },
         // V27.9：列印牌位地址在缺自身 tabletAddress 時回退共用 WorshipRecord.location（同 getUniversalSalvationPrintData）。
         include: { worshipRecord: { select: { location: true } } },
       })
     : [];
   const sourceEntryById = new Map(sourceEntries.map((e) => [e.id, e]));
+
+  // V34.3B：來源牌位對應的 1:1 報名項目（universalSalvationEntryId 為 @unique）——
+  //   含已刪除與 CANCELLED 皆查出（不加 deletedAt 過濾），供組裝時排除「已取消／已刪除報名」的孤立列印物件。
+  const linkedRriRows = sourceEntryIds.length
+    ? await prisma.$queryRaw<{ eid: string; status: string; del: Date | null }[]>`
+        SELECT "universalSalvationEntryId" AS eid, "status" AS status, "deletedAt" AS del
+        FROM "ritual_registration_items"
+        WHERE "universalSalvationEntryId" IN (${Prisma.join(sourceEntryIds)})`
+    : [];
+  const linkedRriByEntryId = new Map(linkedRriRows.map((r) => [r.eid, { status: String(r.status), deleted: r.del != null }]));
 
   // V30.3：**牌位（TABLET）**用——來源牌位（UniversalSalvationEntry）對應報名項目的
   // registrationOrder（raw SQL；不依賴 Prisma client 是否已 regenerate）。寶袋不走這條（見下）。
@@ -1314,7 +1341,19 @@ export async function listPrintItemsForPrintCenter(
   const views: PrintCenterItemView[] = [];
   for (const item of items) {
     const source = sourceEntryById.get(item.sourceEntryId);
-    if (!source) continue; // 來源資料已經不存在（理論上不應該發生，safety net）
+    // V34.3B：來源牌位查無／已封存、或其 1:1 報名項目已刪除／CANCELLED → 一律排除（TABLET 與 POCKET 皆然）。
+    const linkedRri = linkedRriByEntryId.get(item.sourceEntryId);
+    if (
+      shouldExcludeLeakedPrintSource({
+        sourceExists: !!source,
+        sourceDeletedAt: source?.deletedAt ?? null,
+        registrationItemStatus: linkedRri?.status ?? null,
+        registrationItemDeleted: linkedRri?.deleted ?? false,
+      })
+    ) {
+      continue;
+    }
+    if (!source) continue; // 型別窄化（上方已排除 source 不存在的情況）。
 
     const sourceYangshangNames = resolveYangshangNames(source.yangshangNames, source.yangshangName);
     const tabletMissingFields = tabletMissingFieldsForCategory(source.category, sourceYangshangNames, source.tabletAddress);
