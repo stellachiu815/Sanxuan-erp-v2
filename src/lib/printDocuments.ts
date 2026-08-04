@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { normalizeTabletText } from "@/lib/tabletIdentity";
 import { printNumberOf } from "@/lib/workOrder";
+import { listPrintItemsForPrintCenter } from "@/lib/additionalPrintItems";
+import { printObjectCountsByItemKey } from "@/lib/TabletBatchService";
 
 /**
  * V15R8：列印中心「資料來源」中文標籤（供顯示與篩選）。
@@ -204,9 +206,10 @@ export type RosterRow = {
   memberName: string | null;
   itemName: string;
   quantity: number;
-  amountDue: number;
-  amountPaid: number;
-  amountUnpaid: number;
+  /** V36.7B：金額一律讀既有 RRI，不重算；找不到對應 RRI（無 registrationItemId 連結）時為 null → 顯示「—」，不以 0 冒充。 */
+  amountDue: number | null;
+  amountPaid: number | null;
+  amountUnpaid: number | null;
   status: string;
   /** V21 列印紀錄：首次列印時間／最後列印(補印)時間／列印次數／最後列印人員。 */
   printedAt: string | null;
@@ -232,6 +235,15 @@ export type RosterResult = {
  * @param year 民國年
  * @param includeDraft 預設 false（只列已確認）。列印一律 false。
  */
+/** V36.7：普渡牌位／寶袋名冊改由 V34 同一支查詢（列印物件）產生的 key。 */
+const US_TABLET_ROSTER_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN"]);
+const US_CATEGORY_OF_KEY: Record<string, string> = {
+  US_ANCESTOR: "ANCESTOR_LINE",
+  US_ZHENGHUN: "INDIVIDUAL_SOUL",
+  US_YUANQIN: "DEBT_CREDITOR",
+  US_WUYUAN: "UNBORN_CHILD",
+};
+
 export async function buildItemRoster(
   itemKey: string,
   year: number,
@@ -239,6 +251,99 @@ export async function buildItemRoster(
 ): Promise<RosterResult | null> {
   const itemType = await prisma.registrationItemType.findUnique({ where: { key: itemKey } });
   if (!itemType) return null;
+
+  // ── V36.7：普渡牌位（祖先/乙位/冤親/無緣）與寶袋，一律沿用 V34 已驗證的**同一支** listPrintItemsForPrintCenter
+  //   作為唯一名冊來源（不再以 RitualRegistrationItem.status='CONFIRMED' 為來源，故 DRAFT 也會列出、與 V34 一致）。
+  //   金額欄位不在列印物件層（普渡收款於收款中心管理），此名冊金額顯示 0；名單/順序/內容/列印狀態與 V34 完全一致。
+  const isUSPocket = itemKey === "US_POCKET_EXTRA";
+  if (US_TABLET_ROSTER_KEYS.has(itemKey) || isUSPocket) {
+    const cat = US_CATEGORY_OF_KEY[itemKey];
+    const items = await listPrintItemsForPrintCenter(year, {});
+    const filtered = items.filter((i) =>
+      isUSPocket ? i.itemType === "POCKET" : i.itemType === "TABLET" && i.sourceCategory === cat
+    );
+
+    // V36.7B：金額裝飾——依每筆列印物件對應的既有 RRI，**一次批次**讀取 amountDue/Paid/Unpaid（不重算、不寫入、不 N+1）。
+    //   牌位（TABLET）：對應 RRI＝ritual_registration_items.universalSalvationEntryId = sourceEntryId（1:1）。
+    //   寶袋（POCKET）：對應 RRI＝該寶袋自身 additional_print_items.registrationItemId 指向的 US_POCKET_EXTRA。
+    //   找不到對應 RRI → 金額 null（顯示「—」，不以 0 冒充）。基本寶袋其 RRI amountDue 本為 0（免費）＝真實金額。
+    type Amt = { due: number; paid: number; unpaid: number };
+    const amountByObjectId = new Map<string, Amt | null>();
+    if (filtered.length > 0) {
+      if (isUSPocket) {
+        // 1) 讀每個寶袋列印物件自身的 registrationItemId。
+        const apiIds = filtered.map((i) => i.id);
+        const regRows = await prisma.$queryRaw<{ id: string; regId: string | null }[]>`
+          SELECT "id", "registrationItemId" AS "regId" FROM "additional_print_items" WHERE "id" IN (${Prisma.join(apiIds)})`;
+        const regByApi = new Map(regRows.map((r) => [r.id, r.regId]));
+        // 2) 依這些 US_POCKET_EXTRA RRI id 批次取金額。
+        const regIds = [...new Set(regRows.map((r) => r.regId).filter((x): x is string => !!x))];
+        const rriRows = regIds.length
+          ? await prisma.ritualRegistrationItem.findMany({
+              where: { id: { in: regIds }, deletedAt: null },
+              select: { id: true, amountDue: true, amountPaid: true, amountUnpaid: true },
+            })
+          : [];
+        const rriById = new Map(rriRows.map((r) => [r.id, r]));
+        for (const i of filtered) {
+          const regId = regByApi.get(i.id) ?? null;
+          const rri = regId ? rriById.get(regId) : null;
+          amountByObjectId.set(i.id, rri ? { due: Number(rri.amountDue), paid: Number(rri.amountPaid), unpaid: Number(rri.amountUnpaid) } : null);
+        }
+      } else {
+        // 牌位：以 universalSalvationEntryId 批次取其 1:1 RRI 金額。
+        const entryIds = [...new Set(filtered.map((i) => i.sourceEntryId))];
+        const rriRows = await prisma.ritualRegistrationItem.findMany({
+          where: { universalSalvationEntryId: { in: entryIds }, deletedAt: null },
+          select: { universalSalvationEntryId: true, amountDue: true, amountPaid: true, amountUnpaid: true },
+        });
+        const rriByEntry = new Map(rriRows.map((r) => [r.universalSalvationEntryId as string, r]));
+        for (const i of filtered) {
+          const rri = rriByEntry.get(i.sourceEntryId);
+          amountByObjectId.set(i.id, rri ? { due: Number(rri.amountDue), paid: Number(rri.amountPaid), unpaid: Number(rri.amountUnpaid) } : null);
+        }
+      }
+    }
+
+    const usRows: RosterRow[] = filtered.map((i) => {
+      const amt = amountByObjectId.get(i.id) ?? null;
+      return {
+        registrationItemId: i.id,
+        registrationOrder: i.registrationOrder,
+        householdId: i.household.id,
+        householdName: i.household.name,
+        memberName: (i.sourceYangshangNames && i.sourceYangshangNames[0]) || null,
+        // 牌位：主文（printMainText 覆寫優先，否則 formatter 後的顯示名）；寶袋：其列印名稱（可為額外寶袋姓名）。
+        itemName: isUSPocket ? i.printName : (i.printMainText?.trim() || i.sourceDisplayName),
+        quantity: 1,
+        amountDue: amt ? amt.due : null,
+        amountPaid: amt ? amt.paid : null,
+        amountUnpaid: amt ? amt.unpaid : null,
+        status: i.status,
+        printedAt: i.firstPrintedAt,
+        lastPrintedAt: i.lastPrintedAt,
+        printCount: i.printCount,
+        printedByName: i.lastPrintedByName,
+      };
+    });
+    usRows.sort((a, b) => {
+      const ao = a.registrationOrder, bo = b.registrationOrder;
+      if (ao == null && bo == null) return 0;
+      if (ao == null) return 1;
+      if (bo == null) return -1;
+      return ao - bo;
+    });
+    return {
+      itemKey: itemType.key,
+      itemName: itemType.name,
+      activityGroupName: itemType.activityGroupName,
+      year,
+      printDocumentKeys: itemType.printDocumentKeys,
+      rows: usRows,
+      totalQuantity: usRows.length,
+      totalAmountDue: usRows.reduce((s, r) => s + (r.amountDue ?? 0), 0),
+    };
+  }
 
   const rows = await prisma.ritualRegistrationItem.findMany({
     where: {
@@ -308,7 +413,7 @@ export async function buildItemRoster(
     printDocumentKeys: itemType.printDocumentKeys,
     rows: rosterRows,
     totalQuantity: rosterRows.reduce((s, r) => s + r.quantity, 0),
-    totalAmountDue: rosterRows.reduce((s, r) => s + r.amountDue, 0),
+    totalAmountDue: rosterRows.reduce((s, r) => s + (r.amountDue ?? 0), 0),
   };
 }
 
@@ -330,10 +435,13 @@ export type ActivityItemPrintSummary = {
  * 列印管理中央入口：某年度所有報名項目的列印彙總。
  * 依主活動、項目分組，顯示已確認人數／已列印／未列印。
  *
- * 一次查詢＋記憶體彙總（無 N+1；只列 CONFIRMED，草稿與取消不計）。
+ * V36.8：普渡牌位／寶袋（US_ANCESTOR/US_ZHENGHUN/US_YUANQIN/US_WUYUAN/US_POCKET_EXTRA）改為
+ *   直接沿用 **V34 已驗證正確的同一支查詢**（listPrintItemsForPrintCenter 的列印物件），與 V34／
+ *   PrintObjectCenter／print-v34 完全一致（不再另外用「只列 CONFIRMED 報名」計數而顯示 0）。
+ *   其餘活動項目（年度燈／宮慶／白米／贊普…）維持既有 CONFIRMED 報名計數，不受影響。
  */
 export async function listActivityItemPrintSummary(year: number): Promise<ActivityItemPrintSummary[]> {
-  const [itemTypes, items] = await Promise.all([
+  const [itemTypes, items, printObjects] = await Promise.all([
     prisma.registrationItemType.findMany({
       where: { isActive: true },
       orderBy: [{ activityGroup: "asc" }, { sortOrder: "asc" }],
@@ -346,6 +454,8 @@ export async function listActivityItemPrintSummary(year: number): Promise<Activi
       },
       select: { registrationItemTypeId: true, printedAt: true, printCount: true },
     }),
+    // V36.8：普渡牌位／寶袋一律用同一支列印物件查詢（與 V34 同源）。
+    listPrintItemsForPrintCenter(year, {}),
   ]);
 
   const stat = new Map<string, { confirmed: number; printed: number; reprinted: number }>();
@@ -357,8 +467,13 @@ export async function listActivityItemPrintSummary(year: number): Promise<Activi
     stat.set(it.registrationItemTypeId, s);
   }
 
+  // V36.8：普渡牌位／寶袋改由列印物件計數（key → 計數），與 V34 一致。
+  const usPrintStat = printObjectCountsByItemKey(printObjects);
+
   return itemTypes.map((t) => {
-    const s = stat.get(t.id) ?? { confirmed: 0, printed: 0, reprinted: 0 };
+    // 普渡牌位／寶袋：用 V34 列印物件計數；其餘：維持 CONFIRMED 報名計數。
+    const usStat = usPrintStat.get(t.key);
+    const s = usStat ?? stat.get(t.id) ?? { confirmed: 0, printed: 0, reprinted: 0 };
     return {
       itemKey: t.key,
       itemName: t.name,

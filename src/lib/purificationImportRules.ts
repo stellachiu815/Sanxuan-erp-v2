@@ -61,6 +61,25 @@ export function parseYangshangNames(raw: string | null | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * V36.5B：正式 Excel「額外寶袋」欄位解析——同一欄相容兩種正式寫法（純函式，可測）：
+ *   - 純數字（例：2）→ 數量模式：count=2、names=[]（沿用牌位名稱列印 N 個額外寶袋）。
+ *   - 文字姓名（例：江士耀 / 江士耀、王大 / 逗號、頓號、換行分隔）→ 姓名模式：
+ *       每個姓名各建 1 個額外寶袋、列印該姓名；count=姓名數、names=[...]。
+ *   - 空白 → count=0、names=[]。
+ * 不要求使用者把姓名改成數字（正式格式相容）。
+ */
+export function parseExtraPocketField(raw: string | null | undefined): { count: number; names: string[] } {
+  const s = (raw ?? "").toString().trim();
+  if (!s) return { count: 0, names: [] };
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = Math.max(0, Math.floor(Number(s)) || 0);
+    return { count: n, names: [] };
+  }
+  const names = s.split(/[,，、\n\r]+/).map((x) => x.trim()).filter((x) => x.length > 0);
+  return { count: names.length, names };
+}
+
 // ============================================================
 // 三、白米匯入規則：只採用斤數（單價/金額/已收/剩餘/超額一律忽略）
 // ============================================================

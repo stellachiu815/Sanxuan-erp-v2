@@ -1180,6 +1180,8 @@ export type PrintCenterItemView = {
   printMainText: string | null;
   itemType: string;
   printName: string;
+  /** V36.5B：是否沿用來源牌位名稱（false＝額外寶袋填了自訂姓名，如「江士耀」）。列印時據此決定寶袋主文。 */
+  usesSourceName: boolean;
   quantity: number;
   isExtra: boolean;
   status: AdditionalPrintItemStatusValue;
@@ -1409,6 +1411,7 @@ export async function listPrintItemsForPrintCenter(
       printMainText: (printMainTextByEntry.get(item.sourceEntryId) ?? "").trim() || null,
       itemType: item.itemType,
       printName: item.printName,
+      usesSourceName: item.usesSourceName,
       quantity: item.quantity,
       isExtra: item.isExtra,
       status: item.status as AdditionalPrintItemStatusValue,
@@ -1476,6 +1479,12 @@ export type GroupedTabletPrintView = {
   tablet: PrintObjectView | null;
   pocket: PrintObjectView | null;
   extras: PrintObjectView[];
+  /**
+   * V36.4：完整度缺漏欄位（直接沿用 listPrintItemsForPrintCenter 內、由完整度 gate
+   * tabletMissingFieldsForCategory 計算的結果，同牌位的 TABLET／POCKET 共用）。空陣列＝完整。
+   * 純唯讀透傳，不重算、不改完整度判斷。
+   */
+  tabletMissingFields: string[];
 };
 
 export async function listUniversalSalvationPrintGroups(
@@ -1495,6 +1504,8 @@ export async function listUniversalSalvationPrintGroups(
         tablet: null,
         pocket: null,
         extras: [],
+        // 直接透傳完整度 gate 的缺漏欄位（同牌位 TABLET／POCKET 共用；以牌位來源為準）。
+        tabletMissingFields: it.tabletMissingFields,
       };
       groups.set(it.sourceEntryId, g);
     }

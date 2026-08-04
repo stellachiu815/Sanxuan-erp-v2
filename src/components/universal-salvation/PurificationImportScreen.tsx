@@ -112,6 +112,11 @@ function readRow(r: Row) {
     householdName: nd.householdName != null ? String(nd.householdName) : "",
     phone: nd.phone != null ? String(nd.phone) : "",
     tabletCategory: nd.tabletCategory != null ? String(nd.tabletCategory) : "",
+    // V36.5B：額外寶袋——姓名模式顯示姓名，數量模式顯示數量。
+    extraPocketNames: Array.isArray(nd.extraPocketNames)
+      ? (nd.extraPocketNames as unknown[]).map((x) => String(x)).filter((x) => x.trim().length > 0)
+      : [],
+    extraPocketCount: nd.extraPocketCount != null ? Number(nd.extraPocketCount) || 0 : 0,
   };
 }
 
@@ -385,6 +390,10 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                       <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs text-ink-soft sm:grid-cols-2">
                         {d.yangshangNames.length > 0 && (
                           <div><span className="text-ink-faint">陽上人：</span>{d.yangshangNames.join("、")}</div>
+                        )}
+                        {/* V36.5B：額外寶袋——姓名模式清楚顯示姓名（不只顯示數量）。 */}
+                        {(d.extraPocketNames.length > 0 || d.extraPocketCount > 0) && (
+                          <div><span className="text-ink-faint">額外寶袋：</span>{d.extraPocketNames.length > 0 ? d.extraPocketNames.join("、") : `${d.extraPocketCount} 個`}</div>
                         )}
                         {d.devoteeName && (
                           <div><span className="text-ink-faint">報名姓名：</span>{d.devoteeName}</div>

@@ -158,6 +158,41 @@ export function isComplete(item: { tabletMissingFields?: string[] }): boolean {
 }
 
 /**
+ * V36.8：普渡牌位／寶袋 sourceCategory → 報名項目 key（供列印中心彙總與 V34 共用同一份列印物件計數）。
+ */
+export const US_CATEGORY_TO_ITEM_KEY: Record<string, string> = {
+  ANCESTOR_LINE: "US_ANCESTOR",
+  INDIVIDUAL_SOUL: "US_ZHENGHUN",
+  DEBT_CREDITOR: "US_YUANQIN",
+  UNBORN_CHILD: "US_WUYUAN",
+};
+
+/**
+ * V36.8：把「V34 已驗證正確的列印物件清單」（listPrintItemsForPrintCenter 結果）彙整成
+ * 「報名項目 key → 計數」。純函式、client-safe、可單元測試。牌位依 sourceCategory 對應四類 key；
+ * 寶袋（POCKET，含基本＋額外）一律歸 US_POCKET_EXTRA。printed＝printCount>0，reprinted＝printCount>=2。
+ * 這是讓 Print Center 與 V34 共用同一支查詢的唯一換算，不新增查詢。
+ */
+export function printObjectCountsByItemKey(
+  objs: { itemType: string; sourceCategory: string; printCount: number }[]
+): Map<string, { confirmed: number; printed: number; reprinted: number }> {
+  const m = new Map<string, { confirmed: number; printed: number; reprinted: number }>();
+  for (const o of objs) {
+    let key: string | undefined;
+    if (o.itemType === "TABLET") key = US_CATEGORY_TO_ITEM_KEY[o.sourceCategory];
+    else if (o.itemType === "POCKET") key = "US_POCKET_EXTRA";
+    if (!key) continue;
+    const s = m.get(key) ?? { confirmed: 0, printed: 0, reprinted: 0 };
+    s.confirmed += 1;
+    const pc = o.printCount ?? 0;
+    if (pc > 0) s.printed += 1;
+    if (pc >= 2) s.reprinted += 1;
+    m.set(key, s);
+  }
+  return m;
+}
+
+/**
  * V34.3B：列印物件的「來源牌位／報名項目」是否應被排除（不進列印清單）。
  * 純函式（client-safe，供 listPrintItemsForPrintCenter 與單元測試共用）。
  * 一律排除：來源牌位查無／已封存（deletedAt）、或其 1:1 報名項目已刪除／狀態 CANCELLED。
@@ -195,6 +230,10 @@ export type BatchItem = {
   status: string;
   printCount: number;
   household: { id: string; name: string };
+  /** V36.5B：列印物件自身名稱（寶袋用）。額外寶袋若填姓名（usesSourceName=false）→ 印此名。 */
+  printName?: string;
+  /** V36.5B：是否沿用來源牌位名稱。false＝額外寶袋填了自訂姓名（如「江士耀」）。 */
+  usesSourceName?: boolean;
 };
 
 /** 只留該批次、且為可列印狀態的項目。 */
@@ -327,10 +366,16 @@ const TABLET_CATEGORY_ORDER = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD
 const THREE_BLOCK_CATS = ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"];
 
 function toRecord(i: BatchItem): PrintTabletEntry {
+  // V36.5B：額外寶袋若填了自訂姓名（POCKET＋usesSourceName=false＋printName 有值）→ 直接印該姓名
+  //   （例「江士耀」），**不**沿用牌位主文「江姓歷代祖先」。基本寶袋（usesSourceName=true）與牌位維持原規則。
+  const pocketOwnName =
+    i.itemType === "POCKET" && i.usesSourceName === false && (i.printName ?? "").trim()
+      ? (i.printName as string).trim()
+      : null;
   return {
     // V32：有單筆列印主文覆寫（printMainText）時直接採用（不套 formatter，例：本宅地基主）；
     // 否則走共用 formatter：歷代祖先→○府歷代祖先；乙位正魂／無緣子女／冤親不變。
-    displayName: (i.printMainText ?? "").trim() || formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
+    displayName: pocketOwnName || (i.printMainText ?? "").trim() || formatTabletMainText(i.sourceCategory, i.sourceDisplayName),
     yangshangName: i.sourceYangshangName,
     yangshangNames: i.sourceYangshangNames,
     location: i.sourceLocation,

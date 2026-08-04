@@ -15,6 +15,7 @@ import { parseSpreadsheetBuffer } from "@/lib/smartImport";
 import {
   resolveColumnMapping,
   parseYangshangNames,
+  parseExtraPocketField,
   extractRiceKgFromImport,
   classifyMatch,
   buildImportDupKey,
@@ -92,6 +93,8 @@ type NormalizedRow = {
   tabletAddress: string | null;
   riceKg: number | null;
   extraPocketCount: number;
+  /** V36.5B：額外寶袋姓名（Excel「額外寶袋」欄填姓名時）；純數字模式為空陣列。 */
+  extraPocketNames: string[];
   sponsor: number | null;
   sponsorDonation: number | null;
   sponsorName: string | null;
@@ -132,7 +135,8 @@ function normalizeRow(row: Record<string, unknown>, map: Partial<Record<string, 
     yangshangNames: parseYangshangNames(pick(row, map.yangshang)),
     tabletAddress: pick(row, map.tabletAddress),
     riceKg: extractRiceKgFromImport(map.riceKg ? row[map.riceKg] : null),
-    extraPocketCount: Math.max(0, Math.floor(Number(pick(row, map.extraPocketQty) ?? 0)) || 0),
+    // V36.5B：額外寶袋欄相容「數量」與「姓名」兩種正式寫法。
+    ...(() => { const ep = parseExtraPocketField(pick(row, map.extraPocketQty)); return { extraPocketCount: ep.count, extraPocketNames: ep.names }; })(),
     sponsor: map.sponsor && Number.isFinite(Number(row[map.sponsor])) ? Number(row[map.sponsor]) : null,
     sponsorDonation: map.sponsorDonation && Number.isFinite(Number(row[map.sponsorDonation])) ? Number(row[map.sponsorDonation]) : null,
     sponsorName: pick(row, map.sponsorCustomName),
@@ -317,6 +321,57 @@ export async function analyzePurificationImport(input: {
   return { ok: true, batchId: created, summary, detectedColumns: map as Record<string, string> };
 }
 
+/**
+ * V36.5：Excel「額外寶袋」冪等建立——不論 CREATE／UPDATE／SKIP 路徑皆可呼叫。
+ *
+ * 沿用正式核心 createAdditionalPrintItem（isExtra=true、isChargeable=true，與 CREATE 路徑一致，
+ * 產生 DRAFT US_POCKET_EXTRA 報名項目＋列印物件，不進已收/帳本、不動任何既有財務）。
+ * 冪等：該牌位（sourceEntryId）已有未刪除的額外寶袋列印物件 → 不重複建立。
+ */
+async function ensureImportExtraPocket(
+  db: DbClient,
+  params: { householdId: string; year: number; entryId: string; quantity: number; names: string[]; operatorName: string }
+): Promise<{ created: number }> {
+  if (!params.entryId) return { created: 0 };
+  let created = 0;
+
+  // 姓名模式：每個姓名各建 1 個額外寶袋（列印該姓名）；冪等＝同牌位＋同姓名不重複。
+  if (params.names && params.names.length > 0) {
+    for (const raw of params.names) {
+      const name = raw.trim();
+      if (!name) continue;
+      const exists = await db.additionalPrintItem.count({
+        where: { sourceEntryId: params.entryId, sourceEntryType: "UNIVERSAL_SALVATION_ENTRY", itemType: "POCKET", isExtra: true, printName: name, deletedAt: null },
+      });
+      if (exists > 0) continue;
+      const p = await createAdditionalPrintItem(
+        params.householdId, params.year, params.entryId,
+        { itemType: "POCKET", usesSourceName: false, customPrintName: name, quantity: 1, isExtra: true, isChargeable: true },
+        params.operatorName, db
+      );
+      if (!p.ok) throw new Error(`額外寶袋（${name}）：${p.error}`);
+      created++;
+    }
+    return { created };
+  }
+
+  // 數量模式：沿用牌位名稱建 N 個；冪等＝已有「沿用牌位名稱」的額外寶袋則不重複。
+  if (params.quantity > 0) {
+    const exists = await db.additionalPrintItem.count({
+      where: { sourceEntryId: params.entryId, sourceEntryType: "UNIVERSAL_SALVATION_ENTRY", itemType: "POCKET", isExtra: true, usesSourceName: true, deletedAt: null },
+    });
+    if (exists > 0) return { created: 0 };
+    const p = await createAdditionalPrintItem(
+      params.householdId, params.year, params.entryId,
+      { itemType: "POCKET", usesSourceName: true, quantity: params.quantity, isExtra: true, isChargeable: true },
+      params.operatorName, db
+    );
+    if (!p.ok) throw new Error(`額外寶袋：${p.error}`);
+    created++;
+  }
+  return { created };
+}
+
 // ── confirm（逐列隔離 transaction、共用正式核心、DB 唯一鍵防重）────────
 export async function confirmPurificationImportBatch(input: {
   batchId: string;
@@ -422,11 +477,17 @@ export async function confirmPurificationImportBatch(input: {
       //   無既有同一牌位（NONE／同名不同址）→ CREATE；有既有 → 預設 SKIP，僅明確 UPDATE 才更新。
       const action: "CREATE" | "UPDATE" | "SKIP" = !decisionHit ? "CREATE" : ext.resolutionAction === "UPDATE" ? "UPDATE" : "SKIP";
 
-      // ══ SKIP：已存在且未選更新 → 不需 interactive transaction，只更新草稿列（單一寫入）══
+      // ══ SKIP：已存在且未選更新 → 牌位本身不重建；但 Excel「額外寶袋」仍須建立（冪等）══
       if (action === "SKIP") {
-        await prisma.purificationImportRow.update({
-          where: { id: row.id },
-          data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, resolved: true, errorMessage: null, existingMatchStatus: "EXISTS", existingRecordId: decisionHit!.id, resolutionAction: "SKIP" } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),
+        await prisma.$transaction(async (tx) => {
+          // V36.5：SKIP（已存在牌位）也要建 Excel 額外寶袋——建在既有牌位上，冪等不重複。
+          if ((edited.extraPocketCount > 0 || (edited.extraPocketNames?.length ?? 0) > 0) && existingHouseholdId) {
+            await ensureImportExtraPocket(tx, { householdId: existingHouseholdId, year: batch.year, entryId: decisionHit!.id, quantity: edited.extraPocketCount, names: edited.extraPocketNames ?? [], operatorName: input.actor.name });
+          }
+          await tx.purificationImportRow.update({
+            where: { id: row.id },
+            data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, resolved: true, errorMessage: null, existingMatchStatus: "EXISTS", existingRecordId: decisionHit!.id, resolutionAction: "SKIP" } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),
+          });
         });
         results.push({ rowNumber: row.rowNumber, ok: true, recordId: decisionHit!.ritualRecordId });
         continue;
@@ -469,6 +530,10 @@ export async function confirmPurificationImportBatch(input: {
               data: { displayName: storeDisplayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], yangshangName: edited.yangshangNames?.[0] ?? null, notes: edited.note ?? null },
             });
             if (doSync) await syncEntryToHouseholdWorshipRecord(tx, { householdId, category, displayName: storeDisplayName, tabletAddress: resolvedTabletAddress, yangshangNames: edited.yangshangNames ?? [], operatorName: input.actor.name });
+            // V36.5：UPDATE（更新既有牌位）也要建 Excel 額外寶袋——建在既有牌位上，冪等不重複。
+            if (edited.extraPocketCount > 0 || (edited.extraPocketNames?.length ?? 0) > 0) {
+              await ensureImportExtraPocket(tx, { householdId, year: batch.year, entryId: decisionHit!.id, quantity: edited.extraPocketCount, names: edited.extraPocketNames ?? [], operatorName: input.actor.name });
+            }
             await tx.purificationImportRow.update({
               where: { id: row.id },
               data: ({ confirmationStatus: "CONFIRMED", confirmedRecordId: decisionHit!.ritualRecordId, matchedHouseholdId: householdId, matchedDevoteeId: memberId, resolved: true, errorMessage: null } as unknown as Prisma.PurificationImportRowUncheckedUpdateInput),
@@ -494,14 +559,9 @@ export async function confirmPurificationImportBatch(input: {
             const rice = await registerRice({ ritualRecordId, memberId: memberId ?? null, kg: edited.riceKg, overageReason: null }, input.actor, tx);
             if (!rice.ok) throw new Error(`白米：${rice.error}`);
           }
-          // 額外寶袋（isExtra=true，共用 createAdditionalPrintItem）。
+          // 額外寶袋（isExtra=true）——共用冪等 helper（與 UPDATE／SKIP 同一入口，行為一致；支援數量／姓名）。
           if (edited.extraPocketCount > 0 && newEntry) {
-            const p = await createAdditionalPrintItem(
-              householdId, batch.year, newEntry.id,
-              { itemType: "POCKET", usesSourceName: true, quantity: edited.extraPocketCount, isExtra: true, isChargeable: true },
-              input.actor.name, tx
-            );
-            if (!p.ok) throw new Error(`額外寶袋：${p.error}`);
+            await ensureImportExtraPocket(tx, { householdId, year: batch.year, entryId: newEntry.id, quantity: edited.extraPocketCount, names: edited.extraPocketNames ?? [], operatorName: input.actor.name });
           }
           // 贊普／隨喜贊普（共用 RitualRegistrationItem；一律 DRAFT、amountPaid=0）。
           await materializeSponsors(ritualRecordId, memberId, batch.templeEventId, edited, input.actor.name, tx);

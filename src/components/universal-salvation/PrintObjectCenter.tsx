@@ -39,9 +39,11 @@ type Group = {
   tablet: PrintObject | null;
   pocket: PrintObject | null;
   extras: PrintObject[];
+  /** V36.4：完整度缺漏欄位（沿用完整度 gate 結果；空陣列＝完整）。 */
+  tabletMissingFields: string[];
 };
 
-type StatusFilter = "ALL" | "UNPRINTED" | "PRINTED" | "REPRINT_NEEDED";
+type StatusFilter = "ALL" | "UNPRINTED" | "PRINTED" | "REPRINT_NEEDED" | "INCOMPLETE";
 
 function statusOf(o: PrintObject | null): "NONE" | "UNPRINTED" | "PRINTED" | "REPRINTED" {
   if (!o) return "NONE";
@@ -155,7 +157,13 @@ export default function PrintObjectCenter({ year }: { year: number }) {
     if (!groups) return [];
     return groups.filter((g) => {
       const objs = [g.tablet, g.pocket, ...g.extras].filter((o): o is PrintObject => !!o);
-      const passFilter = filter === "ALL" || objs.some((o) => matchesFilter(o, filter));
+      // V36.4：「資料不完整」是牌位（來源）層屬性，用完整度 gate 的 tabletMissingFields 判斷。
+      const passFilter =
+        filter === "ALL"
+          ? true
+          : filter === "INCOMPLETE"
+            ? g.tabletMissingFields.length > 0
+            : objs.some((o) => matchesFilter(o, filter));
       const passSearch = !search.trim() || objs.some((o) => matchesSearch(o, g.sourceDisplayName, g.household.name, search));
       return passFilter && passSearch;
     });
@@ -165,6 +173,12 @@ export default function PrintObjectCenter({ year }: { year: number }) {
   const reprintNeededCount = useMemo(
     () => allObjects.filter((o) => o.needsReprint).length,
     [allObjects]
+  );
+
+  // V36.4：資料不完整牌位數（沿用完整度 gate 結果，不重算）。
+  const incompleteCount = useMemo(
+    () => (groups ?? []).filter((g) => g.tabletMissingFields.length > 0).length,
+    [groups]
   );
 
   const pendingCount = selected.size;
@@ -279,10 +293,12 @@ export default function PrintObjectCenter({ year }: { year: number }) {
       {/* 篩選 + 快速選取工具列（窄畫面可換行、大按鈕、不依賴 hover） */}
       <div className="flex flex-col gap-3 rounded-3xl bg-white/70 p-4 shadow-card">
         <div className="flex flex-wrap gap-2">
-          {(["ALL", "UNPRINTED", "PRINTED", "REPRINT_NEEDED"] as StatusFilter[]).map((f) => (
+          {(["ALL", "UNPRINTED", "PRINTED", "REPRINT_NEEDED", "INCOMPLETE"] as StatusFilter[]).map((f) => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`${btn} ${filter === f ? "bg-ink-soft text-cream-50" : "bg-cream-100 text-ink-soft"}`}>
-              {f === "ALL" ? "全部" : f === "UNPRINTED" ? "未列印" : f === "PRINTED" ? "已列印" : `需要補印${reprintNeededCount > 0 ? `（${reprintNeededCount}）` : ""}`}
+              className={`${btn} ${filter === f ? "bg-ink-soft text-cream-50" : f === "INCOMPLETE" && incompleteCount > 0 ? "bg-blossom-100 text-blossom-500" : "bg-cream-100 text-ink-soft"}`}>
+              {f === "ALL" ? "全部" : f === "UNPRINTED" ? "未列印" : f === "PRINTED" ? "已列印"
+                : f === "REPRINT_NEEDED" ? `需要補印${reprintNeededCount > 0 ? `（${reprintNeededCount}）` : ""}`
+                : `資料不完整${incompleteCount > 0 ? `（${incompleteCount}）` : ""}`}
             </button>
           ))}
         </div>
@@ -310,7 +326,17 @@ export default function PrintObjectCenter({ year }: { year: number }) {
         {filteredGroups.map((g) => (
           <div key={g.sourceEntryId} className="rounded-3xl bg-white/70 p-4 shadow-card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium text-ink">{g.sourceDisplayName}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-ink">{g.sourceDisplayName}</span>
+                {/* V36.4：直接顯示完整度 gate 結果——完整／資料不完整（列出缺漏欄位）。 */}
+                {g.tabletMissingFields.length === 0 ? (
+                  <span className="rounded-full bg-sage-100 px-2 py-0.5 text-xs text-ink-soft">完整</span>
+                ) : (
+                  <span className="rounded-full bg-blossom-100 px-2 py-0.5 text-xs font-medium text-blossom-500">
+                    資料不完整（缺：{g.tabletMissingFields.join("、")}）
+                  </span>
+                )}
+              </span>
               <span className="rounded-full bg-mist-100 px-3 py-1 text-xs text-ink-soft">{g.sourceCategoryLabel}・{g.household.name}</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

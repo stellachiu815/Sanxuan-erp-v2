@@ -22,9 +22,10 @@ type RosterRow = {
   memberName: string | null;
   itemName: string;
   quantity: number;
-  amountDue: number;
-  amountPaid: number;
-  amountUnpaid: number;
+  /** V36.7B：金額讀既有 RRI；無對應 RRI 時為 null → 顯示「—」（不以 0 冒充）。 */
+  amountDue: number | null;
+  amountPaid: number | null;
+  amountUnpaid: number | null;
   status: string;
   printedAt: string | null;
   lastPrintedAt: string | null;
@@ -204,8 +205,8 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
               <td className="px-2 py-1.5 text-ink-soft">{r.memberName ?? "—"}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.itemName}</td>
               <td className="px-2 py-1.5 text-ink-soft">{r.quantity}</td>
-              <td className="px-2 py-1.5 text-ink-soft">{r.amountDue}</td>
-              <td className="px-2 py-1.5 text-ink-soft">{r.amountUnpaid}</td>
+              <td className="px-2 py-1.5 text-ink-soft">{r.amountDue == null ? "—" : r.amountDue}</td>
+              <td className="px-2 py-1.5 text-ink-soft">{r.amountUnpaid == null ? "—" : r.amountUnpaid}</td>
               <td className="px-2 py-1.5 text-xs text-ink-faint print:hidden">
                 {r.printCount > 0
                   ? `已列印 ${r.printCount} 次｜首印 ${rocTime(r.printedAt)}｜最後 ${rocTime(r.lastPrintedAt ?? r.printedAt)}${r.printedByName ? `｜${r.printedByName}` : ""}`
