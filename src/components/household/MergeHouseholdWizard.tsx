@@ -35,6 +35,13 @@ type Preview = {
   ancestorsToMerge: { id: string; displayName: string; duplicate: boolean }[];
   individualsToMerge: { id: string; displayName: string; duplicate: boolean }[];
   affectedCounts: Record<string, number>;
+  // V36-H：主要聯絡人衝突。兩戶都有主要聯絡人且姓名不同時 needsChoice=true，
+  // 後端要求必須帶 keepPrimaryContactMemberId，否則合併會被擋下。
+  primaryContact: {
+    target: { memberId: string | null; name: string | null };
+    source: { memberId: string | null; name: string | null };
+    needsChoice: boolean;
+  };
 };
 
 /**
@@ -52,6 +59,8 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
   const [preview, setPreview] = useState<Preview | null>(null);
   const [resolution, setResolution] = useState<Record<string, "target" | "source">>({});
   const [keepHeadMemberId, setKeepHeadMemberId] = useState<string>("");
+  // V36-H：合併後保留的主要聯絡人（兩戶都有且不同名時必選）。
+  const [keepPrimaryContactMemberId, setKeepPrimaryContactMemberId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -82,7 +91,25 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
 
   const needHeadChoice = !!(preview?.target.headMemberId && preview?.source.headMemberId);
   const allConflictsResolved = preview ? preview.conflicts.every((c) => resolution[c.field]) : true;
-  const canExecute = allConflictsResolved && (!needHeadChoice || keepHeadMemberId);
+  // V36-H：主要聯絡人衝突。可選對象＝兩戶中「有 flagged 成員」的主要聯絡人（memberId 非空）。
+  const needPrimaryContactChoice = !!preview?.primaryContact?.needsChoice;
+  const primaryContactCandidates = preview
+    ? ([
+        preview.primaryContact.target.memberId
+          ? { memberId: preview.primaryContact.target.memberId, name: preview.primaryContact.target.name, side: "目標戶" as const }
+          : null,
+        preview.primaryContact.source.memberId
+          ? { memberId: preview.primaryContact.source.memberId, name: preview.primaryContact.source.name, side: "來源戶" as const }
+          : null,
+      ].filter(Boolean) as { memberId: string; name: string | null; side: "目標戶" | "來源戶" }[])
+    : [];
+  // 需要選、且有可選對象時才要求選定；若兩邊主要聯絡人都只是文字（無 flagged 成員），無法在此解決。
+  const primaryContactResolvable = !needPrimaryContactChoice || primaryContactCandidates.length > 0;
+  const canExecute =
+    allConflictsResolved &&
+    (!needHeadChoice || keepHeadMemberId) &&
+    (!needPrimaryContactChoice || !!keepPrimaryContactMemberId) &&
+    primaryContactResolvable;
 
   async function handleExecute() {
     if (!preview || loading || !canExecute) return;
@@ -102,6 +129,8 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
           sourceId: preview.source.id,
           fieldResolution,
           keepHeadMemberId: keepHeadMemberId || undefined,
+          // V36-H：兩戶都有主要聯絡人且不同名時，帶上使用者選定要保留的那一位。
+          keepPrimaryContactMemberId: keepPrimaryContactMemberId || undefined,
         }),
       });
       const data = await res.json();
@@ -219,6 +248,34 @@ export default function MergeHouseholdWizard({ targetHouseholdId, onClose, onSuc
                     {preview.source.headName}（來源戶）
                   </label>
                 </div>
+              </div>
+            )}
+
+            {needPrimaryContactChoice && (
+              <div className="rounded-2xl bg-yolk-50 px-4 py-3">
+                <p className="text-sm text-ink">
+                  兩戶都有主要聯絡人（{preview.primaryContact.target.name ?? "（目標戶）"}／
+                  {preview.primaryContact.source.name ?? "（來源戶）"}），請選擇合併後保留哪一位：
+                </p>
+                {primaryContactCandidates.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-3 text-sm">
+                    {primaryContactCandidates.map((c) => (
+                      <label key={c.memberId} className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="keepPrimaryContact"
+                          checked={keepPrimaryContactMemberId === c.memberId}
+                          onChange={() => setKeepPrimaryContactMemberId(c.memberId)}
+                        />
+                        {c.name ?? "（未命名）"}（{c.side}）
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-ink-soft">
+                    ⚠️ 兩戶的主要聯絡人皆為純文字（未指定成員），無法在此選擇。請先到其中一戶把主要聯絡人指定到一位成員後再合併。
+                  </p>
+                )}
               </div>
             )}
 

@@ -15,6 +15,7 @@ import {
   clearIncomingPrimaryContactFlags,
   describePrimaryContact,
 } from "@/lib/householdPrimaryContact";
+import { partitionYangshangForMerge } from "@/lib/householdYangshangMerge";
 import {
   findDuplicateMatches,
   type DuplicateCandidate,
@@ -925,6 +926,21 @@ export async function mergeHouseholds(params: {
       await tx.worshipRecord.update({ where: { id: w.id }, data: { householdId: targetId } });
     }
 
+    // 3b) V36-H：固定陽上人名單（HouseholdYangshang）跟著併入目標家戶。
+    //     因 @@unique([householdId, name])，名稱已存在於目標戶者一律略過（不撞唯一鍵、
+    //     不重複、不遺失——略過者留在已封存的來源戶）。搬移／略過的判斷用純函式，與測試同源。
+    const targetYangshang = await tx.householdYangshang.findMany({ where: { householdId: targetId }, select: { name: true } });
+    const sourceYangshang = await tx.householdYangshang.findMany({ where: { householdId: sourceId }, select: { id: true, name: true } });
+    const { toMove: yangshangToMove } = partitionYangshangForMerge(
+      targetYangshang.map((y) => y.name),
+      sourceYangshang
+    );
+    for (const y of yangshangToMove) {
+      await tx.householdYangshang.update({ where: { id: y.id }, data: { householdId: targetId } });
+    }
+    const yangshangMovedCount = yangshangToMove.length;
+    const yangshangSkippedCount = sourceYangshang.length - yangshangToMove.length;
+
     // 4) 套用欄位衝突的解決方式到目標家戶
     const data: Prisma.HouseholdUpdateInput = {};
     for (const field of MERGEABLE_FIELDS) {
@@ -994,6 +1010,7 @@ export async function mergeHouseholds(params: {
         changeNote:
           `家戶管理中心：合併家戶——併入來源家戶 ${sourceId}（${source.name}），移入 ${source.members.length} 位成員` +
           `｜同步關聯紀錄：${describeSyncCounts(syncCounts)}` +
+          `｜固定陽上人：移入 ${yangshangMovedCount} 筆、略過（目標已有同名）${yangshangSkippedCount} 筆` +
           `｜主要聯絡人：${finalContactName ?? "（未指定）"}` +
           `｜移入成員：${source.members.map((m) => `${m.name}(${m.id})`).join("、") || "無"}` +
           `｜操作人 userId=${operatorUserId ?? "（未記錄）"}` +
