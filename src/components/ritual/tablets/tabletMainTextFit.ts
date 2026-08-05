@@ -31,11 +31,11 @@ export function tabletMainCharCount(raw: string | null | undefined): number {
  * 匯入或手動而異。autoFitThreshold＝在固定 bounding box 內、基準字級可容納的字數上限（超過才縮）。
  */
 export const TABLET_MAIN_FIT = {
-  /** 基準字級（mm）——與 --v34-main-size 對齊。 */
-  baseSizeMm: 9.9,
+  /** 基準字級（mm）——V36.14 由 9.9→13（一頁 7 筆、欄變寬後主文放大，接近設計字級）。 */
+  baseSizeMm: 13,
   lineHeight: 1.05,
   /** 基準字級下、主文 bounding box（直書滿高）可容納的字數上限；≤ 此值不縮小。 */
-  autoFitThreshold: 15,
+  autoFitThreshold: 12,
   /** 最小字級（mm），縮到此為止。 */
   minSizeMm: 6.0,
   /** 每超出 1 字的縮放比例（近似等比縮字）。 */

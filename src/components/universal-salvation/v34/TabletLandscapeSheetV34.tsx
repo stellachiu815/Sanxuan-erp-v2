@@ -25,7 +25,8 @@ export type V34Group = {
   records: PrintTabletEntry[];
 };
 
-export const DENSITY_COLS: Record<V34Density, number> = { standard: 8, economy: 10 };
+// V36.14：standard 8→7 筆/頁（與正式列印一致，欄變寬、主文更大）；economy 維持 10。
+export const DENSITY_COLS: Record<V34Density, number> = { standard: 7, economy: 10 };
 
 /** V34 分頁：把 N 筆依每頁欄數切成多頁（同一筆不跨頁）。純函式，供測試。 */
 export function chunk<T>(arr: T[], size: number): T[][] {

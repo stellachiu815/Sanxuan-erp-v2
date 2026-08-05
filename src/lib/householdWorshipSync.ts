@@ -75,15 +75,18 @@ export async function syncEntryToHouseholdWorshipRecord(
         })
       : null;
 
-  // 2) 否則以 (type ＋ 標準化姓名 ＋ 標準化地址) 比對本戶既有牌位（同名不同址＝不同牌位）。
+  // 2) 否則以 (type ＋ 標準化核心名) 比對本戶既有牌位。
+  //    V36.14：**不再把地址算進判重**——同家戶＋同類別＋同核心名 = 同一張永久牌位，之後只更新那一張
+  //    （含更新地址），絕不因地址不同就多開第二張。同名多張（歷史遺留）取最早建立者收斂。
   if (!target) {
     const candidates = await tx.worshipRecord.findMany({
       where: { householdId: input.householdId, type: worshipType, deletedAt: null },
+      orderBy: { createdAt: "asc" },
     });
-    const key = `${normalizeTabletText(name)}::${normalizeTabletText(location)}`;
+    const nameKey = normalizeTabletText(name); // name 已是核心名（normalizeRitualNameForStore）
     target =
       candidates.find(
-        (w) => `${normalizeTabletText(w.displayName)}::${normalizeTabletText(w.location)}` === key
+        (w) => normalizeTabletText(normalizeRitualNameForStore(input.category, w.displayName)) === nameKey
       ) ?? null;
   }
 

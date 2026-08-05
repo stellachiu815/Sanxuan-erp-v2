@@ -120,7 +120,11 @@ async function listUniversalSalvationPrintObjectRows(f: PrintCenterFilters): Pro
       householdId: v.household.id,
       householdName: v.household.name,
       memberName: (v.sourceYangshangNames && v.sourceYangshangNames[0]) || null,
-      tabletName: v.itemType === "POCKET" ? v.printName : (v.printMainText?.trim() || v.sourceDisplayName),
+      // V36.14：寶袋顯示名——沿用來源牌位名稱的寶袋顯示「已補後綴」的完整名（蔡姓→蔡姓歷代祖先）；
+      //   自訂名稱寶袋（如江士耀）顯示其自訂名。牌位則主文覆寫優先、否則完整顯示名。
+      tabletName: v.itemType === "POCKET"
+        ? (v.usesSourceName ? v.sourceDisplayName : v.printName)
+        : (v.printMainText?.trim() || v.sourceDisplayName),
       yangshangNames: v.sourceYangshangNames ?? [],
       tabletAddress: v.sourceLocation ?? null,
       source,

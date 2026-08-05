@@ -4,8 +4,8 @@ import { chunk, DENSITY_COLS } from "../src/components/universal-salvation/v34/T
 
 /** V34 橫式列印版型：分頁（page-break）純邏輯。純呈現元件，只測分頁與密度對應。 */
 
-test("密度對應：標準 8 欄/頁、省紙 10 欄/頁", () => {
-  assert.equal(DENSITY_COLS.standard, 8);
+test("密度對應：標準 7 欄/頁（V36.14 由 8→7）、省紙 10 欄/頁", () => {
+  assert.equal(DENSITY_COLS.standard, 7);
   assert.equal(DENSITY_COLS.economy, 10);
 });
 
