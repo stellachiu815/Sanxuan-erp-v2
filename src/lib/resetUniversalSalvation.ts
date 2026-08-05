@@ -45,18 +45,17 @@ export async function resetUniversalSalvation(year: number, opts: { commit: bool
     counts: {}, skippedHouseholds: [], outOfScope: 0,
   };
 
+  // V36.13：找活動僅供顯示；為安全若有多個活動則中止。實際範圍＝「該年度所有普渡報名」（不論是否掛到活動），
+  //   因為既有資料常有 templeEventId 為空／不同（範圍外）而抓不到——普渡一年一場，year+activityType 即唯一範圍。
   const events = await q<{ id: string }>(`SELECT "id" FROM "temple_events" WHERE "activityType"='${ACTIVITY}' AND "year"=${year}`);
-  if (events.length !== 1) return { ...base, error: `找不到唯一的 ${year} 普渡活動（找到 ${events.length} 筆），為安全起見中止。` };
-  const eventId = events[0].id;
-  base.templeEventId = eventId;
-  const evL = eventId.replace(/'/g, "''");
+  if (events.length > 1) return { ...base, error: `偵測到多個 ${year} 普渡活動（應唯一），為安全起見中止。` };
+  base.templeEventId = events[0]?.id ?? null;
+  const evL = base.templeEventId ? base.templeEventId.replace(/'/g, "''") : null;
 
   const targets = await q<Rec>(
     `SELECT "id","status","householdId","deletedAt" FROM "ritual_records"
-     WHERE "activityType"='${ACTIVITY}' AND "year"=${year} AND "templeEventId"='${evL}'`);
-  base.outOfScope = (await q<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM "ritual_records" WHERE "activityType"='${ACTIVITY}' AND "year"=${year}
-       AND ("templeEventId" IS NULL OR "templeEventId" <> '${evL}')`))[0]?.n ?? 0;
+     WHERE "activityType"='${ACTIVITY}' AND "year"=${year}`);
+  base.outOfScope = 0; // 已改為涵蓋全部該年度普渡報名，無「範圍外」。
   base.targets = targets.length;
   if (targets.length === 0) return { ...base, ok: true };
 
@@ -118,7 +117,7 @@ export async function resetUniversalSalvation(year: number, opts: { commit: bool
   const delApi = api.filter((a) => delRecSet.has(a.ritualRecordId));
 
   const importBatches = await q<{ id: string }>(
-    `SELECT "id" FROM "purification_import_batches" WHERE "year"=${year} AND ("templeEventId"='${evL}' OR "templeEventId" IS NULL)`);
+    `SELECT "id" FROM "purification_import_batches" WHERE "year"=${year}${evL ? ` AND ("templeEventId"='${evL}' OR "templeEventId" IS NULL)` : ""}`);
   const batchIds = importBatches.map((b) => b.id);
   const importRowsCount = inList(batchIds)
     ? (await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "purification_import_rows" WHERE "batchId" IN (${inList(batchIds)})`))[0]?.n ?? 0
