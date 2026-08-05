@@ -110,7 +110,8 @@ function Inner() {
                   void run(true);
                 }
               }}
-              className="rounded-full bg-blossom-400 px-5 py-2 text-sm font-medium text-white disabled:opacity-40"
+              style={{ backgroundColor: "#c0392b", color: "#ffffff", opacity: busy ? 0.5 : 1 }}
+              className="rounded-full px-6 py-2.5 text-sm font-semibold"
             >
               {busy ? "清空中…" : `2) 正式清空（${report.deletable} 筆）`}
             </button>
