@@ -37,19 +37,17 @@ function Inner() {
   const [year, setYear] = useState(currentYear);
   const [report, setReport] = useState<Report | null>(null);
   const [committed, setCommitted] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
+  const [confirmChecked, setConfirmChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-
-  const expected = `清空${year}普渡`;
 
   async function run(commit: boolean) {
     setBusy(true); setError(null); setMsg(null);
     try {
       const res = await fetchRegistration(`/api/admin/universal-salvation/reset`, {
         method: "POST",
-        body: JSON.stringify({ year, commit, confirmText }),
+        body: JSON.stringify({ year, commit, confirm: confirmChecked }),
       });
       const data = await res.json();
       if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
@@ -104,12 +102,13 @@ function Inner() {
       {report && !committed && report.deletable > 0 && (
         <div className="mt-4 rounded-2xl bg-blossom-50 p-4 text-sm shadow-card">
           <p className="text-blossom-500">確認要清空？此動作為硬刪除、無法還原（已收款者已自動保留）。</p>
-          <p className="mt-2 text-ink-soft">請輸入：<b>{expected}</b></p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={expected}
-              className="min-h-9 flex-1 rounded-lg border border-blossom-200 px-3 py-1.5 text-sm" />
-            <button type="button" onClick={() => run(true)} disabled={busy || confirmText.trim() !== expected}
-              className="rounded-full bg-blossom-400 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+          <label className="mt-3 flex items-center gap-2 text-ink">
+            <input type="checkbox" checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)} className="h-5 w-5" />
+            我確認清空 {year} 普渡報名（共 {report.deletable} 筆），了解無法還原。
+          </label>
+          <div className="mt-3">
+            <button type="button" onClick={() => run(true)} disabled={busy || !confirmChecked}
+              className="rounded-full bg-blossom-400 px-5 py-2 text-sm font-medium text-white disabled:opacity-40">
               {busy ? "清空中…" : "2) 正式清空"}
             </button>
           </div>

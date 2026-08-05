@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { year?: number; commit?: boolean; confirmText?: string };
+  let body: { year?: number; commit?: boolean; confirm?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -31,11 +31,8 @@ export async function POST(request: NextRequest) {
   if (!Number.isInteger(year)) return NextResponse.json({ error: "年度格式錯誤" }, { status: 400 });
 
   const commit = body?.commit === true;
-  if (commit) {
-    const expected = `清空${year}普渡`;
-    if ((body?.confirmText ?? "").trim() !== expected) {
-      return NextResponse.json({ error: `正式清空需在確認欄輸入「${expected}」，才會執行。` }, { status: 400 });
-    }
+  if (commit && body?.confirm !== true) {
+    return NextResponse.json({ error: "請先勾選『我確認清空』，才會執行。" }, { status: 400 });
   }
 
   try {
