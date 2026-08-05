@@ -7,6 +7,7 @@
 import { printAddress, printYangshangName } from "@/lib/printChinese";
 import { formatYangshangAcclaim, resolveYangshangNames } from "@/lib/yangshang";
 import { displayDebtCreditorName } from "@/lib/debtCreditorName";
+import { cleanTabletMainText } from "./tabletMainTextFit";
 
 /**
  * 牌位列印的**原始**資料（資料庫值，阿拉伯數字、不含「叩薦」）。
@@ -78,7 +79,8 @@ export function toPrintableTablet(entry: PrintTabletEntry): PrintableTabletEntry
     names.length > 0 ? formatYangshangAcclaim(names) : printYangshangName(entry.yangshangName);
   return {
     // 列印正名：冤親債主／歷世冤親債主等舊寫法一律印為「累世冤親債主」（非變體名稱原樣不動）。
-    displayName: displayDebtCreditorName(entry.displayName),
+    // V36.11：主文一律清理不可見空白／換行（trim + 去零寬字元等），避免長度被灌水導致 auto-fit 誤縮。
+    displayName: cleanTabletMainText(displayDebtCreditorName(entry.displayName)),
     yangshangText,
     locationText: printAddress(entry.location ?? null),
     notes: entry.notes,

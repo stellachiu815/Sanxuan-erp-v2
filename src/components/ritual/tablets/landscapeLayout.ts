@@ -23,6 +23,7 @@
  */
 
 import { fitVerticalFont, fitYangshangVertical } from "./fontFit";
+import { cleanTabletMainText } from "./tabletMainTextFit";
 import { formatYangshangAcclaim } from "@/lib/yangshang";
 import type {
   TabletDocumentType, TabletA4Offset, PositionedBlock, TabletPage, TabletLayout, TabletRecordInput, LayoutViolation,
@@ -61,7 +62,7 @@ const YANGSHANG_THREE_COL_THRESHOLD = 4;
 const MAIN_MAX_PX = 150, MAIN_MIN_PX = 22;
 const ADDR_MAX_PX = 30, ADDR_MIN_PX = 10;
 const YANG_MAX_PX = 34, YANG_MIN_PX = 10;
-const UNBORN_MAIN_MAX_PX = 190;
+// V36.11：移除無緣子女專屬主文上限（原 190px），四類牌位主文改共用 MAIN_MAX_PX，字級一致。
 
 type LandscapeRecordInput = TabletRecordInput & { yangshangNames?: string[] };
 export type LandscapeLayoutOptions = { density?: LandscapeDensity; offset?: TabletA4Offset };
@@ -105,7 +106,9 @@ export function buildLandscapeTabletLayout(
   const perPage = Math.max(1, Math.floor((availW + GROUP_GAP_MM) / (groupW + GROUP_GAP_MM)));
   // 群組原點距（含間距）：讓 perPage 個群組平均填滿 availW，slot 0 最右緣＝rightBound、最左群組左緣＝leftBound。
   const stride = perPage > 1 ? (availW - groupW) / (perPage - 1) : 0;
-  const mainMax = documentType === "UNBORN_CHILD" ? UNBORN_MAIN_MAX_PX : MAIN_MAX_PX;
+  // V36.11：四類牌位主文共用同一字級上限（歷代祖先／乙位正魂／累世冤親債主／無緣子女一致）——
+  //   移除無緣子女專屬較大上限，避免同字數主文因類別而字級不同；超出 bounding box 時仍由 auto-fit 縮小。
+  const mainMax = MAIN_MAX_PX;
 
   const allBlocks: PositionedBlock[] = [];
 
@@ -116,7 +119,8 @@ export function buildLandscapeTabletLayout(
     const xLeft = xRight - groupW;
 
     const addrText = rec.addressText ?? "";
-    const mainText = rec.mainText ?? "";
+    // V36.11：主文先清理不可見空白／換行，再進 auto-fit——避免長度被灌水導致同字數主文被誤縮。
+    const mainText = cleanTabletMainText(rec.mainText ?? "");
     const nameCount = (rec.yangshangNames?.filter((s) => s.trim()).length ?? 0) || (rec.yangshangText ? 1 : 0);
     const yangText = yangshangDisplay(rec.yangshangNames, rec.yangshangText);
     const threeCol = nameCount >= YANGSHANG_THREE_COL_THRESHOLD;

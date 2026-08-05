@@ -13,6 +13,7 @@
  */
 
 import { toPrintableTablet, type PrintTabletEntry } from "@/components/ritual/tablets/shared";
+import { fitV34MainSizeMm } from "@/components/ritual/tablets/tabletMainTextFit";
 
 export type V34Density = "standard" | "economy";
 
@@ -40,14 +41,18 @@ function workNo(n: number | null | undefined): string | null {
 }
 
 /** 一戶（一筆）：直書群組——主文（大）｜陽上人＋叩薦｜地址；由右至左（row-reverse）。 */
-function FamilyCell({ e, showWorkNumber }: { e: PrintTabletEntry; showWorkNumber: boolean }) {
-  const p = toPrintableTablet(e);
+function FamilyCell({ e, showWorkNumber, documentType }: { e: PrintTabletEntry; showWorkNumber: boolean; documentType: string }) {
+  const p = toPrintableTablet(e); // 主文已於 toPrintableTablet 清理不可見空白／換行。
   const no = workNo(e.workNumber);
+  // V36.11：四類牌位主文共用同一字級規則（fitV34MainSizeMm）——相同（清理後）字數 → 相同字級；
+  //   只有超出 bounding box 才等比縮小。寶袋（POCKET）維持原本較小字級（沿用 CSS 固定值），不套用。
+  const isTablet = documentType !== "POCKET";
+  const mainStyle = isTablet ? { fontSize: `${fitV34MainSizeMm(p.displayName.length)}mm` } : undefined;
   return (
     <div className="v34-cell">
       {showWorkNumber && no && <span className="v34-no">{no}</span>}
       <div className="v34-cell-cols">
-        <div className="v34-main">{p.displayName}</div>
+        <div className="v34-main" style={mainStyle}>{p.displayName}</div>
         <div className="v34-yang">{p.yangshangText}</div>
         <div className="v34-addr">{p.locationText}</div>
       </div>
@@ -89,7 +94,7 @@ export default function TabletLandscapeSheetV34({
           </header>
           <div className="v34-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
             {pg.records.map((e, i) => (
-              <FamilyCell key={i} e={e} showWorkNumber={showWorkNumber} />
+              <FamilyCell key={i} e={e} showWorkNumber={showWorkNumber} documentType={pg.documentType} />
             ))}
           </div>
           <footer className="v34-footer">

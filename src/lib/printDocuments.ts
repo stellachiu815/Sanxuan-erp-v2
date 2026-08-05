@@ -66,12 +66,95 @@ export type PrintCenterRow = {
  * year/itemKey/source/printStatus 在 DB 過濾；q（含陽上人陣列子字串）在年度範圍內以 JS 過濾。
  * 不寫入任何資料。
  */
+/**
+ * V36.11：普渡列印物件（牌位四類＋寶袋）的報名項目 key，一律以 listPrintItemsForPrintCenter()
+ * 為唯一有效資料集合（含 DRAFT、排除封存/取消），**不再**用 CONFIRMED-only 舊查詢，避免篩選祖先／
+ * 乙位／冤親／無緣／寶袋時因多為 DRAFT 而顯示 0。白米／贊普等非列印物件維持既有 CONFIRMED 查詢。
+ */
+const US_PRINTOBJECT_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN", "US_POCKET_EXTRA"]);
+const US_CATEGORY_TO_ITEMKEY: Record<string, string> = {
+  ANCESTOR_LINE: "US_ANCESTOR",
+  INDIVIDUAL_SOUL: "US_ZHENGHUN",
+  DEBT_CREDITOR: "US_YUANQIN",
+  UNBORN_CHILD: "US_WUYUAN",
+};
+
+/** V36.11：把 listPrintItemsForPrintCenter 的列印物件視圖轉為列印中心報名名單列（普渡專用；唯一來源）。 */
+async function listUniversalSalvationPrintObjectRows(f: PrintCenterFilters): Promise<PrintCenterRow[]> {
+  const views = await listPrintItemsForPrintCenter(f.year, {});
+  const selected = views.filter((v) => {
+    const key = v.itemType === "POCKET" ? "US_POCKET_EXTRA" : US_CATEGORY_TO_ITEMKEY[v.sourceCategory];
+    if (!key) return false;
+    return f.itemKey ? key === f.itemKey : true;
+  });
+  if (selected.length === 0) return [];
+
+  // 報名項目正式名稱（key→name），一次取回。
+  const nameByKey = new Map(
+    (await prisma.registrationItemType.findMany({ where: { key: { in: [...US_PRINTOBJECT_KEYS] } }, select: { key: true, name: true } }))
+      .map((t) => [t.key, t.name])
+  );
+  // 資料來源／承載活動：以家戶今年普渡 record 取 registrationSource／templeEventId（供來源篩選＋預覽路由）。
+  const householdIds = [...new Set(selected.map((v) => v.household.id))];
+  const recRows = householdIds.length
+    ? await prisma.ritualRecord.findMany({
+        where: { householdId: { in: householdIds }, year: f.year, activityType: "UNIVERSAL_SALVATION", deletedAt: null },
+        select: { householdId: true, registrationSource: true, templeEventId: true },
+      })
+    : [];
+  const recByHh = new Map(recRows.map((r) => [r.householdId, r]));
+
+  const rows: PrintCenterRow[] = selected.map((v) => {
+    const key = v.itemType === "POCKET" ? "US_POCKET_EXTRA" : US_CATEGORY_TO_ITEMKEY[v.sourceCategory];
+    const rec = recByHh.get(v.household.id);
+    const source = rec?.registrationSource ?? "";
+    return {
+      // 本名單以「列印物件」為準（與 V34／buildItemRoster 同一集合）；id＝列印物件 id。
+      registrationItemId: v.id,
+      registrationOrder: v.registrationOrder,
+      year: f.year,
+      itemKey: key,
+      itemName: nameByKey.get(key) ?? key,
+      contentKind: v.itemType,
+      templeEventId: rec?.templeEventId ?? null,
+      householdId: v.household.id,
+      householdName: v.household.name,
+      memberName: (v.sourceYangshangNames && v.sourceYangshangNames[0]) || null,
+      tabletName: v.itemType === "POCKET" ? v.printName : (v.printMainText?.trim() || v.sourceDisplayName),
+      yangshangNames: v.sourceYangshangNames ?? [],
+      tabletAddress: v.sourceLocation ?? null,
+      source,
+      sourceLabel: REGISTRATION_SOURCE_LABEL[source] ?? source,
+      quantity: v.quantity,
+      printCount: v.printCount,
+      firstPrintedAt: v.firstPrintedAt,
+      lastPrintedAt: v.lastPrintedAt,
+      lastPrintedByName: v.lastPrintedByName,
+    };
+  });
+
+  // 篩選：資料來源、列印狀態（以列印物件 printCount 判定）。
+  return rows.filter((r) => {
+    if (f.source && r.source !== f.source) return false;
+    if (f.printStatus === "UNPRINTED" && r.printCount !== 0) return false;
+    if (f.printStatus === "PRINTED" && r.printCount <= 0) return false;
+    return true;
+  });
+}
+
 export async function listPrintCenterItems(f: PrintCenterFilters): Promise<PrintCenterRow[]> {
-  const rows = await prisma.ritualRegistrationItem.findMany({
+  // V36.11：普渡列印物件（祖先／乙位／冤親／無緣／寶袋）走唯一來源 listPrintItemsForPrintCenter；
+  //   其餘（白米／贊普…）維持既有 CONFIRMED 查詢。itemKey 空＝兩者合併；itemKey 為列印物件則不查 CONFIRMED。
+  const wantPrintObjects = !f.itemKey || US_PRINTOBJECT_KEYS.has(f.itemKey);
+  const wantConfirmed = !f.itemKey || !US_PRINTOBJECT_KEYS.has(f.itemKey);
+  const printObjectRows = wantPrintObjects ? await listUniversalSalvationPrintObjectRows(f) : [];
+
+  const rows = wantConfirmed ? await prisma.ritualRegistrationItem.findMany({
     where: {
       deletedAt: null,
       status: "CONFIRMED",
-      ...(f.itemKey ? { registrationItemType: { key: f.itemKey } } : {}),
+      // itemKey 指定非列印物件 → 該 key；未指定 → 排除普渡列印物件 key（改由上方唯一來源提供，避免重複／CONFIRMED 漏 DRAFT）。
+      ...(f.itemKey ? { registrationItemType: { key: f.itemKey } } : { registrationItemType: { key: { notIn: [...US_PRINTOBJECT_KEYS] } } }),
       ...(f.printStatus === "UNPRINTED" ? { printCount: 0 } : f.printStatus === "PRINTED" ? { printCount: { gt: 0 } } : {}),
       ritualRecord: {
         deletedAt: null,
@@ -87,7 +170,7 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
       ritualRecord: { select: { year: true, registrationSource: true, templeEventId: true, household: { select: { id: true, name: true } } } },
     },
     orderBy: [{ createdAt: "asc" }],
-  });
+  }) : [];
 
   // V32：列印號＝printNumberOf(workOrder, registrationOrder)（workOrder 優先，NULL 回退）。名單/總表以此排序顯示。
   const rowIds = rows.map((r) => r.id);
@@ -127,8 +210,11 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
     };
   });
 
+  // V36.11：普渡列印物件列（唯一來源）＋非列印物件 CONFIRMED 列，合併為單一名單。
+  const combined = [...printObjectRows, ...mapped];
+
   // V30.3：每個報名項目（itemKey）各自依 registrationOrder 由小到大；未補號（null）排最後。
-  mapped.sort((a, b) => {
+  combined.sort((a, b) => {
     if (a.itemKey !== b.itemKey) return a.itemKey < b.itemKey ? -1 : 1;
     const ao = a.registrationOrder;
     const bo = b.registrationOrder;
@@ -139,10 +225,10 @@ export async function listPrintCenterItems(f: PrintCenterFilters): Promise<Print
   });
 
   const q = (f.q ?? "").trim();
-  if (!q) return mapped;
+  if (!q) return combined;
   const nq = normalizeTabletText(q);
   const hit = (s: string | null | undefined) => normalizeTabletText(s).includes(nq);
-  return mapped.filter(
+  return combined.filter(
     (r) => hit(r.householdName) || hit(r.memberName) || hit(r.tabletName) || hit(r.tabletAddress) || r.yangshangNames.some((y) => hit(y))
   );
 }
