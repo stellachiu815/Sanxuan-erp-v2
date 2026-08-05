@@ -653,8 +653,12 @@ export async function createUniversalSalvationEntry(
       linkedMemberId = wr?.memberId ?? null;
     }
     if (linkedMemberId) {
-      const m = await client.member.findUnique({ where: { id: linkedMemberId }, select: { id: true } });
-      devoteeAddress = m ? ((m as unknown as { address: string | null }).address ?? null) : null;
+      const m = await client.member.findUnique({ where: { id: linkedMemberId }, select: { id: true, householdId: true } });
+      // V36.12：只採「同一家戶」信眾的地址快照。跨戶 linked member（例：他戶報名人、家戶合併搬移後的成員）
+      //   的地址**不得**寫入本牌位 tabletAddress——否則同一報名人底下的多筆乙位正魂會一起被凍結成別戶地址。
+      devoteeAddress = m && m.householdId === householdId
+        ? ((m as unknown as { address: string | null }).address ?? null)
+        : null;
     }
     resolvedTabletAddress = resolveTabletAddress({
       inputAddress: input.tabletAddress,

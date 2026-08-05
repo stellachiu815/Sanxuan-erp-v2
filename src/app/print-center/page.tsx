@@ -149,6 +149,10 @@ function PrintCenterInner() {
           <Link href="/universal-salvation/template-preview" className="rounded-full bg-cream-100 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-200">列印模板測試預覽</Link>
           <a href={`/api/universal-salvation/${year}/roster-export`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">⬇ 匯出活動總名單 Excel（祖先＋乙位／冤親／白米／贊普）</a>
           <Link href="/system-center/universal-salvation-check" className="rounded-full bg-cream-100 px-4 py-1.5 text-sm text-ink-soft hover:bg-cream-200">普渡上線前檢查（唯讀）</Link>
+          {/* V36.1：活動參加名單（只讀）——每一筆報名項目一列，不合併家戶。 */}
+          <Link href={`/print-center/activity-participants?year=${year}`} className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink hover:bg-sage-200">活動參加名單（每筆項目・只讀）</Link>
+          {/* V36.2：列印物件查詢／補印準備（只讀）——每一份實體列印物件一列。 */}
+          <Link href={`/print-center/print-objects?year=${year}`} className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink hover:bg-sage-200">列印物件查詢／補印準備（只讀）</Link>
           {/* V34（平行開發）橫式列印版型：與現行版並存、不取代；一鍵預覽該批次未列印且完整者。 */}
           <Link href={`/universal-salvation/${year}/print-center/print-v34?batch=ancestor-soul&density=standard`} className="rounded-full bg-blossom-100 px-4 py-1.5 text-sm text-ink hover:bg-blossom-200">V34 橫式列印・祖先／乙位（實驗）</Link>
           <Link href={`/universal-salvation/${year}/print-center/print-v34?batch=creditor&density=standard`} className="rounded-full bg-blossom-100 px-4 py-1.5 text-sm text-ink hover:bg-blossom-200">V34 橫式列印・冤親（實驗）</Link>

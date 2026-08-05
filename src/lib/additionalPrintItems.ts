@@ -1267,6 +1267,20 @@ export async function listPrintItemsForPrintCenter(
     : [];
   const sourceEntryById = new Map(sourceEntries.map((e) => [e.id, e]));
 
+  // V36.10：**明確**查出本批中已封存（deletedAt 非 null）的來源牌位 id——即使其 AdditionalPrintItem
+  //   尚未連動封存（例：牌位以非正式流程封存、或連動漏跑），仍一律不得進名冊／列印。
+  //   與上方 `deletedAt: null` 的隱性排除互為雙保險，並可被回歸測試明確驗證。
+  const archivedSourceEntryIds = sourceEntryIds.length
+    ? new Set(
+        (
+          await prisma.universalSalvationEntry.findMany({
+            where: { id: { in: sourceEntryIds }, deletedAt: { not: null } },
+            select: { id: true },
+          })
+        ).map((e) => e.id)
+      )
+    : new Set<string>();
+
   // V34.3B：來源牌位對應的 1:1 報名項目（universalSalvationEntryId 為 @unique）——
   //   含已刪除與 CANCELLED 皆查出（不加 deletedAt 過濾），供組裝時排除「已取消／已刪除報名」的孤立列印物件。
   const linkedRriRows = sourceEntryIds.length
@@ -1336,12 +1350,15 @@ export async function listPrintItemsForPrintCenter(
     : [];
   const printMainTextByEntry = new Map(pmtRows.map((r) => [r.id, r.pmt]));
   const memberIds2 = [...new Set(items.map((i) => i.memberId).filter((x): x is string => !!x))];
-  const memberAddrById = memberIds2.length
-    ? new Map((await prisma.member.findMany({ where: { id: { in: memberIds2 } }, select: { id: true, address: true } })).map((m) => [m.id, m.address]))
-    : new Map<string, string | null>();
+  // V36.12：一併取 householdId——地址退回只採「同一家戶」信眾，避免跨戶退回成別戶地址。
+  const memberById2 = memberIds2.length
+    ? new Map((await prisma.member.findMany({ where: { id: { in: memberIds2 } }, select: { id: true, address: true, householdId: true } })).map((m) => [m.id, m]))
+    : new Map<string, { id: string; address: string | null; householdId: string }>();
 
   const views: PrintCenterItemView[] = [];
   for (const item of items) {
+    // V36.10：已封存來源牌位 → 立即跳過（即使其 AdditionalPrintItem 尚未封存）。
+    if (archivedSourceEntryIds.has(item.sourceEntryId)) continue;
     const source = sourceEntryById.get(item.sourceEntryId);
     // V34.3B：來源牌位查無／已封存、或其 1:1 報名項目已刪除／CANCELLED → 一律排除（TABLET 與 POCKET 皆然）。
     const linkedRri = linkedRriByEntryId.get(item.sourceEntryId);
@@ -1419,7 +1436,14 @@ export async function listPrintItemsForPrintCenter(
       printedQuantity: item.printedQuantity,
       note: item.note,
       // V32 地址唯一規則：entry.tabletAddress → Member.address（絕不 Household；不再用 worshipRecord.location）。
-      sourceLocation: resolvePrintAddress(source.tabletAddress, item.memberId ? memberAddrById.get(item.memberId) : null) || null,
+      // V36.12：Member.address 退回只採「同一家戶」信眾（member.householdId === 牌位家戶）；跨戶一律不退回，杜絕別戶地址。
+      sourceLocation: resolvePrintAddress(
+        source.tabletAddress,
+        (() => {
+          const m = item.memberId ? memberById2.get(item.memberId) : null;
+          return m && m.householdId === item.household.id ? m.address : null;
+        })()
+      ) || null,
       sourceTabletAddress: source.tabletAddress ?? null,
       sourceYangshangName: source.yangshangName,
       sourceYangshangNames,

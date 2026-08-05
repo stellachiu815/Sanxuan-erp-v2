@@ -455,27 +455,57 @@ export async function confirmPurificationImportBatch(input: {
       // 只在家戶已知（既有配對）時可先算；需建新家戶的列，家戶於交易內才建立、其既有牌位必為空（→ CREATE）。
       let precomputedAddress: string | null = null;
       let decisionHit: { id: string; ritualRecordId: string } | null = null;
+      // V36.13：命中方式——sameName＝同家戶＋同類別＋同核心名（地址可不同）既有牌位。
+      let hitBySameName = false;
       if (existingHouseholdId) {
         const hhAddr = (await prisma.household.findUnique({ where: { id: existingHouseholdId }, select: { address: true } }))?.address ?? null;
+        const coreWant = normalizeTabletText(normalizeRitualNameForStore(category, displayName));
+
+        // V36.13：牌位地址優先「沿用家戶既有牌位」——Excel 沒填地址時，取家戶永久牌位（WorshipRecord）
+        //   同類別＋同核心名那一張的地址；沒有才退家戶地址。杜絕「匯入沒地址→亂帶戶籍地→事後改地址→重複」。
+        //   只有祖先／乙位正魂有永久牌位；冤親／無緣不走此路（維持原本）。
+        let inheritedAddress: string | null = null;
+        const worshipType = category === "ANCESTOR_LINE" ? "ANCESTOR_LINE" : category === "INDIVIDUAL_SOUL" ? "INDIVIDUAL" : null;
+        if (worshipType) {
+          const wrs = await prisma.worshipRecord.findMany({
+            where: { householdId: existingHouseholdId, type: worshipType as "ANCESTOR_LINE" | "INDIVIDUAL", deletedAt: null },
+            select: { displayName: true, location: true },
+          });
+          const wr = wrs.find((w) => normalizeTabletText(normalizeRitualNameForStore(category, w.displayName)) === coreWant);
+          inheritedAddress = wr?.location?.trim() || null;
+        }
+
         precomputedAddress = resolveImportAddress({
           rowTabletAddress: edited.tabletAddress ?? null,
           rowAddress: edited.address ?? null,
-          matchedHouseholdAddress: hhAddr,
-          devoteeHouseholdAddress: hhAddr,
+          // 沿用既有牌位地址優先於家戶戶籍地（Excel 有填地址時仍以 Excel 為準，見 resolveImportAddress 優先序）。
+          matchedHouseholdAddress: inheritedAddress ?? hhAddr,
+          devoteeHouseholdAddress: inheritedAddress ?? hhAddr,
         }).address;
+
         if (TABLET_CATEGORIES.has(category)) {
           const sameCat = await prisma.universalSalvationEntry.findMany({
             where: { deletedAt: null, category, universalSalvation: { ritualRecord: { householdId: existingHouseholdId, year: batch.year } } },
             select: { id: true, displayName: true, tabletAddress: true, universalSalvation: { select: { ritualRecordId: true } } },
+            orderBy: { createdAt: "asc" },
           });
           const wantKey = tabletIdentityKey({ category, displayName, tabletAddress: precomputedAddress });
-          const e = sameCat.find((x) => tabletIdentityKey({ category, displayName: x.displayName, tabletAddress: x.tabletAddress }) === wantKey);
+          let e = sameCat.find((x) => tabletIdentityKey({ category, displayName: x.displayName, tabletAddress: x.tabletAddress }) === wantKey);
+          if (!e) {
+            // V36.13：同家戶＋同類別＋同核心名 → 視為同一牌位（更新，不新增重複）。
+            //   同名有多筆（不同地址／合法多支）→ 不自動合併，維持既有身分鍵行為，待匯入預覽人工判斷。
+            const sameName = sameCat.filter((x) => normalizeTabletText(normalizeRitualNameForStore(category, x.displayName)) === coreWant);
+            if (sameName.length === 1) { e = sameName[0]; hitBySameName = true; }
+          }
           if (e) decisionHit = { id: e.id, ritualRecordId: e.universalSalvation?.ritualRecordId ?? "" };
         }
       }
-      // V15R7：處理語意明確分開（不用「預設 SKIP 再猜」）：
-      //   無既有同一牌位（NONE／同名不同址）→ CREATE；有既有 → 預設 SKIP，僅明確 UPDATE 才更新。
-      const action: "CREATE" | "UPDATE" | "SKIP" = !decisionHit ? "CREATE" : ext.resolutionAction === "UPDATE" ? "UPDATE" : "SKIP";
+      // V36.13：無既有→CREATE；同核心名既有→UPDATE（含沿用/補地址，不新增重複）；完全同名同址既有→預設 SKIP、明確才 UPDATE。
+      const action: "CREATE" | "UPDATE" | "SKIP" = !decisionHit
+        ? "CREATE"
+        : hitBySameName
+          ? "UPDATE"
+          : ext.resolutionAction === "UPDATE" ? "UPDATE" : "SKIP";
 
       // ══ SKIP：已存在且未選更新 → 牌位本身不重建；但 Excel「額外寶袋」仍須建立（冪等）══
       if (action === "SKIP") {

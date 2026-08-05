@@ -35,9 +35,13 @@ const PX_PER_MM = 3.7795275591;
 export const LANDSCAPE_A4 = { widthMm: 297, heightMm: 210 } as const;
 export type LandscapeDensity = "standard" | "economy";
 
-/** 密度預設：每群組寬（mm）。可用內容寬＝297-2×margin-2×edgePad；standard 33→8 筆/頁、economy 25→10 筆/頁。 */
+/**
+ * 密度預設：每群組寬（mm）。可用內容寬＝297-2×margin-2×edgePad＝285mm。
+ * V36.12：standard 38→**每頁 7 筆**（原 33→8 筆）；群組加寬 → 主文 auto-fit 寬度上限提高 → 主文**等比例放大**。
+ *   economy 25→10 筆/頁維持不變。四類牌位（祖先／乙位正魂／冤親／無緣子女）皆走 standard，一併變 7 筆/頁。
+ */
 const DENSITY: Record<LandscapeDensity, { groupWidthMm: number }> = {
-  standard: { groupWidthMm: 33 },
+  standard: { groupWidthMm: 38 },
   economy: { groupWidthMm: 25 },
 };
 
