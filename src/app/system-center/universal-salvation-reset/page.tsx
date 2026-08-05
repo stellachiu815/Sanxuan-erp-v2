@@ -37,7 +37,6 @@ function Inner() {
   const [year, setYear] = useState(currentYear);
   const [report, setReport] = useState<Report | null>(null);
   const [committed, setCommitted] = useState(false);
-  const [confirmChecked, setConfirmChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -47,7 +46,7 @@ function Inner() {
     try {
       const res = await fetchRegistration(`/api/admin/universal-salvation/reset`, {
         method: "POST",
-        body: JSON.stringify({ year, commit, confirm: confirmChecked }),
+        body: JSON.stringify({ year, commit, confirm: commit }),
       });
       const data = await res.json();
       if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
@@ -101,15 +100,19 @@ function Inner() {
 
       {report && !committed && report.deletable > 0 && (
         <div className="mt-4 rounded-2xl bg-blossom-50 p-4 text-sm shadow-card">
-          <p className="text-blossom-500">確認要清空？此動作為硬刪除、無法還原（已收款者已自動保留）。</p>
-          <label className="mt-3 flex items-center gap-2 text-ink">
-            <input type="checkbox" checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)} className="h-5 w-5" />
-            我確認清空 {year} 普渡報名（共 {report.deletable} 筆），了解無法還原。
-          </label>
+          <p className="text-blossom-500">此動作為硬刪除、無法還原（已收款者已自動保留）。按下後會跳出確認視窗，按「確定」才會清空。</p>
           <div className="mt-3">
-            <button type="button" onClick={() => run(true)} disabled={busy || !confirmChecked}
-              className="rounded-full bg-blossom-400 px-5 py-2 text-sm font-medium text-white disabled:opacity-40">
-              {busy ? "清空中…" : "2) 正式清空"}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (typeof window !== "undefined" && window.confirm(`確定要清空 ${year} 普渡報名（共 ${report.deletable} 筆）嗎？此動作無法還原（已收款者已自動保留）。`)) {
+                  void run(true);
+                }
+              }}
+              className="rounded-full bg-blossom-400 px-5 py-2 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {busy ? "清空中…" : `2) 正式清空（${report.deletable} 筆）`}
             </button>
           </div>
         </div>
