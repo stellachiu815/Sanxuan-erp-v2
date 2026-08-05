@@ -545,9 +545,12 @@ export async function confirmPurificationImportBatch(input: {
           let memberId = resolvedDevoteeId ?? null;
           let resolvedTabletAddress = precomputedAddress;
           if (!householdId) {
-            if (!row.createNewHouseholdConfirmed) throw new Error("尚未指定家戶，且未明確確認建立新家戶");
+            // V36.17：新資料列要建立時需「明確確認」。介面上的「全部勾選可建立／建立新信眾」設定的是
+            //   createNewDevoteeConfirmed；對『查無既有家戶』的新列而言，確認建新信眾＝也要幫他建家戶
+            //   （信眾一定要掛在某一戶）。因此兩個旗標任一為真即可建戶，不再因為只勾了信眾就整列退回。
+            if (!row.createNewHouseholdConfirmed && !row.createNewDevoteeConfirmed) throw new Error("尚未指定家戶，且未明確確認建立新家戶／新信眾");
             const hh = await createHousehold(
-              { name: edited.householdName ?? edited.devoteeName ?? "匯入家戶", contactName: edited.primaryContact ?? null, address: edited.address ?? null, phone: edited.phone ?? null, companyName: edited.companyName ?? null },
+              { name: edited.householdName ?? edited.devoteeName ?? edited.primaryContact ?? (edited.yangshangNames?.[0] ?? null) ?? "匯入家戶", contactName: edited.primaryContact ?? edited.devoteeName ?? (edited.yangshangNames?.[0] ?? null), address: edited.address ?? null, phone: edited.phone ?? null, companyName: edited.companyName ?? null },
               input.actor.name, tx
             );
             householdId = hh.household.id;
