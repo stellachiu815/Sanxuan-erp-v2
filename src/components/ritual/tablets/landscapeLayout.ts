@@ -63,9 +63,11 @@ const YANG_REMAIN_RATIO = 0.42;
 /** 陽上人達此人數（含）採「三欄」；低於此（1~3）採「主文上下組合」。 */
 const YANGSHANG_THREE_COL_THRESHOLD = 4;
 
+// V36.14：字體「填滿框、能多大就多大，字多才縮」——放寬地址／陽上人上限，讓它們也一路長到 bounding box
+//   的極限（實際大小仍由框寬/高＋字數自動決定，字多才縮），不再被偏小的上限卡住。
 const MAIN_MAX_PX = 150, MAIN_MIN_PX = 22;
-const ADDR_MAX_PX = 30, ADDR_MIN_PX = 10;
-const YANG_MAX_PX = 34, YANG_MIN_PX = 10;
+const ADDR_MAX_PX = 60, ADDR_MIN_PX = 10;
+const YANG_MAX_PX = 60, YANG_MIN_PX = 10;
 // V36.11：移除無緣子女專屬主文上限（原 190px），四類牌位主文改共用 MAIN_MAX_PX，字級一致。
 
 type LandscapeRecordInput = TabletRecordInput & { yangshangNames?: string[] };

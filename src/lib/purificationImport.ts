@@ -475,13 +475,18 @@ export async function confirmPurificationImportBatch(input: {
           inheritedAddress = wr?.location?.trim() || null;
         }
 
-        precomputedAddress = resolveImportAddress({
-          rowTabletAddress: edited.tabletAddress ?? null,
-          rowAddress: edited.address ?? null,
-          // 沿用既有牌位地址優先於家戶戶籍地（Excel 有填地址時仍以 Excel 為準，見 resolveImportAddress 優先序）。
-          matchedHouseholdAddress: inheritedAddress ?? hhAddr,
-          devoteeHouseholdAddress: inheritedAddress ?? hhAddr,
-        }).address;
+        // V36.14：地址優先序＝ Excel 明填牌位地址 ＞ **永久牌位安奉地(inheritedAddress)** ＞ Excel 一般地址／家戶戶籍地。
+        //   永久牌位是安奉地的唯一真相來源，必須贏過「信眾/家戶戶籍地」，否則會印成戶籍地（如新北）而非安奉地（雲林）。
+        const excelExplicit = (edited.tabletAddress ?? "").trim();
+        precomputedAddress = excelExplicit
+          ? excelExplicit
+          : (inheritedAddress
+              ?? resolveImportAddress({
+                  rowTabletAddress: null,
+                  rowAddress: edited.address ?? null,
+                  matchedHouseholdAddress: hhAddr,
+                  devoteeHouseholdAddress: hhAddr,
+                }).address);
 
         if (TABLET_CATEGORIES.has(category)) {
           const sameCat = await prisma.universalSalvationEntry.findMany({
