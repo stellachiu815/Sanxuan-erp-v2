@@ -9,5 +9,9 @@
 /** session cookie 名稱（httpOnly）。 */
 export const SESSION_COOKIE = "sx_session";
 
-/** session 有效期：12 小時（行政系統一個班次）。 */
-export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+/**
+ * session 有效期。
+ * V36.14：由 12 小時延長為 **90 天**——行政人員不必天天重打帳密（＝「保持登入／自動登入」）。
+ * 每次登入都會重新起算 90 天；期間關瀏覽器再開仍是登入狀態。要登出就按登出。
+ */
+export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;

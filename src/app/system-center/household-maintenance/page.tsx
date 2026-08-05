@@ -12,7 +12,8 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  * 皆先「預覽」（不寫入）→ 跳系統確認視窗 → 才執行。
  */
 
-type WorshipGroup = { householdId: string; type: string; coreName: string; keep: { location: string | null }; archive: { location: string | null }[] };
+type WorshipRec = { id: string; displayName: string; location: string | null; yangshang: string | null; createdAt: string };
+type WorshipDupGroup = { householdId: string; type: string; coreName: string; suggestedKeepId: string; records: WorshipRec[] };
 type AddrChange = { householdId: string; householdName: string; oldAddress: string | null; newAddress: string };
 
 export default function HouseholdMaintenancePage() {
@@ -57,34 +58,97 @@ function useTool(action: string) {
   return { report, committed, busy, error, run };
 }
 
+function fmtTime(iso: string) {
+  try { const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+  catch { return iso; }
+}
+
 function WorshipDedup() {
-  const { report, committed, busy, error, run } = useTool("worship-dedup");
+  const [report, setReport] = useState<{ totalWorshipRecords: number; duplicateGroups: number; groups: WorshipDupGroup[]; archivedCount?: number } | null>(null);
+  const [committed, setCommitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // 每張牌位要不要留：key=牌位id，true=保留。預設＝每組最早那張。
+  const [keep, setKeep] = useState<Record<string, boolean>>({});
+
+  async function preview() {
+    setBusy(true); setError(null); setCommitted(false);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "worship-dedup", commit: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
+      const rep = data.report as { groups: WorshipDupGroup[] };
+      const init: Record<string, boolean> = {};
+      for (const g of rep.groups) for (const r of g.records) init[r.id] = r.id === g.suggestedKeepId;
+      setKeep(init); setReport(data.report);
+    } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
+  }
+
+  async function commit() {
+    if (!report) return;
+    const keepIds = Object.keys(keep).filter((id) => keep[id]);
+    const archiveCount = report.groups.reduce((n, g) => n + g.records.filter((r) => !keep[r.id]).length, 0);
+    if (archiveCount === 0) { window.alert("目前每一組你都全部保留，沒有要封存的牌位。"); return; }
+    if (!window.confirm(`確定封存 ${archiveCount} 張沒有勾「保留」的牌位嗎？（是軟刪除，之後可以還原）`)) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "worship-dedup", commit: true, confirm: true, keepIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
+      setReport(data.report); setCommitted(true);
+    } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
+  }
+
+  const willArchive = report ? report.groups.reduce((n, g) => n + g.records.filter((r) => !keep[r.id]).length, 0) : 0;
+
   return (
     <section className="rounded-2xl bg-white/70 p-5 shadow-card">
-      <h2 className="text-base font-medium text-ink">A. 永久牌位重複清理</h2>
-      <p className="mt-1 text-sm text-ink-soft">同一戶、同類別、同姓的牌位若有多張（地址不同的重複），<b>保留最早建立的一張、其餘封存</b>（可還原）。冤親／無緣不受影響。</p>
+      <h2 className="text-base font-medium text-ink">A. 永久牌位重複清理（逐張確認）</h2>
+      <p className="mt-1 text-sm text-ink-soft">同一戶、同類別、同一位（主文相同）若被系統重複建了好幾張牌位，下面會<b>並排列出每一張的主文、陽上人、地址、建立時間</b>。系統會<b>預設幫你勾最早建立的那張</b>（通常是原本正確的）。你看過覺得沒問題就直接確認；如果同姓其實是不同支、要留多張，也可以自己多勾幾張。沒勾到的才會被封存（可還原）。冤親／無緣不受影響。</p>
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（不寫入）"}</button>
+        <button type="button" disabled={busy} onClick={preview} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（不寫入）"}</button>
       </div>
       {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
       {report && (
         <div className="mt-3 text-sm">
-          <p className="text-ink">永久牌位共 {report.totalWorshipRecords} 張｜重複組 {report.duplicateGroups} 組｜{committed ? "已封存" : "預計封存"} {report.toArchive} 張</p>
-          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
-            {(report.groups as WorshipGroup[]).slice(0, 200).map((g, i) => (
-              <li key={i} className="rounded bg-cream-50 px-2 py-1">
-                {g.householdId}・{g.coreName}｜保留：{g.keep.location ?? "（空）"}｜封存：{g.archive.map((a) => a.location ?? "（空）").join("、")}
-              </li>
-            ))}
-          </ul>
-          {!committed && report.toArchive > 0 && (
-            <button type="button" disabled={busy}
-              onClick={() => { if (window.confirm(`確定封存 ${report.toArchive} 張重複牌位？（軟刪，可還原）`)) run(true); }}
+          <p className="text-ink">永久牌位共 {report.totalWorshipRecords} 張｜有重複的組別 {report.duplicateGroups} 組｜{committed ? `已封存 ${report.archivedCount ?? 0} 張` : `目前設定會封存 ${willArchive} 張`}</p>
+          {committed && <p className="mt-1 text-emerald-700">✅ 已完成。可以再按一次「預覽」確認結果。</p>}
+          {!committed && (
+            <div className="mt-3 flex flex-col gap-4 max-h-[32rem] overflow-auto pr-1">
+              {report.groups.map((g, gi) => (
+                <div key={gi} className="rounded-xl border border-mist-200 bg-cream-50 p-3">
+                  <p className="text-xs text-ink-soft">第 {gi + 1} 組｜家戶 {g.householdId}｜{g.type === "ANCESTOR_LINE" ? "歷代祖先" : "乙位正魂"}｜{g.coreName}</p>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {g.records.map((r) => (
+                      <label key={r.id} className={`flex items-start gap-2 rounded-lg px-2 py-2 cursor-pointer ${keep[r.id] ? "bg-emerald-50 ring-1 ring-emerald-300" : "bg-white/70"}`}>
+                        <input type="checkbox" className="mt-0.5" checked={!!keep[r.id]} onChange={(e) => setKeep((k) => ({ ...k, [r.id]: e.target.checked }))} />
+                        <span className="text-xs leading-relaxed">
+                          <b className="text-ink">{keep[r.id] ? "保留" : "封存"}</b>
+                          {r.id === g.suggestedKeepId && <span className="ml-1 text-emerald-700">（系統建議留這張）</span>}
+                          <br />主文：{r.displayName || "（空）"}
+                          <br />陽上人：{r.yangshang || "（空）"}
+                          <br />地址：{r.location || "（空）"}
+                          <br />建立時間：{fmtTime(r.createdAt)}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!committed && report.duplicateGroups > 0 && (
+            <button type="button" disabled={busy} onClick={commit}
               style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
-              className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
-              {busy ? "封存中…" : `2) 確認封存（${report.toArchive} 張）`}
+              className="mt-4 rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "封存中…" : `2) 確認封存（沒勾保留的 ${willArchive} 張）`}
             </button>
           )}
+          {!committed && report.duplicateGroups === 0 && <p className="mt-2 text-emerald-700">✅ 沒有發現重複的永久牌位，很乾淨。</p>}
         </div>
       )}
     </section>

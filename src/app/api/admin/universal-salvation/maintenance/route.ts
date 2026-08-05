@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number };
+  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[] };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 }); }
 
   const commit = body?.commit === true;
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (body?.action === "worship-dedup") {
-      const report = await cleanupWorshipDuplicates({ commit });
+      const report = await cleanupWorshipDuplicates({ commit, keepIds: body?.keepIds });
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "household-address") {
