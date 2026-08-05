@@ -20,6 +20,7 @@ import {
   classifyMatch,
   buildImportDupKey,
   resolveImportAddress,
+  normalizeYangshangSet,
   isRowConfirmable,
   type DevoteeCandidate,
   type ImportRowInput,
@@ -33,7 +34,7 @@ import { registerRice, getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import { createHousehold } from "@/lib/householdManagement";
 import { createMemberForHousehold } from "@/lib/memberCreate";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
-import { tabletIdentityKey, normalizeTabletText } from "@/lib/tabletIdentity";
+import { normalizeTabletText } from "@/lib/tabletIdentity";
 import { syncEntryToHouseholdWorshipRecord, isSyncableWorshipCategory } from "@/lib/householdWorshipSync";
 import type { Role } from "@/lib/whiteRice";
 import type { UniversalSalvationEntryCategory } from "@prisma/client";
@@ -211,26 +212,31 @@ export async function analyzePurificationImport(input: {
   const existingEntries = possibleHhIds.length
     ? await prisma.universalSalvationEntry.findMany({
         where: { deletedAt: null, universalSalvation: { ritualRecord: { year: input.year, householdId: { in: possibleHhIds } } } },
-        select: { id: true, category: true, displayName: true, tabletAddress: true, universalSalvation: { select: { ritualRecord: { select: { householdId: true } } } } },
+        select: { id: true, category: true, displayName: true, tabletAddress: true, yangshangNames: true, yangshangName: true, universalSalvation: { select: { ritualRecord: { select: { householdId: true } } } } },
       })
     : [];
+  // V36.15：既有牌位身分＝主文（核心名）＋陽上人（同一組），地址不再當身分。
+  //   同名同陽上人＝同一張（補地址/更新）；同名不同陽上人＝不同牌位（各自建立）。
+  const coreNameOf = (cat: string, name: string) => normalizeTabletText(normalizeRitualNameForStore(cat as UniversalSalvationEntryCategory, name));
+  const yangKeyOf = (names: (string | null | undefined)[]) => normalizeYangshangSet(names).join("+");
   const existingByHh = new Map<string, { byKey: Map<string, string>; byCatName: Set<string> }>();
   for (const e of existingEntries) {
     const hh = e.universalSalvation?.ritualRecord?.householdId;
     if (!hh) continue;
     let bucket = existingByHh.get(hh);
     if (!bucket) { bucket = { byKey: new Map(), byCatName: new Set() }; existingByHh.set(hh, bucket); }
-    bucket.byKey.set(tabletIdentityKey({ category: e.category, displayName: e.displayName, tabletAddress: e.tabletAddress }), e.id);
-    bucket.byCatName.add(`${e.category}::${normalizeTabletText(e.displayName)}`);
+    const yk = yangKeyOf(e.yangshangNames?.length ? e.yangshangNames : (e.yangshangName ? [e.yangshangName] : []));
+    bucket.byKey.set(`${e.category}::${coreNameOf(e.category, e.displayName)}::${yk}`, e.id);
+    bucket.byCatName.add(`${e.category}::${coreNameOf(e.category, e.displayName)}`);
   }
   function existingMatchFor(hhId: string | null, n: NormalizedRow): { status: string; recordId: string | null } {
     const { category, displayName } = rowTabletIdentity(n);
     if (!hhId || !TABLET_CATEGORIES.has(category)) return { status: "NONE", recordId: null };
     const bucket = existingByHh.get(hhId);
     if (!bucket) return { status: "NONE", recordId: null };
-    const hit = bucket.byKey.get(tabletIdentityKey({ category, displayName, tabletAddress: n.tabletAddress }));
+    const hit = bucket.byKey.get(`${category}::${coreNameOf(category, displayName)}::${yangKeyOf(n.yangshangNames ?? [])}`);
     if (hit) return { status: "EXISTS", recordId: hit };
-    if (bucket.byCatName.has(`${category}::${normalizeTabletText(displayName)}`)) return { status: "SAME_NAME_DIFF_ADDR", recordId: null };
+    if (bucket.byCatName.has(`${category}::${coreNameOf(category, displayName)}`)) return { status: "SAME_NAME_DIFF_ADDR", recordId: null };
     return { status: "NONE", recordId: null };
   }
 
@@ -491,18 +497,17 @@ export async function confirmPurificationImportBatch(input: {
         if (TABLET_CATEGORIES.has(category)) {
           const sameCat = await prisma.universalSalvationEntry.findMany({
             where: { deletedAt: null, category, universalSalvation: { ritualRecord: { householdId: existingHouseholdId, year: batch.year } } },
-            select: { id: true, displayName: true, tabletAddress: true, universalSalvation: { select: { ritualRecordId: true } } },
+            select: { id: true, displayName: true, tabletAddress: true, yangshangNames: true, yangshangName: true, universalSalvation: { select: { ritualRecordId: true } } },
             orderBy: { createdAt: "asc" },
           });
-          const wantKey = tabletIdentityKey({ category, displayName, tabletAddress: precomputedAddress });
-          let e = sameCat.find((x) => tabletIdentityKey({ category, displayName: x.displayName, tabletAddress: x.tabletAddress }) === wantKey);
-          if (!e) {
-            // V36.13：同家戶＋同類別＋同核心名 → 視為同一牌位（更新，不新增重複）。
-            //   同名有多筆（不同地址／合法多支）→ 不自動合併，維持既有身分鍵行為，待匯入預覽人工判斷。
-            const sameName = sameCat.filter((x) => normalizeTabletText(normalizeRitualNameForStore(category, x.displayName)) === coreWant);
-            if (sameName.length === 1) { e = sameName[0]; hitBySameName = true; }
-          }
-          if (e) decisionHit = { id: e.id, ritualRecordId: e.universalSalvation?.ritualRecordId ?? "" };
+          // V36.15：牌位身分鍵＝「主文（同核心名）＋陽上人（同一組）」，**地址不再當身分**。
+          //   ‑ 同核心名＋同陽上人 → 同一張牌位（＝補地址／更新，不新增重複）。
+          //   ‑ 同核心名但陽上人不同 → **不同牌位**，各自建立（例：邱家兩房都報邱姓歷代祖先、陽上人不同、地址不同）。
+          //   陽上人是「哪一筆」的真相來源，比地址可靠（地址可能因自動帶入而相同/不同）。
+          const wantYang = normalizeYangshangSet(edited.yangshangNames ?? []).join("+");
+          const sameName = sameCat.filter((x) => normalizeTabletText(normalizeRitualNameForStore(category, x.displayName)) === coreWant);
+          const e = sameName.find((x) => normalizeYangshangSet(x.yangshangNames?.length ? x.yangshangNames : (x.yangshangName ? [x.yangshangName] : [])).join("+") === wantYang);
+          if (e) { decisionHit = { id: e.id, ritualRecordId: e.universalSalvation?.ritualRecordId ?? "" }; hitBySameName = true; }
         }
       }
       // V36.13：無既有→CREATE；同核心名既有→UPDATE（含沿用/補地址，不新增重複）；完全同名同址既有→預設 SKIP、明確才 UPDATE。

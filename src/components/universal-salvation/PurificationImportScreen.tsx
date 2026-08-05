@@ -424,7 +424,7 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                   {(() => {
                     const notes: string[] = [];
                     if (r.matchingStatus === "DUPLICATE") notes.push("同批重複列（內容完全一致）");
-                    if (r.existingMatchStatus === "SAME_NAME_DIFF_ADDR") notes.push("同名不同址，視為不同牌位");
+                    if (r.existingMatchStatus === "SAME_NAME_DIFF_ADDR") notes.push("同姓、但陽上人不同，視為不同牌位");
                     if (r.confirmationStatus !== "CONFIRMED" && plannedAction(r) === "FIX" && !["MATCHED", "NEW", "DUPLICATE"].includes(r.matchingStatus)) notes.push(`${zh(r.matchingStatus)}：請先指定正確信眾／家戶`);
                     if (r.issueMessages && r.issueMessages.length > 0) notes.push(...r.issueMessages);
                     return notes.length > 0 ? <p className="mt-1 text-xs text-ink-faint">說明：{notes.join("；")}</p> : null;

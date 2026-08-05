@@ -160,14 +160,14 @@ function BackfillAddress() {
   return (
     <section className="rounded-2xl bg-white/70 p-5 shadow-card">
       <h2 className="text-base font-medium text-ink">C. 普渡牌位地址回填（從永久牌位）</h2>
-      <p className="mt-1 text-sm text-ink-soft">把本年度普渡牌位的安奉地，一次對齊成「同家戶＋同姓」那張<b>永久牌位</b>的地址。修正匯入時抓成戶籍地（新北）而非安奉地（雲林）的問題。<b>不用重匯</b>。</p>
+      <p className="mt-1 text-sm text-ink-soft">把本年度普渡牌位的安奉地，一次對齊成「同家戶＋同姓」那張<b>永久牌位</b>的地址。修正匯入時抓成戶籍地（新北）而非安奉地（雲林）的問題。<b>不用重匯</b>。<br/><span className="text-blossom-500">※ 這個工具只處理「歷代祖先／乙位正魂」（只有這兩類有永久牌位安奉地）。冤親／無緣不在這裡，但一樣會照常列印。</span></p>
       <div className="mt-3 flex gap-2">
         <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（不寫入）"}</button>
       </div>
       {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
       {report && (
         <div className="mt-3 text-sm">
-          <p className="text-ink">牌位共 {report.totalEntries} 張｜{committed ? "已更新" : "預計更新"} {report.changes.length} 張｜永久牌位查無對應 {report.noWorshipMatch} 張</p>
+          <p className="text-ink">祖先／正魂牌位 {report.totalEntries} 張（不含冤親／無緣）｜{committed ? "已更新" : "預計更新"} {report.changes.length} 張｜永久牌位查無對應 {report.noWorshipMatch} 張</p>
           <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
             {report.changes.slice(0, 300).map((c: any, i: number) => (
               <li key={i} className="rounded bg-cream-50 px-2 py-1">{c.householdId}・{c.displayName}：{c.oldAddress ?? "（空）"} → {c.newAddress}</li>
