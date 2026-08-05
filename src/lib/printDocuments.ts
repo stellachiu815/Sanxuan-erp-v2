@@ -403,8 +403,12 @@ export async function buildItemRoster(
         householdId: i.household.id,
         householdName: i.household.name,
         memberName: (i.sourceYangshangNames && i.sourceYangshangNames[0]) || null,
-        // 牌位：主文（printMainText 覆寫優先，否則 formatter 後的顯示名）；寶袋：其列印名稱（可為額外寶袋姓名）。
-        itemName: isUSPocket ? i.printName : (i.printMainText?.trim() || i.sourceDisplayName),
+        // 牌位：主文（printMainText 覆寫優先，否則 formatter 後的顯示名）。
+        // 寶袋：沿用來源牌位名的寶袋 → 用「已補後綴」的完整顯示名（蔡姓→蔡姓歷代祖先，與列印一致）；
+        //       自訂姓名寶袋（如江士耀）→ 用其自訂名 printName。
+        itemName: isUSPocket
+          ? (i.usesSourceName ? i.sourceDisplayName : i.printName)
+          : (i.printMainText?.trim() || i.sourceDisplayName),
         quantity: 1,
         amountDue: amt ? amt.due : null,
         amountPaid: amt ? amt.paid : null,

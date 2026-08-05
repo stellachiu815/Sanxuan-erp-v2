@@ -40,6 +40,41 @@ test("不因姓名相似而模糊亂配（王大 ≠ 王大明）", () => {
   assert.equal(r.status, "NEW");
 });
 
+// V36.16：一張牌位多位陽上人，不該被誤判成「同名多人」而逼人工選。
+test("多位陽上人同一家戶 → 自動配對該戶（不需人工選）", () => {
+  const r = classifyMatch(
+    anc({ tabletName: "楊姓", yangshangNames: ["楊菁文", "楊婷勻"] }),
+    [cand({ id: "m1", name: "楊菁文", householdId: "H7", householdCode: "F007" }),
+     cand({ id: "m2", name: "楊婷勻", householdId: "H7", householdCode: "F007" })],
+    new Set(), []
+  );
+  assert.equal(r.status, "MATCHED");
+  assert.equal(r.matchedHouseholdId, "H7");
+});
+
+test("多位陽上人分屬不同戶、主要陽上人唯一 → 以主要陽上人家戶為準", () => {
+  const r = classifyMatch(
+    anc({ tabletName: "吳姓", yangshangNames: ["吳明仁", "孫怡萍"] }),
+    [cand({ id: "m1", name: "吳明仁", householdId: "H1", householdCode: "F001" }),
+     cand({ id: "m2", name: "孫怡萍", householdId: "H2", householdCode: "F002" })],
+    new Set(), []
+  );
+  assert.equal(r.status, "MATCHED");
+  assert.equal(r.matchedHouseholdId, "H1");
+});
+
+test("主要陽上人本身同名多人 → 仍待人工確認（AMBIGUOUS）", () => {
+  const r = classifyMatch(
+    anc({ tabletName: "陳姓", yangshangNames: ["陳志明", "陳小美"] }),
+    [cand({ id: "m1", name: "陳志明", householdId: "H1" }),
+     cand({ id: "m2", name: "陳志明", householdId: "H2" }),
+     cand({ id: "m3", name: "陳小美", householdId: "H3" })],
+    new Set(), []
+  );
+  assert.equal(r.status, "AMBIGUOUS");
+  assert.equal(r.matchedDevoteeId, null);
+});
+
 test("analyze 查詢層排除已封存 Member／Household（靜態驗證 deletedAt:null）", () => {
   const src = readFileSync(new URL("../src/lib/purificationImport.ts", import.meta.url), "utf8");
   // 候選信眾查詢帶 deletedAt: null；家戶候選查詢帶 deletedAt: null。

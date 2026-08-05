@@ -284,14 +284,28 @@ export function classifyMatch(
       //（以便從家戶補齊地址）。多人同名才需人工確認（見下）。
       result = { status: "MATCHED", matchedDevoteeId: relevant[0].id, matchedHouseholdId: relevant[0].householdId, candidateIds: [relevant[0].id], basis: ["姓名唯一配對"], issues: [] };
     } else if (relevant.length > 1) {
-      // 多人同名：不可自動猜測 → 待確認（附候選），電話全不符則為衝突。
-      const conflicting = phone.length > 0 && relevant.every((c) => (c.phone ?? "") !== phone) && relevant.some((c) => c.phone);
-      result = {
-        status: conflicting ? "CONFLICT" : "AMBIGUOUS",
-        matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: relevant.map((c) => c.id),
-        basis: ["同名多筆"],
-        issues: conflicting ? ["電話與所有同名候選皆不符，資料衝突"] : ["多人同名，請選擇正確信眾"],
-      };
+      // V36.16：一張牌位可有**多位陽上人**（例：楊菁文、楊婷勻）。多位陽上人各自命中一位信眾，
+      //   **不是**「同一個名字對到多個人」的同名多人——不該逼使用者選。判斷方式：
+      //     1. 這些陽上人若都屬**同一家戶** → 直接配對該戶（自動，免人工）。
+      //     2. 分屬不同戶，但「主要陽上人（第一位）」這個名字**唯一**命中一位 → 以主要陽上人的家戶為準。
+      //     3. 只有當「主要陽上人這個名字本身對到多位不同信眾」時，才是真正同名多人 → 待確認／衝突。
+      const householdsOfRelevant = new Set(relevant.map((c) => c.householdId));
+      const primaryMatches = relevant.filter((c) => c.name === primaryName);
+      if (householdsOfRelevant.size === 1) {
+        const rep = primaryMatches[0] ?? relevant[0];
+        result = { status: "MATCHED", matchedDevoteeId: rep.id, matchedHouseholdId: rep.householdId, candidateIds: relevant.map((c) => c.id), basis: ["多位陽上人同一家戶"], issues: [] };
+      } else if (primaryMatches.length === 1) {
+        result = { status: "MATCHED", matchedDevoteeId: primaryMatches[0].id, matchedHouseholdId: primaryMatches[0].householdId, candidateIds: relevant.map((c) => c.id), basis: ["以主要陽上人家戶為準"], issues: [] };
+      } else {
+        // 真正同名多人（主要陽上人對到多位不同信眾）：不可自動猜測 → 待確認，電話全不符則為衝突。
+        const conflicting = phone.length > 0 && primaryMatches.every((c) => (c.phone ?? "") !== phone) && primaryMatches.some((c) => c.phone);
+        result = {
+          status: conflicting ? "CONFLICT" : "AMBIGUOUS",
+          matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: (primaryMatches.length ? primaryMatches : relevant).map((c) => c.id),
+          basis: ["同名多筆"],
+          issues: conflicting ? ["電話與所有同名候選皆不符，資料衝突"] : ["多人同名，請選擇正確信眾"],
+        };
+      }
     } else {
       // 查無相符信眾／家戶：需明確確認才建新；地址無法取得。
       result = { status: "NEW", matchedDevoteeId: null, matchedHouseholdId: null, candidateIds: [], basis: ["查無相符家戶/信眾"], issues: isYuanqin ? ["尚未配對，無法取得地址"] : [] };

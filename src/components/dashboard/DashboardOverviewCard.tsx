@@ -32,14 +32,38 @@ export default async function DashboardOverviewCard() {
         {/* ① 今日生日 */}
         <div className="rounded-3xl bg-yolk-50 p-6 shadow-card transition hover:shadow-pop">
           <p className="text-sm font-medium text-ink">🎂 今日生日</p>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-3">
             <div>
-              <p className="text-xs text-ink-faint">今日國曆生日</p>
-              <p className="mt-1 text-lg text-ink">{data.todaySolarBirthdays.length} 位</p>
+              <p className="text-xs text-ink-faint">今日國曆生日（{data.todaySolarBirthdays.length} 位）</p>
+              {data.todaySolarBirthdays.length === 0 ? (
+                <p className="mt-1 text-sm text-ink-faint">今天沒有</p>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {data.todaySolarBirthdays.map((b) => (
+                    <li key={b.memberId} className="text-sm text-ink">
+                      <Link href={`/devotee-center/${b.memberId}`} className="underline-offset-4 hover:underline">{b.name}</Link>
+                      {b.householdName && <span className="text-ink-faint">（{b.householdName}）</span>}
+                      {b.solarBirthDate && <span className="ml-1 text-xs text-ink-faint">{b.solarBirthDate}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div>
-              <p className="text-xs text-ink-faint">今日農曆生日</p>
-              <p className="mt-1 text-lg text-ink">{data.todayLunarBirthdays.length} 位</p>
+              <p className="text-xs text-ink-faint">今日農曆生日（{data.todayLunarBirthdays.length} 位）</p>
+              {data.todayLunarBirthdays.length === 0 ? (
+                <p className="mt-1 text-sm text-ink-faint">今天沒有</p>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {data.todayLunarBirthdays.map((b) => (
+                    <li key={b.memberId} className="text-sm text-ink">
+                      <Link href={`/devotee-center/${b.memberId}`} className="underline-offset-4 hover:underline">{b.name}</Link>
+                      {b.householdName && <span className="text-ink-faint">（{b.householdName}）</span>}
+                      {b.lunarBirthDisplay && <span className="ml-1 text-xs text-ink-faint">{b.lunarBirthDisplay}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
           <Link
