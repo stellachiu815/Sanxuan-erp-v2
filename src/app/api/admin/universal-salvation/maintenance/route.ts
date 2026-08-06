@@ -8,6 +8,7 @@ import { backfillEntryAddress } from "@/lib/backfillEntryAddress";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
+import { archiveHouseholdsByCode } from "@/lib/archiveHouseholdsByCode";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[] };
+  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[] };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 }); }
 
   const commit = body?.commit === true;
@@ -51,6 +52,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "init-public-reg-tables") {
       const report = await ensurePublicRegTables();
+      return NextResponse.json({ ok: report.ok, report });
+    }
+    if (body?.action === "archive-households") {
+      const report = await archiveHouseholdsByCode(body?.codes ?? [], { commit, operatorName: "系統管理（依編號封存）" });
       return NextResponse.json({ ok: report.ok, report });
     }
     return NextResponse.json({ error: "未知的整理動作" }, { status: 400 });

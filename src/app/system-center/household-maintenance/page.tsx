@@ -36,6 +36,7 @@ function Inner() {
       <BackfillAddress />
       <MergeCheck />
       <HouseholdAddress />
+      <ArchiveHouseholds />
       <PublicRegInit />
     </main>
   );
@@ -65,6 +66,67 @@ type AddrRow = {
   printedAddress: string | null; worshipLocation: string | null; householdAddress: string | null; memberAddresses: string[];
   matchSource: string; suspicious: boolean; note: string;
 };
+
+type ArchiveRow = { code: string; found: boolean; householdName: string | null; memberNames: string[]; blockers: string[]; archivedMembers?: number; archivedHousehold?: boolean; error?: string };
+
+function ArchiveHouseholds() {
+  const [codesText, setCodesText] = useState("");
+  const [report, setReport] = useState<{ rows: ArchiveRow[] } | null>(null);
+  const [committed, setCommitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const codes = codesText.split(/[\s,、，]+/).map((s) => s.trim()).filter(Boolean);
+
+  async function run(commit: boolean) {
+    if (codes.length === 0) { setError("請先輸入家戶編號（例如 F00884）。"); return; }
+    setBusy(true); setError(null);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "archive-households", commit, confirm: commit, codes }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
+      setReport(data.report); setCommitted(commit);
+    } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">封存家戶（依編號，可連同成員）</h2>
+      <p className="mt-1 text-sm text-ink-soft">清掉之前混亂匯入自動生出來的空殼／重複家戶（例如 F00884、F00885）。<b>軟刪除、可從回收區還原</b>；有「草稿報名／未收款」的戶會擋下不動。</p>
+      <textarea value={codesText} onChange={(e) => { setCodesText(e.target.value); setReport(null); setCommitted(false); }}
+        placeholder="輸入家戶編號，多筆用空白或逗號分隔，例如：F00884 F00885"
+        className="mt-3 w-full rounded-lg border border-mist-200 px-3 py-2 text-sm" rows={2} />
+      <div className="mt-2 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "1) 預覽（看裡面有什麼）"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm flex flex-col gap-2">
+          {report.rows.map((r) => (
+            <div key={r.code} className="rounded-lg bg-cream-50 px-3 py-2 text-xs">
+              <b className="text-ink">{r.code}</b>{r.householdName ? `｜${r.householdName}` : ""}
+              {!r.found && <span className="text-blossom-500">｜查無此戶</span>}
+              {r.found && <span className="text-ink-soft">｜成員 {r.memberNames.length} 位{r.memberNames.length ? `：${r.memberNames.join("、")}` : ""}</span>}
+              {r.blockers.length > 0 && <span className="text-blossom-500">｜⚠️ {r.blockers.join("；")}</span>}
+              {committed && r.archivedHousehold && <span className="text-emerald-700">｜✅ 已封存（成員 {r.archivedMembers} 位一併封存，可還原）</span>}
+              {committed && r.error && <span className="text-blossom-500">｜{r.error}</span>}
+            </div>
+          ))}
+          {!committed && report.rows.some((r) => r.found && r.blockers.length === 0) && (
+            <button type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`確定封存這些家戶（含其成員）？可從回收區還原。`)) run(true); }}
+              style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+              className="mt-1 self-start rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "封存中…" : "2) 確認封存（含成員，可還原）"}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function PublicRegInit() {
   const { report, committed, busy, error, run } = useTool("init-public-reg-tables");
