@@ -592,8 +592,11 @@ export async function confirmPurificationImportBatch(input: {
           );
           if (!entryRes.ok) throw new Error(entryRes.error);
           const ritualRecordId = entryRes.record.id;
-          // 額外寶袋需要 entry id；僅有額外寶袋時才查（一般祖先/正魂列 extraPocketCount=0，不查）。
-          const newEntry = edited.extraPocketCount > 0
+          // 額外寶袋需要 entry id；僅有額外寶袋時才查（一般祖先/正魂列無額外寶袋，不查）。
+          // V36.18：額外寶袋有「數量」與「姓名」兩種寫法（如江士耀＝姓名模式，count=0）。
+          //   舊碼只判 count>0，導致**新報名列**填了自訂名寶袋卻不建立 → 修正為兩種任一即查/建。
+          const hasExtraPocket = edited.extraPocketCount > 0 || (edited.extraPocketNames?.length ?? 0) > 0;
+          const newEntry = hasExtraPocket
             ? await tx.universalSalvationEntry.findFirst({ where: { universalSalvation: { ritualRecordId }, displayName, deletedAt: null }, orderBy: { createdAt: "desc" }, select: { id: true } })
             : null;
 
@@ -603,7 +606,7 @@ export async function confirmPurificationImportBatch(input: {
             if (!rice.ok) throw new Error(`白米：${rice.error}`);
           }
           // 額外寶袋（isExtra=true）——共用冪等 helper（與 UPDATE／SKIP 同一入口，行為一致；支援數量／姓名）。
-          if (edited.extraPocketCount > 0 && newEntry) {
+          if (hasExtraPocket && newEntry) {
             await ensureImportExtraPocket(tx, { householdId, year: batch.year, entryId: newEntry.id, quantity: edited.extraPocketCount, names: edited.extraPocketNames ?? [], operatorName: input.actor.name });
           }
           // 贊普／隨喜贊普（共用 RitualRegistrationItem；一律 DRAFT、amountPaid=0）。

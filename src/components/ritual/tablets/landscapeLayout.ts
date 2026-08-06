@@ -118,65 +118,99 @@ export function buildLandscapeTabletLayout(
 
   const allBlocks: PositionedBlock[] = [];
 
+  // V36.19「同版一致字級」：主文／地址／陽上人各自**全頁統一字級**。
+  //   之前每筆各自 fill-box，導致「字少卻比隔壁字多的還小」（因 4+ 三欄的地址欄較窄→字被壓小）。
+  //   改法：先算每筆在自己框內能放的字級，再取全頁**最小值**當統一字級套用到所有牌位。
+  //   min-of-fits 對每一格都必然放得下（位置不變）→ 不會新增溢出/碰撞，只會讓字級一致。
+  const yangCfg = { maxPx: YANG_MAX_PX, minPx: YANG_MIN_PX, stepPx: 2 };
+  const wMain = groupW * MAIN_W_RATIO;
+  const hMain = contentH * MAIN_H_RATIO;
+
+  type Pend = {
+    recordIndex: number; pageIndex: number; slotIndex: number; rec: LandscapeRecordInput;
+    xLeft: number; threeCol: boolean; addrText: string; mainText: string; yangText: string;
+    mainFit: { px: number; overflow: boolean };
+    addrGeo: { x: number; w: number }; addrFit: { px: number; overflow: boolean };
+    yangGeo: { x: number; y: number; w: number; h: number }; yangFit: ReturnType<typeof fitYangshangVertical>;
+    mainX: number;
+  };
+  const pend: Pend[] = [];
+
   records.forEach((rec, recordIndex) => {
     const pageIndex = Math.floor(recordIndex / perPage);
     const slotIndex = recordIndex % perPage;
-    const xRight = rightBound - slotIndex * stride; // slot 0 最右緣＝rightBound（完整、不裁切）
+    const xRight = rightBound - slotIndex * stride;
     const xLeft = xRight - groupW;
 
     const addrText = rec.addressText ?? "";
-    // V36.11：主文先清理不可見空白／換行，再進 auto-fit——避免長度被灌水導致同字數主文被誤縮。
     const mainText = cleanTabletMainText(rec.mainText ?? "");
     const nameCount = (rec.yangshangNames?.filter((s) => s.trim()).length ?? 0) || (rec.yangshangText ? 1 : 0);
     const yangText = yangshangDisplay(rec.yangshangNames, rec.yangshangText);
     const threeCol = nameCount >= YANGSHANG_THREE_COL_THRESHOLD;
 
+    const mainFit = maximizeFont(mainText.length, wMain, hMain, mainMax, MAIN_MIN_PX);
+
+    let addrGeo: { x: number; w: number };
+    let yangGeo: { x: number; y: number; w: number; h: number };
+    let mainX: number;
+    if (!threeCol) {
+      const wAddr = groupW - wMain - SAFE_GAP_MM;
+      const xRightCol = xLeft + wAddr + SAFE_GAP_MM;
+      const yYang = contentTop + hMain + SAFE_GAP_MM;
+      const yangH = Math.max(4, contentBottom - yYang);
+      addrGeo = { x: xLeft, w: wAddr };
+      yangGeo = { x: xRightCol, y: yYang, w: wMain, h: yangH };
+      mainX = xRightCol;
+    } else {
+      const remain = groupW - wMain - SAFE_GAP_MM * 2;
+      const wYang = remain * YANG_REMAIN_RATIO;
+      const wAddr = remain - wYang;
+      const xYang = xLeft + wAddr + SAFE_GAP_MM;
+      const xMain = xYang + wYang + SAFE_GAP_MM;
+      addrGeo = { x: xLeft, w: wAddr };
+      yangGeo = { x: xYang, y: contentTop, w: wYang, h: contentH };
+      mainX = xMain;
+    }
+    const addrFit = maximizeFont(addrText.length, addrGeo.w, contentH, ADDR_MAX_PX, ADDR_MIN_PX);
+    const yangFit = fitYangshangVertical(yangText.length, yangGeo.w, yangGeo.h, yangCfg);
+
+    pend.push({ recordIndex, pageIndex, slotIndex, rec, xLeft, threeCol, addrText, mainText, yangText, mainFit, addrGeo, addrFit, yangGeo, yangFit, mainX });
+  });
+
+  // 統一字級以**每一頁**為單位（同一頁 7 筆眼睛一起看→字級一致；某頁有超長地址也不會拖累別頁）。
+  //   每類型取該頁「能放得下的最小字級」（有內容者才納入計算）。
+  const minPx = (vals: number[], fallback: number) => (vals.length ? Math.min(...vals) : fallback);
+  const pageU = new Map<number, { main: number; addr: number; yang: number }>();
+  for (const pageIndex of new Set(pend.map((p) => p.pageIndex))) {
+    const inPage = pend.filter((p) => p.pageIndex === pageIndex);
+    pageU.set(pageIndex, {
+      main: minPx(inPage.filter((p) => p.mainText).map((p) => p.mainFit.px), MAIN_MIN_PX),
+      addr: minPx(inPage.filter((p) => p.addrText).map((p) => p.addrFit.px), ADDR_MIN_PX),
+      yang: minPx(inPage.filter((p) => p.yangText).map((p) => p.yangFit.px), YANG_MIN_PX),
+    });
+  }
+
+  for (const p of pend) {
+    const u = pageU.get(p.pageIndex)!;
+    const uMain = u.main, uAddr = u.addr, uYang = u.yang;
     const push = (
       blockType: PositionedBlock["blockType"], x: number, y: number, w: number, h: number, text: string,
-      font: { px: number; overflow: boolean; lineHeight?: number; letterSpacingPx?: number }, vAlign: PositionedBlock["vAlign"]
+      font: { px: number; overflow?: boolean; lineHeight?: number; letterSpacingPx?: number }, vAlign: PositionedBlock["vAlign"]
     ) => {
       allBlocks.push({
-        recordIndex, pageIndex, slotIndex, blockType,
-        entryId: rec.entryId ?? null, registrationId: rec.registrationId ?? null,
+        recordIndex: p.recordIndex, pageIndex: p.pageIndex, slotIndex: p.slotIndex, blockType,
+        entryId: p.rec.entryId ?? null, registrationId: p.rec.registrationId ?? null,
         xMm: x + offset.offsetXmm, yMm: y + offset.offsetYmm, widthMm: w, heightMm: h,
-        text, fontPx: font.px, overflow: font.overflow, vAlign,
+        text, fontPx: font.px, overflow: font.overflow ?? false, vAlign,
         lineHeight: font.lineHeight, letterSpacingPx: font.letterSpacingPx,
       });
     };
-    // 陽上人專用縮字（只縮陽上人：字級→字距→行距→警告；不影響主文/地址）。
-    const yangCfg = { maxPx: YANG_MAX_PX, minPx: YANG_MIN_PX, stepPx: 2 };
-    const fitYang = (w: number, h: number) => fitYangshangVertical(yangText.length, w, h, yangCfg);
-
-    // 主文固定安全區（1~3 與 4+ 皆同）→ 主文字級一致、不受陽上人/地址影響。全部欄位一律頂端對齊（start）。
-    const wMain = groupW * MAIN_W_RATIO;
-    const hMain = contentH * MAIN_H_RATIO;
-    const mainFont = maximizeFont(mainText.length, wMain, hMain, mainMax, MAIN_MIN_PX);
-
-    if (!threeCol) {
-      // 1~3 人：地址（左，滿高，頂端）｜右欄[主文(頂端，固定安全區) → 4mm 安全間距 → 陽上人(其下，頂端)]
-      const wAddr = groupW - wMain - SAFE_GAP_MM;
-      const xAddr = xLeft;
-      const xRightCol = xLeft + wAddr + SAFE_GAP_MM;
-      const yYang = contentTop + hMain + SAFE_GAP_MM; // 固定 4mm，不被字級吃掉
-      const yangH = Math.max(4, contentBottom - yYang);
-      push("address", xAddr, contentTop, wAddr, contentH, addrText, maximizeFont(addrText.length, wAddr, contentH, ADDR_MAX_PX, ADDR_MIN_PX), "start");
-      push("main", xRightCol, contentTop, wMain, hMain, mainText, mainFont, "start");
-      // 陽上人：只縮陽上人（字級→字距→行距→警告），完整放入 4mm 間距後的剩餘高度；不縮主文、不取消 4mm、不跨欄/裁字。
-      push("yangshang", xRightCol, yYang, wMain, yangH, yangText, fitYang(wMain, yangH), "start");
-    } else {
-      // 4+ 人：三欄（右→左）主文｜陽上人｜地址，欄間固定 4mm 水平安全間距，全部頂端對齊、滿高。
-      const remain = groupW - wMain - SAFE_GAP_MM * 2; // 主文＋2×4mm 之後給 陽上人＋地址
-      const wYang = remain * YANG_REMAIN_RATIO;
-      const wAddr = remain - wYang;
-      const xAddr = xLeft;
-      const xYang = xLeft + wAddr + SAFE_GAP_MM;
-      const xMain = xYang + wYang + SAFE_GAP_MM;
-      push("address", xAddr, contentTop, wAddr, contentH, addrText, maximizeFont(addrText.length, wAddr, contentH, ADDR_MAX_PX, ADDR_MIN_PX), "start");
-      // 陽上人獨立欄：只縮陽上人（字級→字距→行距→警告）；主文/地址不受影響。
-      push("yangshang", xYang, contentTop, wYang, contentH, yangText, fitYang(wYang, contentH), "start");
-      push("main", xMain, contentTop, wMain, hMain, mainText, mainFont, "start");
-    }
-  });
+    // 陽上人統一字級，但保留各自的字距/行距微調（fitYangshangVertical 的其餘欄位）。
+    const yangFont = { ...p.yangFit, px: uYang };
+    push("address", p.addrGeo.x, contentTop, p.addrGeo.w, contentH, p.addrText, { px: uAddr }, "start");
+    push("main", p.mainX, contentTop, wMain, hMain, p.mainText, { px: uMain }, "start");
+    push("yangshang", p.yangGeo.x, p.yangGeo.y, p.yangGeo.w, p.yangGeo.h, p.yangText, yangFont, "start");
+  }
 
   const pageMap = new Map<number, PositionedBlock[]>();
   for (const b of allBlocks) (pageMap.get(b.pageIndex) ?? pageMap.set(b.pageIndex, []).get(b.pageIndex)!).push(b);

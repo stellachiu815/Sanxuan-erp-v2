@@ -29,8 +29,9 @@ export default function HouseholdMaintenancePage() {
 
 function Inner() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8 flex flex-col gap-8">
+    <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
+      <AddressAudit />
       <WorshipDedup />
       <BackfillAddress />
       <MergeCheck />
@@ -56,6 +57,61 @@ function useTool(action: string) {
     } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
   }
   return { report, committed, busy, error, run };
+}
+
+type AddrRow = {
+  entryId: string; householdId: string; categoryLabel: string; mainName: string; yangshang: string;
+  printedAddress: string | null; worshipLocation: string | null; householdAddress: string | null; memberAddresses: string[];
+  matchSource: string; suspicious: boolean; note: string;
+};
+
+function AddressAudit() {
+  const { report, busy, error, run } = useTool("address-audit");
+  const [onlySus, setOnlySus] = useState(true);
+  const rows: AddrRow[] = report?.rows ?? [];
+  const shown = onlySus ? rows.filter((r) => r.suspicious) : rows;
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">牌位地址逐筆對帳（唯讀）</h2>
+      <p className="mt-1 text-sm text-ink-soft">把每張牌位「<b>印出來的地址</b>」跟它的各個來源（永久牌位安奉地／家戶地址／信眾地址）並排，一次揪出印錯的地址（例如印成香港）。<b>只看不改</b>；看到錯的再用下面的工具或到該戶去修。</p>
+      <div className="mt-3 flex items-center gap-3">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "查詢地址對帳"}</button>
+        <label className="flex items-center gap-1 text-xs text-ink-soft"><input type="checkbox" checked={onlySus} onChange={(e) => setOnlySus(e.target.checked)} />只看可疑的</label>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">共 {report.total} 張牌位｜<b className="text-blossom-500">可疑 {report.suspiciousCount} 張</b>（缺地址／印的不是安奉地／來源對不上）。目前顯示 {shown.length} 張。</p>
+          <div className="mt-2 max-h-[36rem] overflow-auto rounded-lg border border-mist-200">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-cream-100 text-ink-soft">
+                <tr>
+                  {["類別", "主文", "陽上人", "印出地址", "永久牌位安奉地", "家戶地址", "信眾地址", "來源／問題"].map((h) => (
+                    <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.slice(0, 400).map((r) => (
+                  <tr key={r.entryId} className={r.suspicious ? "bg-blossom-50/60" : "odd:bg-white/40"}>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{r.categoryLabel}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{r.mainName}</td>
+                    <td className="px-2 py-1.5">{r.yangshang || "—"}</td>
+                    <td className="px-2 py-1.5 font-medium">{r.printedAddress || <span className="text-blossom-500">（空白）</span>}</td>
+                    <td className="px-2 py-1.5 text-ink-soft">{r.worshipLocation || "—"}</td>
+                    <td className="px-2 py-1.5 text-ink-soft">{r.householdAddress || "—"}</td>
+                    <td className="px-2 py-1.5 text-ink-soft">{r.memberAddresses.join(" / ") || "—"}</td>
+                    <td className="px-2 py-1.5 text-blossom-500">{r.suspicious ? r.note : r.matchSource}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {shown.length === 0 && <p className="mt-2 text-emerald-700">✅ 沒有可疑地址，很乾淨。</p>}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function fmtTime(iso: string) {
