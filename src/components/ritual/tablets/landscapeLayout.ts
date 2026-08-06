@@ -177,22 +177,15 @@ export function buildLandscapeTabletLayout(
     pend.push({ recordIndex, pageIndex, slotIndex, rec, xLeft, threeCol, addrText, mainText, yangText, mainFit, addrGeo, addrFit, yangGeo, yangFit, mainX });
   });
 
-  // 統一字級以**每一頁**為單位（同一頁 7 筆眼睛一起看→字級一致；某頁有超長地址也不會拖累別頁）。
-  //   每類型取該頁「能放得下的最小字級」（有內容者才納入計算）。
+  // V37「全批一致字級」：主文／地址／陽上人各取**整批**（不分頁）能放得下的最小字級，套用到每一張。
+  //   因為牌位要實體列印、裁切、貼上，整批（含跨頁）字級必須一致，才不會這頁大那頁小。
+  //   min-of-fits 對每一格都必然放得下（位置不變）→ 不會新增溢出/碰撞。
   const minPx = (vals: number[], fallback: number) => (vals.length ? Math.min(...vals) : fallback);
-  const pageU = new Map<number, { main: number; addr: number; yang: number }>();
-  for (const pageIndex of new Set(pend.map((p) => p.pageIndex))) {
-    const inPage = pend.filter((p) => p.pageIndex === pageIndex);
-    pageU.set(pageIndex, {
-      main: minPx(inPage.filter((p) => p.mainText).map((p) => p.mainFit.px), MAIN_MIN_PX),
-      addr: minPx(inPage.filter((p) => p.addrText).map((p) => p.addrFit.px), ADDR_MIN_PX),
-      yang: minPx(inPage.filter((p) => p.yangText).map((p) => p.yangFit.px), YANG_MIN_PX),
-    });
-  }
+  const uMain = minPx(pend.filter((p) => p.mainText).map((p) => p.mainFit.px), MAIN_MIN_PX);
+  const uAddr = minPx(pend.filter((p) => p.addrText).map((p) => p.addrFit.px), ADDR_MIN_PX);
+  const uYang = minPx(pend.filter((p) => p.yangText).map((p) => p.yangFit.px), YANG_MIN_PX);
 
   for (const p of pend) {
-    const u = pageU.get(p.pageIndex)!;
-    const uMain = u.main, uAddr = u.addr, uYang = u.yang;
     const push = (
       blockType: PositionedBlock["blockType"], x: number, y: number, w: number, h: number, text: string,
       font: { px: number; overflow?: boolean; lineHeight?: number; letterSpacingPx?: number }, vAlign: PositionedBlock["vAlign"]
