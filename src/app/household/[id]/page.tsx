@@ -245,6 +245,14 @@ export default async function HouseholdPage({
                   {activityTypeLabel[a.type] ?? a.type}
                 </span>
                 {a.year && <span className="text-ink-soft">{a.year} 年</span>}
+                {a.status && (
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${a.status === "DRAFT" ? "bg-yolk-100 text-ink-soft" : "bg-sage-100 text-ink-soft"}`}>
+                    {a.status === "DRAFT" ? "草稿（未確認）" : a.status === "CONFIRMED" ? "已確認" : a.status}
+                  </span>
+                )}
+                {a.ritualRecordId && (
+                  <a href={`/registration/${a.ritualRecordId}`} className="text-xs text-blossom-500 underline-offset-4 hover:underline">看報名內容 →</a>
+                )}
                 {a.note && <span className="text-ink-faint">{a.note}</span>}
                 {a.originHouseholdId && (
                   <span className="rounded-full bg-yolk-100 px-2 py-0.5 text-xs text-ink-soft">

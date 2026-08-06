@@ -1588,10 +1588,11 @@ export async function listRegisteredItems(ritualRecordId: string): Promise<Regis
       yangshangNames = linkedYangshang;
       tabletAddress = linked?.tabletAddress ?? null;
     } else if (key === "US_YUANQIN") {
-      // 累世冤親債主：顯示「累世冤親債主｜當事人姓名」（固定格式，不要「姓名之…」）。
-      // 類別名一律正名為「累世冤親債主」（種子名可能仍是「冤親債主」）；當事人姓名讀連結
-      // entry，退回成員姓名（memberId 綁定）。
-      subjectName = linked?.displayName ?? r.customName ?? memberName ?? "姓名待補";
+      // 累世冤親債主：顯示「累世冤親債主｜當事人姓名」（固定格式）。
+      // V37 修正：自 V36.9 起冤親 entry.displayName 固定為主文「累世冤親債主」（讓牌位印對），
+      //   故「當事人姓名」不可再讀 displayName（會變成累世冤親債主｜累世冤親債主），
+      //   改讀**陽上人**（許佩瑜…），退回成員姓名／自訂名。
+      subjectName = (linkedYangshang && linkedYangshang[0]?.trim()) || memberName || r.customName?.trim() || "姓名待補";
       displayLabel = `${displayDebtCreditorName(categoryName)}｜${subjectName}`;
       // V27 修正：累世冤親債主與其他三種牌位一致——一律從連結 entry 帶出既有陽上人／
       // 牌位地址。先前這裡漏掉，導致 completenessGate 讀到空的 yangshangNames，

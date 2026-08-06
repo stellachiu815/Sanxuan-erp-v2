@@ -55,6 +55,10 @@ export type HouseholdView = {
     year: number | null;
     note: string | null;
     createdAt: Date;
+    /** V37：真正的報名（RitualRecord）——可點進 /registration/[id]；純舊 Activity 表則為 null。 */
+    ritualRecordId?: string | null;
+    /** V37：報名狀態（DRAFT/CONFIRMED…），供家戶頁顯示草稿/已確認。 */
+    status?: string | null;
     /**
      * V12.3「家戶管理完整強化」指令一.B：這筆紀錄原本屬於哪一戶。
      *
@@ -86,6 +90,8 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
       // V28：只帶出「有效（未封存）」的祭祀永久資料；封存區由 listArchivedWorshipRecords 另查。
       worshipRecords: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
       activities: { orderBy: { createdAt: "desc" } },
+      // V37：真正的報名紀錄（普渡/燈…）存在 RitualRecord；家戶頁「歷史活動」要抓這張表（舊 Activity 表已停用、恆空）。
+      ritualRecords: { where: { deletedAt: null }, orderBy: { createdAt: "desc" }, select: { id: true, activityType: true, year: true, status: true, createdAt: true } },
     },
   });
 
@@ -163,15 +169,31 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
     worshipRecords: household.worshipRecords,
     // 本戶自己的活動 ＋ 已合併來源戶的活動，依時間合併排序；來源戶的標上原家戶。
     activities: [
+      // V37：真正的報名（RitualRecord）——可點進、顯示狀態。
+      ...household.ritualRecords.map((r) => ({
+        id: r.id,
+        type: r.activityType,
+        year: r.year,
+        note: null as string | null,
+        createdAt: r.createdAt,
+        originHouseholdId: null,
+        originHouseholdName: null,
+        ritualRecordId: r.id,
+        status: r.status as string,
+      })),
       ...household.activities.map((a) => ({
         ...a,
         originHouseholdId: null,
         originHouseholdName: null,
+        ritualRecordId: null,
+        status: null,
       })),
       ...mergedSourceActivities.map((a) => ({
         ...a,
         originHouseholdId: a.householdId,
         originHouseholdName: sourceNameById.get(a.householdId) ?? null,
+        ritualRecordId: null,
+        status: null,
       })),
     ].sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime()),
     mergedFromHouseholds: mergedSources,
