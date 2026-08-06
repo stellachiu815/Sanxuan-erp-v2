@@ -24,6 +24,8 @@ export type MemberView = {
   isDeceased: boolean;
   yangshangName: string | null;
   notes: string | null;
+  /** V37：成員個人地址（Member.address，與家戶共用地址獨立）；供家戶頁常用查詢。 */
+  address: string | null;
   solarBirthDateText: string | null;
   lunarBirthDateText: string | null;
   zodiac: string | null;
@@ -140,6 +142,7 @@ export async function getHouseholdDetail(id: string): Promise<HouseholdView | nu
       isDeceased: m.isDeceased,
       yangshangName: m.yangshangName,
       notes: m.notes,
+      address: m.address ?? null,
       // 國曆＝民國格式（民國49年09月25日）；農曆＝民國年＋國字月日（民國49年八月初五）。
       solarBirthDateText: birthday ? formatRocDate(birthday.solarDate) : null,
       lunarBirthDateText: birthday

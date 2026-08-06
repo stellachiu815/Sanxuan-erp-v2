@@ -80,6 +80,14 @@ export default async function HomePage() {
       */}
       <HomeQuickNav showSystemCenter={showSystemCenter} />
 
+      {/* V38 現場快速報名：中元普渡現場報名的最高頻入口，放在首頁顯眼處。 */}
+      <Link
+        href="/quick-registration"
+        className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-card hover:bg-emerald-700"
+      >
+        🀄 現場快速報名（中元普渡）→
+      </Link>
+
       {/*
         V15 指令三「首頁資料載入 lazy loading」：資訊卡（系統總覽）用 Suspense
         串流，讓搜尋框與快捷入口先出現，資訊卡稍後補上，避免首頁一次查全部而變卡。

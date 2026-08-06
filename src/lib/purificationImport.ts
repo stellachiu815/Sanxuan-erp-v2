@@ -33,6 +33,7 @@ import {
 import { registerRice, getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import { createHousehold } from "@/lib/householdManagement";
 import { createMemberForHousehold } from "@/lib/memberCreate";
+import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
 import { normalizeTabletText } from "@/lib/tabletIdentity";
 import { syncEntryToHouseholdWorshipRecord, isSyncableWorshipCategory } from "@/lib/householdWorshipSync";
@@ -607,6 +608,9 @@ export async function confirmPurificationImportBatch(input: {
           );
           if (!entryRes.ok) throw new Error(entryRes.error);
           const ritualRecordId = entryRes.record.id;
+          // V37 B3：匯入自動帶「報名成員」——把配對到/新建的信眾設為本次報名成員，
+          //   讓匯入的報名可直接「確認報名」（不用一筆筆手動選成員）。無配對成員者略過（維持草稿）。
+          if (memberId) await upsertParticipantsInTransaction(tx, ritualRecordId, [memberId], input.actor.name);
           // 額外寶袋需要 entry id；僅有額外寶袋時才查（一般祖先/正魂列無額外寶袋，不查）。
           // V36.18：額外寶袋有「數量」與「姓名」兩種寫法（如江士耀＝姓名模式，count=0）。
           //   舊碼只判 count>0，導致**新報名列**填了自訂名寶袋卻不建立 → 修正為兩種任一即查/建。

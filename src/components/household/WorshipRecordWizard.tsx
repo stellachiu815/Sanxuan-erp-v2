@@ -78,6 +78,12 @@ export default function WorshipRecordWizard({
   const [suggestions, setSuggestions] = useState<YangshangSuggestion[]>([]);
   const [existing, setExisting] = useState<ExistingRecord[]>([]);
 
+  // V38：祭祀資料可建立兩類——歷代祖先（ANCESTOR_LINE）與乙位正魂（INDIVIDUAL）。
+  //   乙位正魂直接從家戶祭祀資料建立（陽上人自由文字、安奉地各自填），走
+  //   /api/households/[id]/worship（該路由本就支援 INDIVIDUAL）。
+  const [worshipType, setWorshipType] = useState<"ANCESTOR_LINE" | "INDIVIDUAL">("ANCESTOR_LINE");
+  const isSoul = worshipType === "INDIVIDUAL";
+
   const [displayName, setDisplayName] = useState("");
   const [location, setLocation] = useState("");
   const [yangshangName, setYangshangName] = useState("");
@@ -150,6 +156,30 @@ export default function WorshipRecordWizard({
       setSubmitting(true);
       setError(null);
       try {
+        // V38：乙位正魂走家戶祭祀資料路由（支援 INDIVIDUAL、陽上人自由文字、安奉地各自填）。
+        if (isSoul) {
+          const res = await fetch(`/api/households/${encodeURIComponent(householdId)}/worship`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              operatorUserId,
+              type: "INDIVIDUAL",
+              displayName: displayName.trim(),
+              location: location.trim() || null,
+              yangshangName: normalizeYangshangName(yangshangName),
+              notes: notes.trim() || null,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || data?.success === false) {
+            setError(data?.error ?? "建立失敗");
+            return;
+          }
+          onCreated();
+          onClose();
+          return;
+        }
+
         const res = await fetch("/api/worship-records", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -183,13 +213,13 @@ export default function WorshipRecordWizard({
         setSubmitting(false);
       }
     },
-    [operatorUserId, householdId, displayName, location, yangshangName, notes, onCreated, onClose]
+    [operatorUserId, householdId, displayName, location, yangshangName, notes, onCreated, onClose, isSoul]
   );
 
   const canProceed = displayName.trim().length > 0;
 
   return (
-    <Modal title="新增歷代祖先牌位" onClose={onClose}>
+    <Modal title={isSoul ? "新增乙位正魂" : "新增歷代祖先牌位"} onClose={onClose}>
       {loading ? (
         <p className="py-8 text-center text-sm text-ink-soft">載入中…</p>
       ) : (
@@ -233,14 +263,46 @@ export default function WorshipRecordWizard({
             </div>
           ) : step === "edit" ? (
             <>
+              {/* ── 類別（歷代祖先／乙位正魂） ── */}
+              <div>
+                <label className={labelClass}>類別</label>
+                <div className="mt-1 flex gap-2">
+                  {([
+                    { v: "ANCESTOR_LINE", label: "歷代祖先" },
+                    { v: "INDIVIDUAL", label: "乙位正魂" },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      onClick={() => {
+                        setWorshipType(opt.v);
+                        // 切換類別時清掉自動帶入的姓名（祖先預設「王姓」對正魂沒意義）。
+                        setDisplayName("");
+                        setDuplicates(null);
+                      }}
+                      className={`min-h-9 rounded-full px-4 py-1.5 text-sm transition ${
+                        worshipType === opt.v ? "bg-sage-200 text-ink" : "bg-cream-100 text-ink-soft hover:bg-cream-200"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-ink-faint">
+                  {isSoul
+                    ? "乙位正魂＝個人往生者的永久牌位；填往生者姓名、陽上人與安奉地。"
+                    : "歷代祖先＝該姓氏的永久牌位；填姓（例：王）、陽上人與安奉地。"}
+                </p>
+              </div>
+
               {/* ── 名稱 ── */}
               <div>
-                <label className={labelClass}>歷代祖先名稱</label>
+                <label className={labelClass}>{isSoul ? "往生者姓名" : "歷代祖先名稱"}</label>
                 <input
                   className={inputClass}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="例如：王姓歷代祖先"
+                  placeholder={isSoul ? "例如：陳永育" : "例如：王姓歷代祖先"}
                 />
                 {existing.length > 0 && (
                   <p className="mt-1 text-xs text-ink-faint">
@@ -363,7 +425,7 @@ export default function WorshipRecordWizard({
                 <dl className="space-y-2 text-sm">
                   <div className="flex gap-3">
                     <dt className="w-20 shrink-0 text-ink-faint">名稱</dt>
-                    <dd className="text-ink">{ensureAncestorLineName(displayName)}</dd>
+                    <dd className="text-ink">{isSoul ? resolveRitualDisplayName("INDIVIDUAL_SOUL", displayName) : ensureAncestorLineName(displayName)}</dd>
                   </div>
                   <div className="flex gap-3">
                     <dt className="w-20 shrink-0 text-ink-faint">牌位地址</dt>

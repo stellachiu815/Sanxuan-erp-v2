@@ -124,6 +124,10 @@ export default async function HouseholdPage({
                   <p className="mt-1 text-sm text-ink-soft">陽上姓名：{m.yangshangName}</p>
                 )}
 
+                {/* V37：成員個人地址（常用）。空白時顯示提示，不 fallback 家戶地址（兩者獨立）。 */}
+                <p className="mt-1 text-sm text-ink-soft">個人地址：{m.address ? m.address : <span className="text-ink-faint">（未填，可至信眾頁補填）</span>}</p>
+
+
                 {(m.solarBirthDateText || m.lunarBirthDateText) && (
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
                     {/* 農曆為主、國曆（民國）為輔；全系統不顯示西元年份（V14.1 十六）。 */}

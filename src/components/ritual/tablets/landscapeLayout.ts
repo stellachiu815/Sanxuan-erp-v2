@@ -180,11 +180,8 @@ export function buildLandscapeTabletLayout(
   // V37「全批一致字級」：主文／地址／陽上人各取**整批**（不分頁）能放得下的最小字級，套用到每一張。
   //   因為牌位要實體列印、裁切、貼上，整批（含跨頁）字級必須一致，才不會這頁大那頁小。
   //   min-of-fits 對每一格都必然放得下（位置不變）→ 不會新增溢出/碰撞。
-  const minPx = (vals: number[], fallback: number) => (vals.length ? Math.min(...vals) : fallback);
-  const uMain = minPx(pend.filter((p) => p.mainText).map((p) => p.mainFit.px), MAIN_MIN_PX);
-  const uAddr = minPx(pend.filter((p) => p.addrText).map((p) => p.addrFit.px), ADDR_MIN_PX);
-  const uYang = minPx(pend.filter((p) => p.yangText).map((p) => p.yangFit.px), YANG_MIN_PX);
-
+  // V37（依 Stella）：**每一格各自極大化**——主文／地址／陽上人各自在自己的框（長寬）內塞到最大，
+  //   字少的就大、字多的就小（fitVerticalFont/maximizeFont 已算好各自能放的最大字級）。不做全批統一。
   for (const p of pend) {
     const push = (
       blockType: PositionedBlock["blockType"], x: number, y: number, w: number, h: number, text: string,
@@ -198,11 +195,10 @@ export function buildLandscapeTabletLayout(
         lineHeight: font.lineHeight, letterSpacingPx: font.letterSpacingPx,
       });
     };
-    // 陽上人統一字級，但保留各自的字距/行距微調（fitYangshangVertical 的其餘欄位）。
-    const yangFont = { ...p.yangFit, px: uYang };
-    push("address", p.addrGeo.x, contentTop, p.addrGeo.w, contentH, p.addrText, { px: uAddr }, "start");
-    push("main", p.mainX, contentTop, wMain, hMain, p.mainText, { px: uMain }, "start");
-    push("yangshang", p.yangGeo.x, p.yangGeo.y, p.yangGeo.w, p.yangGeo.h, p.yangText, yangFont, "start");
+    // 各自極大化：直接採用各格自己算出的最大字級（含字距/行距微調）。
+    push("address", p.addrGeo.x, contentTop, p.addrGeo.w, contentH, p.addrText, p.addrFit, "start");
+    push("main", p.mainX, contentTop, wMain, hMain, p.mainText, p.mainFit, "start");
+    push("yangshang", p.yangGeo.x, p.yangGeo.y, p.yangGeo.w, p.yangGeo.h, p.yangText, p.yangFit, "start");
   }
 
   const pageMap = new Map<number, PositionedBlock[]>();
