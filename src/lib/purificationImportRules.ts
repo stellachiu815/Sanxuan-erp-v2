@@ -269,7 +269,14 @@ export function classifyMatch(
   const hh = code ? householdCandidates.find((h) => h.id === code) : undefined;
   if (hh) {
     const memberInHh = relevant.find((c) => c.householdId === hh.id);
-    result = { status: "MATCHED", matchedDevoteeId: memberInHh?.id ?? null, matchedHouseholdId: hh.id, candidateIds: memberInHh ? [memberInHh.id] : [], basis: ["家戶編號一致"], issues: [] };
+    // V37 防呆（依 Stella）：家戶編號比對到那一戶後，若「這位陽上人**不在**這一戶」，
+    //   但這位陽上人卻**登記在別的家戶** → 極可能編號打錯、掛到別人家（例：陽上吳念騏在 F00211，
+    //   卻填成 F00221＝別人家 → 印出別人家的安奉地）。純警示、不阻擋；陽上人本來就未登記者不誤報。
+    const elsewhere = relevant.filter((c) => c.householdId !== hh.id);
+    const wrongHouseholdWarn = (!memberInHh && elsewhere.length > 0)
+      ? [`陽上人「${primaryName}」不在家戶編號「${code}」這一戶（他登記在別戶）——編號可能打錯、會掛到別人家，請確認`]
+      : [];
+    result = { status: "MATCHED", matchedDevoteeId: memberInHh?.id ?? null, matchedHouseholdId: hh.id, candidateIds: memberInHh ? [memberInHh.id] : [], basis: ["家戶編號一致"], issues: wrongHouseholdWarn };
   } else {
     // 強依據 2：家戶編號＋姓名一致（信眾層）。
     const byCode = code ? relevant.filter((c) => (c.householdCode ?? "") === code) : [];

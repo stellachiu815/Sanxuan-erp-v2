@@ -26,6 +26,8 @@ export default function SystemCenterHomePage() {
     { href: "/system-center/logs", label: "📜 系統Log", desc: "備份紀錄：成功/失敗、執行者", color: "bg-sage-100 hover:bg-sage-200" },
     { href: "/system-center/settings", label: "⚙️ 系統設定", desc: "備份保留天數／週數", color: "bg-mist-100 hover:bg-mist-200" },
     { href: "/system-center/data-import", label: "📥 信眾資料匯入", desc: "正式家戶 Excel（家戶／成員／祖先／乙位正魂）欄位對照、預覽、匯入", color: "bg-yolk-100 hover:bg-yolk-200" },
+    { href: "/system-center/household-maintenance", label: "🧹 家戶資料整理", desc: "牌位地址逐筆對帳、永久牌位重複清理、地址回填", color: "bg-cream-200 hover:bg-cream-300" },
+    { href: "/system-center/universal-salvation-reset", label: "🔄 中元普渡・範圍化重置", desc: "重匯前清空某年度普渡報名（不動家戶／信眾／收款）", color: "bg-blossom-100 hover:bg-blossom-200" },
   ];
 
   return (

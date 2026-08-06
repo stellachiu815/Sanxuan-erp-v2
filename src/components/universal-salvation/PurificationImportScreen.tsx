@@ -426,8 +426,14 @@ export default function PurificationImportScreen({ year }: { year: number }) {
                     if (r.matchingStatus === "DUPLICATE") notes.push("同批重複列（內容完全一致）");
                     if (r.existingMatchStatus === "SAME_NAME_DIFF_ADDR") notes.push("同姓、但陽上人不同，視為不同牌位");
                     if (r.confirmationStatus !== "CONFIRMED" && plannedAction(r) === "FIX" && !["MATCHED", "NEW", "DUPLICATE"].includes(r.matchingStatus)) notes.push(`${zh(r.matchingStatus)}：請先指定正確信眾／家戶`);
-                    if (r.issueMessages && r.issueMessages.length > 0) notes.push(...r.issueMessages);
-                    return notes.length > 0 ? <p className="mt-1 text-xs text-ink-faint">說明：{notes.join("；")}</p> : null;
+                    // V37：issueMessages（含「編號可能掛錯戶」防呆警示）另外用紅色顯眼顯示，不埋在灰色說明裡。
+                    const warns = (r.issueMessages ?? []) as string[];
+                    return (
+                      <>
+                        {notes.length > 0 && <p className="mt-1 text-xs text-ink-faint">說明：{notes.join("；")}</p>}
+                        {warns.length > 0 && <p className="mt-1 text-xs font-semibold" style={{ color: "#c0392b" }}>⚠️ {warns.join("；")}</p>}
+                      </>
+                    );
                   })()}
                   {r.errorMessage && <p className="mt-1 text-xs text-blossom-500">錯誤：{r.errorMessage}</p>}
                   {canWrite && r.confirmationStatus !== "CONFIRMED" && (

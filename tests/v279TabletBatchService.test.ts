@@ -29,10 +29,13 @@ function item(p: Partial<BatchItem> & { id: string; itemType: string; sourceCate
   } as BatchItem;
 }
 
-test("batchOf：三批次歸屬正確（無緣子女歸祖先／乙位）", () => {
+test("batchOf：批次歸屬（V37：地基主→祖先黃紙；無緣子女→冤親粉紅）", () => {
   assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "ANCESTOR_LINE" }), "ancestor-soul");
   assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "INDIVIDUAL_SOUL" }), "ancestor-soul");
-  assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "UNBORN_CHILD" }), "ancestor-soul");
+  // V37：無緣子女類別內依主文分流
+  assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "UNBORN_CHILD", printMainText: "本宅地基主" }), "ancestor-soul");
+  assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "UNBORN_CHILD", sourceDisplayName: "本宅地基主" }), "ancestor-soul");
+  assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "UNBORN_CHILD", sourceDisplayName: "無緣子女" }), "creditor");
   assert.equal(batchOf({ itemType: "TABLET", sourceCategory: "DEBT_CREDITOR" }), "creditor");
   assert.equal(batchOf({ itemType: "POCKET", sourceCategory: "ANCESTOR_LINE" }), "pocket");
 });
@@ -55,7 +58,7 @@ test("summarizeBatchItems：未列印/完整/不完整/已列印計數正確，�
   const items = [
     item({ id: "1", itemType: "TABLET", sourceCategory: "ANCESTOR_LINE", printCount: 0, tabletMissingFields: [] }), // 未列印完整
     item({ id: "2", itemType: "TABLET", sourceCategory: "INDIVIDUAL_SOUL", printCount: 0, tabletMissingFields: ["牌位地址"] }), // 未列印不完整
-    item({ id: "3", itemType: "TABLET", sourceCategory: "UNBORN_CHILD", printCount: 2 }), // 已列印
+    item({ id: "3", itemType: "TABLET", sourceCategory: "UNBORN_CHILD", sourceDisplayName: "本宅地基主", printCount: 2 }), // 已列印（地基主→祖先批）
     item({ id: "4", itemType: "TABLET", sourceCategory: "ANCESTOR_LINE", printCount: 0, status: "CANCELLED" }), // 排除
     item({ id: "5", itemType: "TABLET", sourceCategory: "DEBT_CREDITOR", printCount: 0 }), // 別批，不計
   ];

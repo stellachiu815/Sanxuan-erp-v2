@@ -3482,3 +3482,59 @@ model PurificationImportRow {
   @@index([matchingStatus])
   @@map("purification_import_rows")
 }
+
+// ============================================================
+// V37「信眾自動報名」——獨立新增，不改動任何既有 model。
+//   兩張全新表：若尚未在正式庫建立，只有「信眾報名」功能暫時無作用，
+//   完全不影響現有活動／普渡／信眾等既有功能（新表不被既有查詢引用）。
+//   正式庫用「系統管理→一鍵建立信眾報名資料表」以 raw SQL 建立（純新增、不動舊資料、不需終端機）。
+// ============================================================
+
+/// 每個活動一份「信眾報名表設定」。綁定既有 TempleEvent（不加欄位到 TempleEvent，避免未遷移時破壞既有查詢）。
+model PublicRegForm {
+  id            String @id @default(cuid())
+  templeEventId String // 對應 TempleEvent.id（不建 FK，避免自我耦合；以應用層維護）
+  /// 公開報名網址用的隨機代碼（/join/[slug]）。不可猜、可停用後換新。
+  slug          String @unique
+  /// 這個活動的報名頁要收哪些欄位（欄位 key 陣列 + 是否必填），從信眾資料表可用欄位挑。
+  fieldsConfig  Json   @default("[]")
+  /// 是否開放報名（管理者明確意志；也可再配合活動的受理期間）。
+  isOpen        Boolean @default(true)
+  /// 報名頁抬頭說明（選填，顯示給信眾看）。
+  headerNote    String? @db.Text
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  registrations PublicRegistration[]
+
+  @@index([templeEventId])
+  @@map("public_reg_forms")
+}
+
+/// 信眾自填的每一筆報名（先進「待確認」，絕不自動變成正式牌位）。
+model PublicRegistration {
+  id       String            @id @default(cuid())
+  formId   String
+  form     PublicRegForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  status   PublicRegStatus   @default(PENDING)
+  /// 信眾填的內容（依 form.fieldsConfig 動態欄位；JSON 保存，核對後才決定是否轉正式）。
+  payload  Json
+  /// 送出者的簡易識別（防重、防灌水用；不對外顯示）。
+  submitterHash String?
+  confirmedAt   DateTime?
+  confirmedByName String?
+  note     String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([formId])
+  @@index([status])
+  @@map("public_registrations")
+}
+
+enum PublicRegStatus {
+  PENDING   // 待確認（信眾已送出、廟方尚未核對）
+  CONFIRMED // 已確認（廟方核對手寫本後＝已收到）
+  REJECTED  // 作廢
+}

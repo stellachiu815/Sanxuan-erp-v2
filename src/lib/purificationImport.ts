@@ -481,12 +481,27 @@ export async function confirmPurificationImportBatch(input: {
           inheritedAddress = wr?.location?.trim() || null;
         }
 
-        // V36.14：地址優先序＝ Excel 明填牌位地址 ＞ **永久牌位安奉地(inheritedAddress)** ＞ Excel 一般地址／家戶戶籍地。
-        //   永久牌位是安奉地的唯一真相來源，必須贏過「信眾/家戶戶籍地」，否則會印成戶籍地（如新北）而非安奉地（雲林）。
+        // V37：冤親／無緣的地址應取「陽上人**本人的個人信眾地址**(Member.address)」，不是家戶共用地址
+        //   （一戶多人時家戶地址會挑錯人）。祖先/正魂 仍以永久牌位安奉地優先。故新增此來源，插在家戶之前。
+        let devoteePersonalAddr: string | null = null;
+        {
+          const personName = (edited.yangshangNames?.[0] ?? edited.devoteeName ?? "").trim();
+          if (personName) {
+            const mem = await prisma.member.findFirst({
+              where: { householdId: existingHouseholdId, name: personName, deletedAt: null, address: { not: null } },
+              select: { address: true },
+              orderBy: { createdAt: "asc" },
+            });
+            devoteePersonalAddr = mem?.address?.trim() || null;
+          }
+        }
+
+        // V37 地址優先序＝ Excel 明填 ＞ 永久牌位安奉地(祖先/正魂) ＞ **陽上人個人信眾地址(冤親/無緣等)** ＞ 家戶地址。
         const excelExplicit = (edited.tabletAddress ?? "").trim();
         precomputedAddress = excelExplicit
           ? excelExplicit
           : (inheritedAddress
+              ?? devoteePersonalAddr
               ?? resolveImportAddress({
                   rowTabletAddress: null,
                   rowAddress: edited.address ?? null,

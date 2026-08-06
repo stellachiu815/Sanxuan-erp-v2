@@ -7,6 +7,7 @@ import { alignHouseholdAddress } from "@/lib/alignHouseholdAddress";
 import { backfillEntryAddress } from "@/lib/backfillEntryAddress";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
+import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
     if (body?.action === "address-audit") {
       const report = await auditTabletAddresses(year);
       return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "init-public-reg-tables") {
+      const report = await ensurePublicRegTables();
+      return NextResponse.json({ ok: report.ok, report });
     }
     return NextResponse.json({ error: "未知的整理動作" }, { status: 400 });
   } catch (e) {

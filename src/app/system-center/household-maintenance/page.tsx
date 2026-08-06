@@ -36,6 +36,7 @@ function Inner() {
       <BackfillAddress />
       <MergeCheck />
       <HouseholdAddress />
+      <PublicRegInit />
     </main>
   );
 }
@@ -64,6 +65,30 @@ type AddrRow = {
   printedAddress: string | null; worshipLocation: string | null; householdAddress: string | null; memberAddresses: string[];
   matchSource: string; suspicious: boolean; note: string;
 };
+
+function PublicRegInit() {
+  const { report, committed, busy, error, run } = useTool("init-public-reg-tables");
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">信眾自動報名（新功能）· 建立資料表</h2>
+      <p className="mt-1 text-sm text-ink-soft">按一下就會建立「信眾報名」要用的兩張<b>全新資料表</b>（純新增、不動也不會傷到任何現有資料，可重複按）。這是新功能上線的第一步；建好之後我才會接著做報名頁與後台。</p>
+      <div className="mt-3">
+        <button type="button" disabled={busy}
+          onClick={() => { if (window.confirm("建立『信眾報名』的兩張新資料表？（只新增、不影響現有資料）")) run(true); }}
+          style={{ backgroundColor: "#2f7d5b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+          className="rounded-full px-5 py-2 text-sm font-semibold">
+          {busy ? "建立中…" : "建立信眾報名資料表"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && committed && (
+        <p className="mt-2 text-sm">{report.ok
+          ? <span className="text-emerald-700">✅ 完成：兩張表已就緒（public_reg_forms、public_registrations）。{report.created ? "（本次新建）" : "（原本就有，未重複建立）"}</span>
+          : <span className="text-blossom-500">⚠️ 尚未完成：{report.error ?? "請再試一次或回報我"}</span>}</p>
+      )}
+    </section>
+  );
+}
 
 function AddressAudit() {
   const { report, busy, error, run } = useTool("address-audit");

@@ -24,6 +24,11 @@
  */
 
 const CHINESE_DIGIT_CHARS = ["〇", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+/**
+ * V37 逐字讀法（地址門牌）專用：0 一律讀「零」（宮方偏好，不用圈「〇」）。
+ * 只影響 digitsToChineseDigits（地址），進位組字（belowThousand… 內部的「零」為字面值）不受影響。
+ */
+const PER_DIGIT_CHARS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
 
 /** 0-999 的中文數字組字（內部使用）。topLevel=false 代表這段數字是接在更高位數
  *  之後（例如百位數後面的十位數），此時「一十」的「一」不可省略；topLevel=true
@@ -84,9 +89,12 @@ export function digitsToChineseDigits(s: string): string {
   return s.replace(/[0-9]/g, (d) => CHINESE_DIGIT_CHARS[Number(d)]);
 }
 
-/** 地址專用的別名（語意更清楚），行為與 digitsToChineseDigits 完全相同。 */
+/**
+ * 地址專用逐字讀法：0 讀「零」（宮方偏好），其餘同 digitsToChineseDigits。
+ * V37：只有地址用「零」；年度名稱（民國一〇五年）等仍用「〇」，故與 digitsToChineseDigits 分開。
+ */
 export function convertAddressToChineseNumerals(address: string): string {
-  return digitsToChineseDigits(address);
+  return address.replace(/[0-9]/g, (d) => PER_DIGIT_CHARS[Number(d)]);
 }
 
 /** 歲數格式化：例如 54 → 「五十四歲」。 */

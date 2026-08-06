@@ -26,7 +26,7 @@
 
 import {
   toChineseNumeral,
-  digitsToChineseDigits,
+  convertAddressToChineseNumerals,
   formatFormalLunarDate,
   normalizeGender,
   formatJishi,
@@ -115,12 +115,12 @@ export function printAddress(
   const trimmed = address.trim();
   if (!trimmed) return "";
   if (style === "perDigit") {
-    return digitsToChineseDigits(trimmed);
+    return convertAddressToChineseNumerals(trimmed); // V37：地址 0 讀「零」
   }
   // grouped：把每一段連續數字視為一個數值做進位組字
   return trimmed.replace(/\d+/g, (run) => {
     const n = Number(run);
-    if (!Number.isFinite(n) || n > 9999) return digitsToChineseDigits(run);
+    if (!Number.isFinite(n) || n > 9999) return convertAddressToChineseNumerals(run);
     return toChineseNumeral(n);
   });
 }

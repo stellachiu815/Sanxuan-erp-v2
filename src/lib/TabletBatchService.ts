@@ -2,13 +2,14 @@
  * V27.10：跨家戶「三個實體紙張／版型批次」的**純函式**服務層（client-safe，不 import Prisma）。
  *
  * 三個列印批次（三批不可互相混印）：
- *   BATCH 1 ancestor-soul：歷代祖先＋乙位正魂＋無緣子女（三區塊牌位，黃色紙，UNIVERSAL_SALVATION_TABLET_A4_V1）
- *   BATCH 2 creditor      ：累世冤親債主（黃色紙，同版型，必須獨立列印）
+ *   BATCH 1 ancestor-soul：歷代祖先＋乙位正魂＋**本宅地基主**（黃色紙）
+ *   BATCH 2 creditor      ：累世冤親債主＋**無緣子女**（粉紅色紙）
  *   BATCH 3 pocket        ：寶袋（紅色紙，使用既有寶袋版型，不走本牌位版型）
  *
- * 決策說明（依既有作業流程 + 最小修改）：
- *  - 無緣子女與歷代祖先／乙位正魂同為黃色紙、同一份三區塊版型引擎，故歸入 BATCH 1，
- *    避免資料被漏印；不另建第四批。
+ * 決策說明：
+ *  - V37 依宮方紙色：祖先黃、冤親粉紅、寶袋紅。無緣子女類別內再分——「本宅地基主」
+ *    視同祖先（黃紙、隨 BATCH 1）；其餘「無緣子女」視同冤親（粉紅紙、隨 BATCH 2）。
+ *    兩者同屬 UNBORN_CHILD 類別，故於 batchOf() 依主文文字（含「地基主」與否）分流。
  *  - 寶袋（BATCH 3）系統唯一版型在既有「牌位與寶袋列印」流程，本次不重建第二套寶袋版型、
  *    不修改寶袋列印，故 pocket 批次沿用既有流程（見管理頁區塊說明）。
  *
@@ -45,22 +46,24 @@ export type BatchMeta = {
 export const PRINT_BATCH_META: Record<PrintBatchKey, BatchMeta> = {
   "ancestor-soul": {
     key: "ancestor-soul",
-    label: "祖先／乙位正魂",
+    label: "祖先／乙位正魂（含地基主）",
     oneClickLabel: "一鍵列印全部未列印祖先／乙位",
     paperLabel: "黃色紙",
     paperDotClass: "bg-yellow-300 border border-yellow-500",
     usesTabletEngine: true,
     itemType: "TABLET",
-    categories: ["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "UNBORN_CHILD"],
+    // V37：UNBORN_CHILD 於 batchOf 依主文分流（地基主→此批），故不列於此陣列。
+    categories: ["ANCESTOR_LINE", "INDIVIDUAL_SOUL"],
   },
   creditor: {
     key: "creditor",
-    label: "累世冤親債主",
-    oneClickLabel: "一鍵列印全部未列印冤親",
-    paperLabel: "黃色紙",
-    paperDotClass: "bg-yellow-300 border border-yellow-500",
+    label: "累世冤親債主／無緣子女",
+    oneClickLabel: "一鍵列印全部未列印冤親／無緣",
+    paperLabel: "粉紅色紙",
+    paperDotClass: "bg-pink-300 border border-pink-500",
     usesTabletEngine: true,
     itemType: "TABLET",
+    // V37：UNBORN_CHILD 於 batchOf 依主文分流（非地基主的無緣子女→此批），故不列於此陣列。
     categories: ["DEBT_CREDITOR"],
   },
   pocket: {
@@ -136,9 +139,14 @@ export function resolvePrintItemRegistrationOrder(
 }
 
 /** 一筆列印物件在此批次系統中屬於哪一批（不屬於任一批回 null）。 */
-export function batchOf(item: { itemType: string; sourceCategory: string }): PrintBatchKey | null {
+export function batchOf(item: { itemType: string; sourceCategory: string; printMainText?: string | null; sourceDisplayName?: string }): PrintBatchKey | null {
   if (item.itemType === "POCKET") return "pocket";
   if (item.itemType === "TABLET") {
+    // V37：無緣子女類別內再分——「本宅地基主」隨祖先（黃紙），其餘無緣子女隨冤親（粉紅紙）。
+    if (item.sourceCategory === "UNBORN_CHILD") {
+      const nm = ((item.printMainText ?? "").trim() || item.sourceDisplayName || "");
+      return nm.includes("地基主") ? "ancestor-soul" : "creditor";
+    }
     if (PRINT_BATCH_META.creditor.categories.includes(item.sourceCategory)) return "creditor";
     if (PRINT_BATCH_META["ancestor-soul"].categories.includes(item.sourceCategory)) return "ancestor-soul";
   }
