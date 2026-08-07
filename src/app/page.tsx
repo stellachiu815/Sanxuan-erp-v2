@@ -81,12 +81,20 @@ export default async function HomePage() {
       <HomeQuickNav showSystemCenter={showSystemCenter} />
 
       {/* V38 現場快速報名：中元普渡現場報名的最高頻入口，放在首頁顯眼處。 */}
-      <Link
-        href="/quick-registration"
-        className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-card hover:bg-emerald-700"
-      >
-        🀄 現場快速報名（中元普渡）→
-      </Link>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/quick-registration"
+          className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-card hover:bg-emerald-700"
+        >
+          🀄 現場快速報名（中元普渡）→
+        </Link>
+        <Link
+          href="/registration/new"
+          className="rounded-full bg-sage-100 px-5 py-2.5 text-sm font-medium text-ink shadow-card hover:bg-sage-200"
+        >
+          ➕ 新增活動報名（可建新信眾）→
+        </Link>
+      </div>
 
       {/*
         V15 指令三「首頁資料載入 lazy loading」：資訊卡（系統總覽）用 Suspense

@@ -191,6 +191,38 @@ test("建普渡活動時自動產生公開報名表", () => {
   assert.ok(src.includes("普渡${input.year}"), "預設 slug 普渡{年}");
 });
 
+test("報名就是報名：確認驗證認得新式贊普/白米/寶袋（不卡草稿）", () => {
+  const src = read("src/lib/activityRegistration.ts");
+  assert.ok(src.includes("US_SPONSOR") && src.includes("US_RICE") && src.includes("US_POCKET_EXTRA"), "確認驗證計入新式項目");
+  assert.ok(src.includes("hasUsItem"), "有任一有效項目即可確認");
+});
+
+test("白米：匯入報名開啟時自動補年度活動連結", () => {
+  const src = read("src/lib/activityRegistration.ts");
+  assert.ok(src.includes("!record.templeEventId") && src.includes("templeEventId: event.id"), "既有報名缺 templeEventId 時補上");
+});
+
+test("新增活動報名支援新信眾：查無此人當場建（姓家），走報名權限", () => {
+  const src = read("src/app/api/registrations/new-person/route.ts");
+  assert.ok(src.includes("assertRitualRegistrationPermissionForOperator"), "用報名權限");
+  assert.ok(src.includes("`${surname}家`"), "戶名姓家");
+  const page = read("src/app/registration/new/page.tsx");
+  assert.ok(page.includes("NewActivityRegistrationDialog"), "接既有豐富版報名對話框（不重做）");
+  assert.ok(page.includes("/api/registrations/new-person"), "查無此人可當場建");
+});
+
+test("現場快速報名：打字即時查既有信眾（不用按鈕）", () => {
+  const src = read("src/app/quick-registration/page.tsx");
+  assert.ok(src.includes("useEffect(() => {\n    if (existing) return;"), "打字即時查（debounce useEffect）");
+  assert.ok(!src.includes(">查既有信眾<"), "移除手動查詢按鈕");
+});
+
+test("數量欄可直接輸入（不再只能按上下鍵）", () => {
+  const src = read("src/components/devotee/NewActivityRegistrationDialog.tsx");
+  assert.ok(src.includes('value={s.quantity === 0 ? "" : s.quantity}'), "可清空重打");
+  assert.ok(src.includes("onBlur={() => { if (!s.quantity"), "離開時補回至少 1");
+});
+
 test("作業編號『移到第 N 號』＝插入語意（其餘順延、連號重編）", async () => {
   const { moveToPosition } = await import("../src/lib/workOrder");
   const rows = ["a", "b", "c", "d", "e"].map((id, i) => ({ id, categoryKey: "K", workOrder: i + 1 }));

@@ -279,12 +279,15 @@ export async function validateForConfirm(
       const detail = record.universalSalvation;
       const entryCount = detail?.entries.length ?? 0;
       const isSponsor = detail?.isSponsor ?? false;
-      if (entryCount === 0 && !isSponsor) {
-        reasons.push("普渡報名至少需要一筆牌位登記，或勾選贊普");
+      // V38：新式贊普／白米／寶袋以 RitualRegistrationItem 呈現（不再只看舊 detail.isSponsor）。
+      //   有牌位或任一有效普渡報名項目即算「有內容」→ 可確認（報名就是報名，不停在草稿）。
+      const US_CONTENT_KEYS = new Set(["US_ANCESTOR", "US_ZHENGHUN", "US_YUANQIN", "US_WUYUAN", "US_SPONSOR", "US_SPONSOR_DONATION", "US_RICE", "US_POCKET_EXTRA"]);
+      const hasUsItem = record.registrationItems.some((i) => US_CONTENT_KEYS.has(i.registrationItemType.key));
+      if (entryCount === 0 && !hasUsItem && !isSponsor) {
+        reasons.push("普渡報名至少需要一筆牌位登記，或白米／贊普等項目");
       }
-      // V14.1 回歸修正三：贊普不得以應收 0 確認。單價來源是 sponsorUnitPrice
-      // （登記時填寫，無活動層價格設定）；金額尚未設定時保留數量、明確擋住確認。
-      if (isSponsor && Number(detail?.sponsorAmount ?? 0) <= 0) {
+      // V14.1：舊式贊普（detail.isSponsor）不得以應收 0 確認。新式贊普由 item 自身計價，不走此檢查。
+      if (isSponsor && !hasUsItem && Number(detail?.sponsorAmount ?? 0) <= 0) {
         reasons.push("尚未設定贊普單價／金額——請於贊普區塊填寫後再確認（不可以應收 0 確認）");
       }
       break;

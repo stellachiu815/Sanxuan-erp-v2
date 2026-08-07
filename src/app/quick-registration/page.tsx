@@ -82,15 +82,21 @@ function Inner() {
     })();
   }, []);
 
-  async function search() {
-    if (!name.trim()) return;
-    setSearching(true);
-    try {
-      const res = await fetchRegistration(`/api/quick-registration/devotees?q=${encodeURIComponent(name.trim())}`);
-      const data = await res.json();
-      setHits(res.ok ? (data.results ?? []) : []);
-    } catch { setHits([]); } finally { setSearching(false); }
-  }
+  // V38：打字即時查既有信眾（不用按按鈕）。已選既有信眾時不查；輸入變動 300ms 後查一次。
+  useEffect(() => {
+    if (existing) return;
+    const q = name.trim();
+    if (!q) { setHits([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetchRegistration(`/api/quick-registration/devotees?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setHits(res.ok ? (data.results ?? []) : []);
+      } catch { setHits([]); } finally { setSearching(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [name, existing]);
 
   function pick(h: DevoteeHit) {
     setExisting(h);
@@ -190,13 +196,10 @@ function Inner() {
       <section className={card}>
         <h2 className="text-base font-medium text-ink">① 報名人</h2>
         <div className="mt-3 flex flex-col gap-3">
-          <div className="flex gap-2 items-end">
-            <label className="flex-1 flex flex-col gap-1">
-              <span className="text-xs text-ink-soft">姓名</span>
-              <input value={name} onChange={(e) => { setName(e.target.value); setExisting(null); }} placeholder="例：王小明" className={inputCls} />
-            </label>
-            <button type="button" disabled={searching || !name.trim()} onClick={search} className={smallBtn}>{searching ? "搜尋中…" : "查既有信眾"}</button>
-          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-ink-soft">姓名{searching && <span className="text-ink-faint">（搜尋中…）</span>}</span>
+            <input value={name} onChange={(e) => { setName(e.target.value); setExisting(null); }} placeholder="打字即時查既有信眾（例：王小明）" className={inputCls} />
+          </label>
           {hits.length > 0 && !existing && (
             <div className="rounded-lg border border-mist-200 bg-cream-50 p-2 flex flex-col gap-1 max-h-48 overflow-auto">
               <p className="text-xs text-ink-soft">選一位既有信眾帶入（或直接忽略、用新信眾建立）：</p>
