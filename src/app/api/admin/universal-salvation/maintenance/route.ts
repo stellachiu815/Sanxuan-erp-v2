@@ -9,6 +9,7 @@ import { backfillCreditorUnbornAddress } from "@/lib/backfillCreditorUnbornAddre
 import { backfillCreditorUnbornYangshang } from "@/lib/backfillCreditorUnbornYangshang";
 import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
 import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
+import { auditIndividualSoulNames } from "@/lib/auditIndividualSoulNames";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
@@ -64,6 +65,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "import-merge-check") {
       const report = await checkImportMerges(year);
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "soul-name-audit") {
+      const report = await auditIndividualSoulNames(year);
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "address-audit") {

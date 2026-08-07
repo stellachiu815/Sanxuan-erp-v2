@@ -32,6 +32,7 @@ function Inner() {
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
       <AddressAudit />
+      <SoulNameAudit />
       <PurgeArchivedUsRecords />
       <BackfillCreditorUnborn />
       <BackfillCreditorUnbornYangshang />
@@ -304,6 +305,40 @@ function WorshipDedup() {
 type CreditorUnbornChange = { entryId: string; householdId: string; category: string; displayName: string; yangshang: string | null; newAddress: string; source: string };
 
 type PurgeRow = { ritualRecordId: string; householdId: string; householdName: string | null; year: number; eligible: boolean; blocker: string | null; removed?: boolean };
+
+type SoulNameRow = { source: string; id: string; householdId: string | null; displayName: string; location: string | null; yangshang: string | null };
+
+function SoulNameAudit() {
+  const { report, busy, error, run } = useTool("soul-name-audit");
+  const rows: SoulNameRow[] = report?.suspicious ?? [];
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">乙位正魂命名檢查（找「某姓乙位正魂」）</h2>
+      <p className="mt-1 text-sm text-ink-soft">乙位正魂是<b>個人往生者</b>，主文應是<b>全名</b>（例：溫崇仁乙位正魂）；如果被命成「陳姓」這種只有姓的祖先式命名（顯示成「陳姓乙位正魂」），多半是類別選錯或名字打錯。這裡把可疑的一次列出來（<b>只看不改</b>），你到該戶用「編輯」修正，或改成歷代祖先。</p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "查詢可疑命名"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">乙位正魂共 {report.totalSouls} 筆｜<b className="text-blossom-500">可疑 {rows.length} 筆</b>（主文以「姓」結尾或只有一個字）。</p>
+          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
+            {rows.map((r) => (
+              <li key={r.id} className="rounded bg-blossom-50 px-2 py-1">
+                <b className="text-ink">{r.displayName}乙位正魂</b>
+                <span className="text-ink-faint">（{r.source}）</span>
+                {r.householdId && <> ｜家戶 <a href={`/household/${r.householdId}`} className="text-blossom-500 underline">{r.householdId}</a></>}
+                {r.yangshang && <> ｜陽上：{r.yangshang}</>}
+                {r.location && <> ｜安奉地：{r.location}</>}
+              </li>
+            ))}
+          </ul>
+          {rows.length === 0 && !error && <p className="mt-2 text-emerald-700">✅ 沒有可疑的乙位正魂命名，很乾淨。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function PurgeArchivedUsRecords() {
   const { report, committed, busy, error, run } = useTool("purge-archived-us-records");
