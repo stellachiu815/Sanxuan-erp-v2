@@ -1,0 +1,52 @@
+name: 三玄宮 自動雲端備份
+
+# V38：用 GitHub 內建排程（GitHub Actions）每晚自動呼叫系統的備份 API，
+#   取代 cron-job.org（免第三方、免驗證信）。時間為 UTC，台灣 = UTC+8。
+#   密鑰放在 repo Secrets 的 BACKUP_CRON_SECRET（需與 Render 上同名環境變數的值一致）。
+#   ⚠️ 排程 workflow 只在「預設分支」生效；且 repo 連續 60 天沒動會被 GitHub 自動停用
+#      （Stella 常部署，通常不會發生；真的被停用時到 Actions 頁按 Enable 即可）。
+
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 每日 02:00（台灣）——每晚備份
+    - cron: "0 19 * * 6"   # 每週日 03:00（台灣）——每週備份
+    - cron: "0 18 1 * *"   # 每月 2 號 02:00（台灣）——每月備份（永久保留）
+  workflow_dispatch:       # 也可到 Actions 頁手動按「Run workflow」立刻測試
+    inputs:
+      type:
+        description: "手動測試時的備份類型"
+        default: daily
+        type: choice
+        options: [daily, weekly, monthly]
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 決定備份類型（依觸發的排程 / 手動輸入）
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TYPE="${{ github.event.inputs.type }}"
+          else
+            case "${{ github.event.schedule }}" in
+              "0 19 * * 6") TYPE=weekly ;;
+              "0 18 1 * *") TYPE=monthly ;;
+              *) TYPE=daily ;;
+            esac
+          fi
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "本次備份類型：$TYPE"
+
+      - name: 呼叫系統備份 API
+        env:
+          SECRET: ${{ secrets.BACKUP_CRON_SECRET }}
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "::error::尚未設定 repo Secret：BACKUP_CRON_SECRET（請到 Settings → Secrets and variables → Actions 新增）"
+            exit 1
+          fi
+          curl -fsS --max-time 300 -X POST \
+            "https://sanxuan-erp-v2.onrender.com/api/system-center/backup/scheduled-trigger?type=${{ steps.pick.outputs.type }}" \
+            -H "x-backup-cron-secret: $SECRET"
+          echo "已送出 ${{ steps.pick.outputs.type }} 備份觸發。"
