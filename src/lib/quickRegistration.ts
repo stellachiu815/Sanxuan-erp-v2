@@ -19,6 +19,7 @@ import { confirmRegistration } from "@/lib/activityRegistration";
 import { createUniversalSalvationEntry } from "@/lib/ritual";
 import { registerRice } from "@/lib/whiteRiceService";
 import { syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
+import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { normalizeYangshangNames } from "@/lib/yangshang";
 import type { Role } from "@/lib/permissions";
@@ -46,6 +47,10 @@ export type QuickRegNamedTablet = {
   yangshangNames?: string[];
   /** 安奉地（牌位放哪寫哪；非住家地址）。 */
   tabletAddress?: string | null;
+  /** 增加寶袋：份數（沿用本牌位名稱印）。掛在「這一張」牌位下。 */
+  extraPocketQty?: number | null;
+  /** 增加寶袋：指定姓名（每個姓名各一份）。掛在「這一張」牌位下。 */
+  extraPocketNames?: string[] | null;
 };
 
 /** 無緣子女／本宅地基主（同一類，主文可選）。 */
@@ -117,6 +122,9 @@ export async function quickRegister(
   let householdId: string;
   let memberId: string;
   let registrantAddress: string | null = s(input.registrant.address);
+  // V38 修正：報名人姓名——選既有信眾時表單不會另送 name，要用該成員的姓名，
+  //   否則冤親／無緣的陽上人預設值（＝報名人）會變空白（陽上人「叩薦」不見）。
+  let registrantName: string | null = s(input.registrant.name);
 
   if (input.registrant.existingMemberId) {
     const m = await prisma.member.findFirst({
@@ -128,6 +136,8 @@ export async function quickRegister(
     householdId = m.householdId;
     // 冤親地址優先用本人個人地址；表單另填的地址次之。
     registrantAddress = (m as unknown as { address: string | null }).address ?? registrantAddress;
+    // 選既有信眾 → 報名人姓名＝該成員姓名（供陽上人預設）。
+    if (!registrantName) registrantName = m.name;
   } else {
     const name = s(input.registrant.name);
     if (!name) return { ok: false, status: 400, error: "請輸入報名人姓名" };
@@ -155,8 +165,6 @@ export async function quickRegister(
     memberId = mem.member.id;
   }
 
-  const registrantName = s(input.registrant.name);
-
   // ── 3. 成立報名（RitualRecord＋報名成員自動帶報名人＋普渡明細） ──
   const reg = await registerActivity({
     templeEventId: input.templeEventId,
@@ -174,6 +182,41 @@ export async function quickRegister(
   const defaultYang = (arr?: string[]): string[] => {
     const y = yang(arr);
     return y.length > 0 ? y : registrantName ? [registrantName] : [];
+  };
+
+  // 把「增加寶袋」掛到某一類別「剛建立的那一張」牌位下（份數沿用牌位名稱；指定姓名各一份）。
+  // 依序建立，故該類別 createdAt 最新的一筆＝剛建的這張。回傳錯誤字串（成功回 null）。
+  const attachPockets = async (
+    category: "ANCESTOR_LINE" | "INDIVIDUAL_SOUL",
+    qtyRaw?: number | null,
+    namesRaw?: string[] | null
+  ): Promise<string | null> => {
+    const names = (namesRaw ?? []).map((n) => (n ?? "").trim()).filter(Boolean);
+    const qty = Math.floor(Number(qtyRaw ?? 0));
+    if (names.length === 0 && qty <= 0) return null;
+    const e = await prisma.universalSalvationEntry.findFirst({
+      where: { universalSalvation: { ritualRecordId }, category, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (!e) return null; // 理論上剛建過，不會發生
+    for (const name of names) {
+      const p = await createAdditionalPrintItem(
+        householdId, year, e.id,
+        { itemType: "POCKET", usesSourceName: false, customPrintName: name, quantity: 1, isExtra: true, isChargeable: true },
+        operator.name
+      );
+      if (!p.ok) return `增加寶袋（${name}）：${p.error}`;
+    }
+    if (qty > 0) {
+      const p = await createAdditionalPrintItem(
+        householdId, year, e.id,
+        { itemType: "POCKET", usesSourceName: true, quantity: qty, isExtra: true, isChargeable: true },
+        operator.name
+      );
+      if (!p.ok) return `增加寶袋：${p.error}`;
+    }
+    return null;
   };
 
   try {
@@ -195,6 +238,8 @@ export async function quickRegister(
       );
       if (!r.ok) return { ok: false, status: r.status, error: `歷代祖先：${r.error}` };
       createdTablets += 1;
+      const pErr = await attachPockets("ANCESTOR_LINE", a.extraPocketQty, a.extraPocketNames);
+      if (pErr) return { ok: false, status: 400, error: `歷代祖先「${displayName}」的${pErr}` };
     }
 
     // 4b 乙位正魂：安奉地各自填；同步進家戶永久名單；連結報名人成員。
@@ -216,6 +261,8 @@ export async function quickRegister(
       );
       if (!r.ok) return { ok: false, status: r.status, error: `乙位正魂：${r.error}` };
       createdTablets += 1;
+      const pErr = await attachPockets("INDIVIDUAL_SOUL", soul.extraPocketQty, soul.extraPocketNames);
+      if (pErr) return { ok: false, status: 400, error: `乙位正魂「${displayName}」的${pErr}` };
     }
 
     // 4c 累世冤親債主：主文固定；地址＝報名人個人地址；陽上人預設＝報名人。

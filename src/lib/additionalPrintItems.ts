@@ -1237,7 +1237,9 @@ export async function listPrintItemsForPrintCenter(
 ): Promise<PrintCenterItemView[]> {
   const where: Prisma.AdditionalPrintItemWhereInput = {
     deletedAt: null,
-    ritualRecord: { year, activityType: "UNIVERSAL_SALVATION", deletedAt: null },
+    // V38：已封存家戶（household.deletedAt 非 null）的牌位一律不進列印——封存家戶時
+    //   其 RitualRecord／牌位不會連動軟刪，故在此依家戶封存狀態排除，避免封存後仍印得出來。
+    ritualRecord: { year, activityType: "UNIVERSAL_SALVATION", deletedAt: null, household: { deletedAt: null } },
   };
   if (filters.activityId) where.activityId = filters.activityId;
   if (filters.householdId) where.householdId = filters.householdId;

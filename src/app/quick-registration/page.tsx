@@ -14,7 +14,7 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 type Activity = { templeEventId: string; year: number; name: string; canRegister: boolean };
 type DevoteeHit = { memberId: string; name: string; householdId: string; householdName: string; address: string | null };
 
-type NamedRow = { displayName: string; yangshang: string; tabletAddress: string };
+type NamedRow = { displayName: string; yangshang: string; tabletAddress: string; pocketQty: string; pocketNames: string };
 type UnbornRow = { mainText: "無緣子女" | "本宅地基主"; yangshang: string; tabletAddress: string };
 
 export default function QuickRegistrationPage() {
@@ -98,8 +98,8 @@ function Inner() {
   }
   function clearExisting() { setExisting(null); }
 
-  function addAncestor() { setAncestors((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
-  function addSoul() { setSouls((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
+  function addAncestor() { setAncestors((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "", pocketQty: "", pocketNames: "" }]); }
+  function addSoul() { setSouls((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "", pocketQty: "", pocketNames: "" }]); }
   function addUnborn() { setUnborn((a) => [...a, { mainText: "無緣子女", yangshang: "", tabletAddress: "" }]); }
 
   const splitYang = (s: string) => s.split(/[,、，\s]+/).map((x) => x.trim()).filter(Boolean);
@@ -112,6 +112,8 @@ function Inner() {
       souls.some((a) => a.displayName.trim()) ||
       creditor ||
       unborn.length > 0 ||
+      ancestors.some((a) => Number(a.pocketQty) > 0 || a.pocketNames.trim()) ||
+      souls.some((a) => Number(a.pocketQty) > 0 || a.pocketNames.trim()) ||
       Number(riceKg) > 0 || Number(sponsorQty) > 0 || Number(donation) > 0;
     if (!anySelected) return "請至少勾選一個要報名的項目。";
     return null;
@@ -136,8 +138,8 @@ function Inner() {
     const body = {
       templeEventId,
       registrant,
-      ancestors: ancestors.filter((a) => a.displayName.trim()).map((a) => ({ displayName: a.displayName.trim(), yangshangNames: splitYang(a.yangshang), tabletAddress: a.tabletAddress.trim() || null })),
-      individualSouls: souls.filter((a) => a.displayName.trim()).map((a) => ({ displayName: a.displayName.trim(), yangshangNames: splitYang(a.yangshang), tabletAddress: a.tabletAddress.trim() || null })),
+      ancestors: ancestors.filter((a) => a.displayName.trim()).map((a) => ({ displayName: a.displayName.trim(), yangshangNames: splitYang(a.yangshang), tabletAddress: a.tabletAddress.trim() || null, extraPocketQty: Number(a.pocketQty) > 0 ? Math.floor(Number(a.pocketQty)) : null, extraPocketNames: splitYang(a.pocketNames) })),
+      individualSouls: souls.filter((a) => a.displayName.trim()).map((a) => ({ displayName: a.displayName.trim(), yangshangNames: splitYang(a.yangshang), tabletAddress: a.tabletAddress.trim() || null, extraPocketQty: Number(a.pocketQty) > 0 ? Math.floor(Number(a.pocketQty)) : null, extraPocketNames: splitYang(a.pocketNames) })),
       creditor: creditor ? { include: true, yangshangNames: splitYang(creditorYang) } : null,
       unborn: unborn.map((u) => ({ mainText: u.mainText, yangshangNames: splitYang(u.yangshang), tabletAddress: u.tabletAddress.trim() || null })),
       riceKg: Number(riceKg) > 0 ? Number(riceKg) : null,
@@ -246,12 +248,18 @@ function Inner() {
             <button type="button" onClick={addAncestor} className={smallBtn}>＋ 加一筆</button>
           </div>
           {ancestors.map((a, i) => (
-            <div key={i} className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input value={a.displayName} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, displayName: e.target.value } : r))} placeholder="姓（例：王）" className={inputCls} />
-              <input value={a.yangshang} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, yangshang: e.target.value } : r))} placeholder="陽上人（多位用、隔開）" className={inputCls} />
-              <div className="flex gap-1">
-                <input value={a.tabletAddress} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, tabletAddress: e.target.value } : r))} placeholder="安奉地" className={`flex-1 ${inputCls}`} />
-                <button type="button" onClick={() => setAncestors((x) => x.filter((_, j) => j !== i))} className="text-xs text-blossom-500 px-1">刪</button>
+            <div key={i} className="mt-2 rounded-lg bg-cream-50 p-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input value={a.displayName} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, displayName: e.target.value } : r))} placeholder="姓（例：王）" className={inputCls} />
+                <input value={a.yangshang} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, yangshang: e.target.value } : r))} placeholder="陽上人（多位用、隔開）" className={inputCls} />
+                <div className="flex gap-1">
+                  <input value={a.tabletAddress} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, tabletAddress: e.target.value } : r))} placeholder="安奉地" className={`flex-1 ${inputCls}`} />
+                  <button type="button" onClick={() => setAncestors((x) => x.filter((_, j) => j !== i))} className="text-xs text-blossom-500 px-1">刪</button>
+                </div>
+              </div>
+              <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={a.pocketQty} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, pocketQty: e.target.value } : r))} inputMode="numeric" placeholder="增加寶袋份數（可留空）" className={inputCls} />
+                <input value={a.pocketNames} onChange={(e) => setAncestors((x) => x.map((r, j) => j === i ? { ...r, pocketNames: e.target.value } : r))} placeholder="寶袋指定姓名（每名一份，用、隔開）" className={inputCls} />
               </div>
             </div>
           ))}
@@ -264,12 +272,18 @@ function Inner() {
             <button type="button" onClick={addSoul} className={smallBtn}>＋ 加一筆</button>
           </div>
           {souls.map((a, i) => (
-            <div key={i} className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input value={a.displayName} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, displayName: e.target.value } : r))} placeholder="往生者姓名" className={inputCls} />
-              <input value={a.yangshang} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, yangshang: e.target.value } : r))} placeholder="陽上人（多位用、隔開）" className={inputCls} />
-              <div className="flex gap-1">
-                <input value={a.tabletAddress} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, tabletAddress: e.target.value } : r))} placeholder="安奉地" className={`flex-1 ${inputCls}`} />
-                <button type="button" onClick={() => setSouls((x) => x.filter((_, j) => j !== i))} className="text-xs text-blossom-500 px-1">刪</button>
+            <div key={i} className="mt-2 rounded-lg bg-cream-50 p-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input value={a.displayName} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, displayName: e.target.value } : r))} placeholder="往生者姓名" className={inputCls} />
+                <input value={a.yangshang} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, yangshang: e.target.value } : r))} placeholder="陽上人（多位用、隔開）" className={inputCls} />
+                <div className="flex gap-1">
+                  <input value={a.tabletAddress} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, tabletAddress: e.target.value } : r))} placeholder="安奉地" className={`flex-1 ${inputCls}`} />
+                  <button type="button" onClick={() => setSouls((x) => x.filter((_, j) => j !== i))} className="text-xs text-blossom-500 px-1">刪</button>
+                </div>
+              </div>
+              <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={a.pocketQty} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, pocketQty: e.target.value } : r))} inputMode="numeric" placeholder="增加寶袋份數（可留空）" className={inputCls} />
+                <input value={a.pocketNames} onChange={(e) => setSouls((x) => x.map((r, j) => j === i ? { ...r, pocketNames: e.target.value } : r))} placeholder="寶袋指定姓名（每名一份，用、隔開）" className={inputCls} />
               </div>
             </div>
           ))}

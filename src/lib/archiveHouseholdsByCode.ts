@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { archiveMember, archiveHousehold, previewHouseholdArchive } from "@/lib/householdManagement";
+import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
 
 /**
  * V37 依家戶編號「封存家戶（可連同成員）」——瀏覽器可觸發，軟刪除、可從回收區還原。
@@ -53,6 +54,9 @@ export async function archiveHouseholdsByCode(
       let archivedMembers = 0;
       for (const m of hh.members) { await archiveMember(m.id, opts.operatorName); archivedMembers++; }
       await archiveHousehold(code, "系統：V37 依編號封存空殼/重複家戶", opts.operatorName);
+      // V38：封存後連同該戶「未收款、未列印」的普渡報名一起軟刪，讓列印／名單／總數一致地少掉。
+      //   已收款／已列印者不動（如實保留），避免隱藏金錢／已印資料。
+      await purgeArchivedHouseholdUsRecords({ householdIds: [code], commit: true, operatorName: opts.operatorName }).catch(() => null);
       rows.push({ code, found: true, householdName: hh.name, memberNames, blockers: [], archivedMembers, archivedHousehold: true });
     } catch (e) {
       rows.push({ code, found: true, householdName: hh.name, memberNames, blockers: hardBlockers, error: e instanceof Error ? e.message : "封存時發生錯誤" });

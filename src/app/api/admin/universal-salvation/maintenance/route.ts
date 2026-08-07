@@ -7,6 +7,7 @@ import { alignHouseholdAddress } from "@/lib/alignHouseholdAddress";
 import { backfillEntryAddress } from "@/lib/backfillEntryAddress";
 import { backfillCreditorUnbornAddress } from "@/lib/backfillCreditorUnbornAddress";
 import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
+import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "dedup-creditor-unborn") {
       const report = await dedupCreditorUnbornTablets(year, { commit, operatorName: check.operator.name });
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "purge-archived-us-records") {
+      const report = await purgeArchivedHouseholdUsRecords({ year, commit, operatorName: check.operator.name });
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "import-merge-check") {

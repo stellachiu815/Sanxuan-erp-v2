@@ -32,6 +32,7 @@ function Inner() {
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
       <AddressAudit />
+      <PurgeArchivedUsRecords />
       <BackfillCreditorUnborn />
       <WorshipDedup />
       <BackfillAddress />
@@ -300,6 +301,47 @@ function WorshipDedup() {
 }
 
 type CreditorUnbornChange = { entryId: string; householdId: string; category: string; displayName: string; yangshang: string | null; newAddress: string; source: string };
+
+type PurgeRow = { ritualRecordId: string; householdId: string; householdName: string | null; year: number; eligible: boolean; blocker: string | null; removed?: boolean };
+
+function PurgeArchivedUsRecords() {
+  const { report, committed, busy, error, run } = useTool("purge-archived-us-records");
+  const rows: PurgeRow[] = report?.rows ?? [];
+  const eligible = rows.filter((r) => r.eligible);
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">收回「已封存家戶」還留著的普渡報名</h2>
+      <p className="mt-1 text-sm text-ink-soft">封存家戶時，底下的普渡報名沒有一起收，會造成「列印看不到、但<b>報名名單／總數還算得到</b>」。這裡把<b>已封存家戶</b>底下還開著的報名一次收乾淨——收完列印、名單、總數就一致。<b>只收未收款、未列印</b>的（有收款/列印會擋下不動）；軟刪、可從回收區還原。<br/><span className="text-ink-faint">（往後用「封存家戶（依編號）」封存時，會自動一起收，不用再跑這個。）</span></p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "1) 預覽（看有哪些）"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">已封存家戶還開著的普渡報名 {rows.length} 筆｜{committed ? `已收回 ${report.removed}` : `可收回 ${eligible.length}`} 筆</p>
+          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
+            {rows.map((r) => (
+              <li key={r.ritualRecordId} className="rounded bg-cream-50 px-2 py-1">
+                {r.householdId}{r.householdName ? `（${r.householdName}）` : ""}｜民國 {r.year} 年
+                {r.eligible ? <span className="text-emerald-700">｜可收回</span> : <span className="text-blossom-500">｜擋下：{r.blocker}</span>}
+                {committed && r.removed && <span className="text-emerald-700">｜✅ 已收回（可還原）</span>}
+              </li>
+            ))}
+          </ul>
+          {!committed && eligible.length > 0 && (
+            <button type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`確定收回 ${eligible.length} 筆已封存家戶的普渡報名？（軟刪、可還原；列印/名單/總數會一起少掉）`)) run(true); }}
+              style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+              className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "收回中…" : `2) 確認收回（${eligible.length} 筆）`}
+            </button>
+          )}
+          {rows.length === 0 && !error && <p className="mt-2 text-emerald-700">✅ 沒有殘留：已封存家戶底下都沒有還開著的普渡報名。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function BackfillCreditorUnborn() {
   const { report, committed, busy, error, run } = useTool("backfill-creditor-unborn-address");
