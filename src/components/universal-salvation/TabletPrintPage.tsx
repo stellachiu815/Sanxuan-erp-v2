@@ -34,6 +34,7 @@ export default function TabletPrintPage({
   debug = false,
   showWorkNumber = true,
   maximize = false,
+  densityOverride,
   templates,
 }: {
   year: number;
@@ -46,6 +47,8 @@ export default function TabletPrintPage({
   showWorkNumber?: boolean;
   /** V32 §3：是否啟用最高密度排版（由 ?maximize=1／模板設定控制，預設 false＝既有版型）。 */
   maximize?: boolean;
+  /** V38：一頁張數覆寫（?perpage=6→roomy 一頁6張；7→standard 一頁7張；未給＝用模板/預設）。 */
+  densityOverride?: "standard" | "economy" | "roomy";
   /** V32 §4：各 documentType 的模板設定（來自列印模板管理；套用位移／字體／校正框／裁切線／預設主文等）。 */
   templates?: Record<string, TabletTemplateSetting>;
 }) {
@@ -65,6 +68,14 @@ export default function TabletPrintPage({
     return `?${next.toString()}`;
   })();
 
+  // V38：一頁 6 張／7 張切換（6 張＝地址/陽上較大）。目前值：roomy→6，其餘→7。
+  const currentPerPage = densityOverride === "roomy" ? 6 : 7;
+  const togglePerpageHref = (() => {
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    next.set("perpage", currentPerPage === 6 ? "7" : "6");
+    return `?${next.toString()}`;
+  })();
+
   // 正式規格：一張 A4 放多筆牌位——每個 documentType 一個 Sheet，records 傳整組（由 buildTabletLayout 打包）。
   // 診斷用：對每組跑相同的 buildTabletLayout（USE，不改引擎），列出每頁每筆綁定的主文/地址/陽上與座標。
   const diag = useMemo(
@@ -78,13 +89,14 @@ export default function TabletPrintPage({
         const tpl = tplOf(g.documentType);
         const offset = tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined;
         const isLandscape = LANDSCAPE_DTS.includes(g.documentType);
+        const density = densityOverride ?? (tpl?.density as "standard" | "economy" | "roomy" | undefined) ?? "standard";
         const layout = isLandscape
-          ? buildLandscapeTabletLayout(g.documentType as TabletDocumentType, records, { density: (tpl?.density as "standard" | "economy" | undefined) ?? "standard", offset })
+          ? buildLandscapeTabletLayout(g.documentType as TabletDocumentType, records, { density, offset })
           : buildAutoTabletLayout(g.documentType as TabletDocumentType, records, offset, { maximize: maximize || !!tpl?.maximize });
         return { documentType: g.documentType, layout };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [groups, maximize, templates]
+    [groups, maximize, templates, densityOverride]
   );
 
   const [measured, setMeasured] = useState<{ i: number; w: number; h: number; mains: number; transform: string }[]>([]);
@@ -128,6 +140,12 @@ export default function TabletPrintPage({
           style={{ marginLeft: "auto", borderRadius: 999, border: "1px solid #cfc8bb", background: showWorkNumber ? "#e7efe4" : "#fff", padding: "6px 16px", fontSize: 14, textDecoration: "none", color: "#2c2a27" }}
         >
           {showWorkNumber ? "作業號碼：顯示中（點此隱藏）" : "作業號碼：已隱藏（點此顯示）"}
+        </Link>
+        <Link
+          href={togglePerpageHref}
+          style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: currentPerPage === 6 ? "#e7efe4" : "#fff", padding: "6px 16px", fontSize: 14, textDecoration: "none", color: "#2c2a27" }}
+        >
+          {currentPerPage === 6 ? "一頁 6 張（地址/陽上較大）· 點此改 7 張" : "一頁 7 張 · 點此改 6 張（字較大）"}
         </Link>
         <button type="button" onClick={print} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#e7efe4", padding: "6px 16px", fontSize: 14 }}>
           🖨 列印
@@ -200,7 +218,7 @@ export default function TabletPrintPage({
                   mode="print"
                   offset={tpl ? { offsetXmm: tpl.offsetXmm, offsetYmm: tpl.offsetYmm } : undefined}
                   showWorkNumber={showWorkNumber && (tpl?.showWorkNumber ?? true)}
-                  density={(tpl?.density as "standard" | "economy" | undefined) ?? "standard"}
+                  density={densityOverride ?? (tpl?.density as "standard" | "economy" | "roomy" | undefined) ?? "standard"}
                   maximize={maximize || !!tpl?.maximize}
                   template={tpl ? {
                     fontFamily: tpl.fontFamily, fontWeight: tpl.fontWeight, letterSpacingPx: tpl.letterSpacingPx,

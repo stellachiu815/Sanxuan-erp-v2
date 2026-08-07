@@ -33,7 +33,8 @@ import { ZERO_OFFSET } from "./universalSalvationTabletA4";
 const PX_PER_MM = 3.7795275591;
 
 export const LANDSCAPE_A4 = { widthMm: 297, heightMm: 210 } as const;
-export type LandscapeDensity = "standard" | "economy";
+// V38：新增 roomy＝一頁 6 張（每張牌位加寬 → 地址／陽上人明顯變大）。standard＝7 張、economy＝10 張。
+export type LandscapeDensity = "standard" | "economy" | "roomy";
 
 /**
  * 密度預設：每群組寬（mm）。可用內容寬＝297-2×margin-2×edgePad＝285mm。
@@ -41,8 +42,9 @@ export type LandscapeDensity = "standard" | "economy";
  *   economy 25→10 筆/頁維持不變。四類牌位（祖先／乙位正魂／冤親／無緣子女）皆走 standard，一併變 7 筆/頁。
  */
 const DENSITY: Record<LandscapeDensity, { groupWidthMm: number }> = {
-  standard: { groupWidthMm: 38 },
-  economy: { groupWidthMm: 25 },
+  standard: { groupWidthMm: 38 }, // 一頁 7 張
+  roomy: { groupWidthMm: 44 },    // 一頁 6 張（牌位加寬，地址／陽上人變大）
+  economy: { groupWidthMm: 25 },  // 一頁 10 張（省紙）
 };
 
 const MARGIN_MM = 3;
@@ -71,8 +73,11 @@ const YANGSHANG_THREE_COL_THRESHOLD = 4;
 // V36.14：字體「填滿框、能多大就多大，字多才縮」——放寬地址／陽上人上限，讓它們也一路長到 bounding box
 //   的極限（實際大小仍由框寬/高＋字數自動決定，字多才縮），不再被偏小的上限卡住。
 const MAIN_MAX_PX = 150, MAIN_MIN_PX = 22;
-const ADDR_MAX_PX = 60, ADDR_MIN_PX = 10;
-const YANG_MAX_PX = 60, YANG_MIN_PX = 10;
+// V38（維持 7 張/頁）：地址／陽上人字級上限拉高到不再是瓶頸——實際大小改由「欄寬 width-cap」與
+//   「欄高＋字數」自動決定，即真正的「在框內能多大就多大」。短地址／短陽上會吃到欄寬上限而明顯變大；
+//   很長的仍受欄寬限制（要再大只能降密度，見 6 張/頁選項）。
+const ADDR_MAX_PX = 96, ADDR_MIN_PX = 10;
+const YANG_MAX_PX = 96, YANG_MIN_PX = 10;
 // V36.11：移除無緣子女專屬主文上限（原 190px），四類牌位主文改共用 MAIN_MAX_PX，字級一致。
 
 type LandscapeRecordInput = TabletRecordInput & { yangshangNames?: string[] };

@@ -43,12 +43,14 @@ export default async function TabletBatchPrintRoute({
   searchParams,
 }: {
   params: Promise<{ year: string }>;
-  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string; workno?: string; maximize?: string }>;
+  searchParams: Promise<{ batch?: string; ids?: string; scope?: string; debug?: string; workno?: string; maximize?: string; perpage?: string }>;
 }) {
   const { year: yearParam } = await params;
-  const { batch: batchParam, ids: idsParam, debug: debugParam, workno: worknoParam, maximize: maximizeParam } = await searchParams;
+  const { batch: batchParam, ids: idsParam, debug: debugParam, workno: worknoParam, maximize: maximizeParam, perpage: perpageParam } = await searchParams;
   // V30.3：作業號碼開關（?workno=0 隱藏；預設／其他值＝顯示）。
   const showWorkNumber = worknoParam !== "0";
+  // V38：一頁張數（?perpage=6 → 每張加寬、地址/陽上較大；預設 7 張＝現狀）。
+  const densityOverride = perpageParam === "6" ? ("roomy" as const) : perpageParam === "7" ? ("standard" as const) : undefined;
   // V32 §3：最高密度排版開關（?maximize=1 啟用；預設 false＝既有已驗證版型）。模板設定亦可帶入此參數。
   const maximize = maximizeParam === "1";
 
@@ -111,6 +113,7 @@ export default async function TabletBatchPrintRoute({
       debug={debugParam === "1"}
       showWorkNumber={showWorkNumber}
       maximize={maximize}
+      densityOverride={densityOverride}
       templates={templates}
     />
   );
