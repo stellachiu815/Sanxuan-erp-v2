@@ -73,6 +73,67 @@ export async function listWorkOrderRows(year: number, itemKey: string): Promise<
   }));
 }
 
+/**
+ * V38：正式作業編號改「照列印批次」合併——
+ *   祖先組（黃紙）＝歷代祖先＋乙位正魂＋本宅地基主；冤親組（粉紅）＝累世冤親債主＋無緣子女。
+ * UNBORN_CHILD 依主文分流（含「地基主」→祖先組；其餘無緣子女→冤親組），與列印 batchOf 一致。
+ * 回傳時把整批的 itemKey 設為 batchKey → 管理頁把整批當「同一條 1..N」自動帶號／重編（每項目在
+ * 資料庫仍各自存 workOrder，但整批號碼全域唯一，儲存的同項目唯一性檢查照樣通過）。
+ * 排序：workOrder 有值優先，其餘照建立先後（＝Excel 匯入在前、ERP 新增往後）。
+ */
+export type WorkOrderBatchKey = "ancestor-soul" | "creditor";
+const BATCH_ITEM_KEYS: Record<WorkOrderBatchKey, string[]> = {
+  "ancestor-soul": ["US_ANCESTOR", "US_ZHENGHUN", "US_WUYUAN"],
+  creditor: ["US_YUANQIN", "US_WUYUAN"],
+};
+
+export async function listWorkOrderRowsForBatch(year: number, batchKey: WorkOrderBatchKey): Promise<WorkOrderRow[]> {
+  const keys = BATCH_ITEM_KEYS[batchKey];
+  const rows = await prisma.$queryRaw<{
+    id: string; ro: number | null; wo: number | null; key: string; name: string;
+    displayName: string | null; printMainText: string | null; customName: string | null; member: string | null;
+    household: string; yang: string[] | null; yang1: string | null; status: string; printcount: number; printedat: Date | null;
+    createdat: Date;
+  }[]>`
+    SELECT rri."id", rri."registrationOrder" AS ro, rri."workOrder" AS wo,
+           rit."key", rit."name", e."displayName", e."printMainText", rri."customName", m."name" AS member,
+           h."name" AS household, e."yangshangNames" AS yang, e."yangshangName" AS yang1,
+           rri."status", rri."printCount" AS printcount, rri."printedAt" AS printedat, rri."createdAt" AS createdat
+    FROM "ritual_registration_items" rri
+    JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
+    JOIN "ritual_records" rr ON rr."id" = rri."ritualRecordId"
+    JOIN "households" h ON h."id" = rr."householdId"
+    LEFT JOIN "members" m ON m."id" = rri."memberId"
+    LEFT JOIN "universal_salvation_entries" e ON e."id" = rri."universalSalvationEntryId"
+    WHERE rr."activityType" = 'UNIVERSAL_SALVATION' AND rr."year" = ${year} AND rr."deletedAt" IS NULL
+      AND h."deletedAt" IS NULL
+      AND rri."deletedAt" IS NULL AND rit."key" = ANY(${keys})
+    ORDER BY (rri."workOrder" IS NULL), rri."workOrder", rri."createdAt"`;
+
+  // UNBORN_CHILD（US_WUYUAN）依主文分流：含「地基主」→祖先組；其餘→冤親組。
+  const inBatch = (r: { key: string; printMainText: string | null; displayName: string | null }): boolean => {
+    if (r.key !== "US_WUYUAN") return true; // 其餘 key 已由 SQL 限定屬於本批
+    const main = `${r.printMainText ?? ""}${r.displayName ?? ""}`;
+    const isEarthGod = main.includes("地基主");
+    return batchKey === "ancestor-soul" ? isEarthGod : !isEarthGod;
+  };
+
+  return rows.filter(inBatch).map((r) => ({
+    id: r.id,
+    registrationOrder: r.ro,
+    workOrder: r.wo,
+    // 整批視為同一條序列：itemKey 設為 batchKey（供管理頁把整批一起編 1..N）。
+    itemKey: batchKey,
+    itemName: r.name,
+    subject: resolveRitualDisplayName(categoryFromItemKey(r.key) ?? "", r.displayName ?? "") || r.customName || r.member || "",
+    household: r.household,
+    yangshang: (r.yang && r.yang.length > 0 ? r.yang : r.yang1 ? [r.yang1] : []).join("、"),
+    status: r.status,
+    printCount: r.printcount ?? 0,
+    printedAt: r.printedat ? r.printedat.toISOString() : null,
+  }));
+}
+
 /** 依 registrationOrder 產生初始號碼（同項目 1..N；已有 workOrder 不覆蓋）。回傳需寫入 {id, workOrder}。 */
 export async function proposeInitialFromRegistrationOrder(year: number, itemKey: string): Promise<{ id: string; workOrder: number }[]> {
   const rows = await listWorkOrderRows(year, itemKey);

@@ -125,6 +125,36 @@ test("列印排除已封存家戶（雙保險）", () => {
   assert.ok(src.includes("household: { deletedAt: null }"), "列印查詢排除已封存家戶");
 });
 
+test("#2 快速報名新家戶戶名＝{姓}家", () => {
+  const src = read("src/lib/quickRegistration.ts");
+  assert.ok(src.includes("`${surname}家`"), "戶名用姓+家");
+  assert.ok(src.includes("contactName: name"), "聯絡人仍存本人全名");
+});
+
+test("#3 匯出總名單：含 DRAFT、排除封存戶、照建立順序", () => {
+  const src = read("src/lib/universalSalvationRosterExport.ts");
+  assert.ok(!src.includes('status: "CONFIRMED"'), "不再限 CONFIRMED（含 DRAFT）");
+  assert.ok(src.includes('status: { not: "CANCELLED" }'), "只排除已取消");
+  assert.ok(src.includes("household: { deletedAt: null }"), "排除已封存家戶");
+  assert.ok(src.includes('orderBy: { createdAt: "asc" }'), "照建立順序＝匯入在前、ERP 往後");
+});
+
+test("#4 作業編號照列印批次合併（祖先組／冤親組，地基主分流）", () => {
+  const repo = read("src/lib/workOrderRepo.ts");
+  assert.ok(repo.includes("listWorkOrderRowsForBatch"), "有批次查詢");
+  assert.ok(repo.includes('"ancestor-soul": ["US_ANCESTOR", "US_ZHENGHUN", "US_WUYUAN"]'), "祖先組含祖先/正魂/無緣(地基主)");
+  assert.ok(repo.includes('creditor: ["US_YUANQIN", "US_WUYUAN"]'), "冤親組含冤親/無緣");
+  assert.ok(repo.includes('main.includes("地基主")'), "US_WUYUAN 依主文分流");
+  assert.ok(repo.includes("itemKey: batchKey"), "整批視為同一條序列（一起編 1..N）");
+  const page = read("src/app/print-center/work-orders/page.tsx");
+  assert.ok(page.includes('setBatch(e.target.value as "ancestor-soul" | "creditor")'), "管理頁改用批次下拉");
+});
+
+test("#1 列印字體：三欄陽上人讓寬給地址（修地址過小）", () => {
+  const src = read("src/components/ritual/tablets/landscapeLayout.ts");
+  assert.ok(src.includes("const YANG_REMAIN_RATIO = 0.33"), "陽上人 0.42→0.33，地址欄變寬");
+});
+
 test("作業編號『移到第 N 號』＝插入語意（其餘順延、連號重編）", async () => {
   const { moveToPosition } = await import("../src/lib/workOrder");
   const rows = ["a", "b", "c", "d", "e"].map((id, i) => ({ id, categoryKey: "K", workOrder: i + 1 }));

@@ -37,8 +37,8 @@ export default function WorkOrderAdminPage() {
 function Inner() {
   const currentYear = new Date().getFullYear() - 1911;
   const [year, setYear] = useState(currentYear === 0 ? 115 : currentYear);
-  const [itemTypes, setItemTypes] = useState<{ key: string; name: string }[]>([]);
-  const [itemKey, setItemKey] = useState("US_ANCESTOR");
+  // V38：改「照列印批次」——祖先組（黃紙）／冤親組（粉紅），整批一起編號。
+  const [batch, setBatch] = useState<"ancestor-soul" | "creditor">("ancestor-soul");
   const [rows, setRows] = useState<Row[]>([]);
   const [orig, setOrig] = useState<Map<string, number | null>>(new Map());
   const [locked, setLocked] = useState(false);
@@ -48,21 +48,10 @@ function Inner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 項目清單（活動啟用的普渡 RegistrationItemType）。
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetchRegistration(`/api/print-center/activity-items?year=${year}`);
-        const d = await res.json();
-        if (res.ok) setItemTypes((d.summary ?? []).filter((s: { activityGroup: string }) => s.activityGroup === "UNIVERSAL_SALVATION").map((s: { itemKey: string; itemName: string }) => ({ key: s.itemKey, name: s.itemName })));
-      } catch { /* 保留現況 */ }
-    })();
-  }, [year]);
-
   const load = useCallback(async () => {
     setErr(null); setMsg(null);
     try {
-      const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders?itemKey=${itemKey}`);
+      const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders?batch=${batch}`);
       const d = await res.json();
       if (!res.ok) { setErr(toFriendlyError(res.status, d?.error)); return; }
       const loaded = d.rows as Row[];
@@ -81,7 +70,7 @@ function Inner() {
       // orig＝資料庫實際值（含 null），這樣自動帶入的號會被視為「需儲存」。
       setOrig(new Map(loaded.map((r) => [r.id, r.workOrder])));
     } catch { setErr("讀取失敗"); }
-  }, [year, itemKey]);
+  }, [year, batch]);
   useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => {
@@ -138,13 +127,10 @@ function Inner() {
     setRows((rs) => rs.map((r) => (m.has(r.id) ? { ...r, workOrder: m.get(r.id)! } : r)));
     setMsg("已依目前排序重編（尚未儲存）。");
   };
+  // V38 批次模式：「依原始順序」＝重新載入（後端已照建立先後＝匯入順序，載入時自動帶 1..N）。
   const proposeInitial = async () => {
-    const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders?itemKey=${itemKey}`, { method: "PUT" });
-    const d = await res.json();
-    if (!res.ok) { setErr(d?.error ?? "產生失敗"); return; }
-    const m = new Map((d.proposed as { id: string; workOrder: number }[]).map((p) => [p.id, p.workOrder]));
-    setRows((rs) => rs.map((r) => (m.has(r.id) ? { ...r, workOrder: m.get(r.id)! } : r)));
-    setMsg(`已依原始報名順序產生 ${m.size} 筆初始號碼（尚未儲存，已有號者不覆蓋）。`);
+    await load();
+    setMsg("已依原始報名順序（Excel 匯入在前、之後新增往後）重新帶入號碼。");
   };
 
   const changedPrinted = rows.filter((r) => r.printCount > 0 && r.workOrder !== (orig.get(r.id) ?? null));
@@ -153,7 +139,7 @@ function Inner() {
     setBusy(true); setErr(null); setMsg(null);
     try {
       const updates = rows.filter((r) => r.workOrder !== (orig.get(r.id) ?? null)).map((r) => ({ id: r.id, workOrder: r.workOrder }));
-      const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders`, { method: "POST", body: JSON.stringify({ itemKey, updates }) });
+      const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders`, { method: "POST", body: JSON.stringify({ batch, updates }) });
       const d = await res.json();
       if (!res.ok) { setErr(d?.error ?? "儲存失敗"); return; }
       setRows(d.rows); setLocked(d.locked);
@@ -161,24 +147,16 @@ function Inner() {
       setMsg("已儲存並刷新。");
     } catch { setErr("儲存失敗"); } finally { setBusy(false); }
   };
-  const toggleLock = async () => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders`, { method: "POST", body: JSON.stringify({ itemKey, updates: [], lock: !locked }) });
-      const d = await res.json();
-      if (!res.ok) { setErr(d?.error ?? "鎖定失敗"); return; }
-      setLocked(d.locked); setMsg(d.locked ? "已鎖定。" : "已解除鎖定。");
-    } catch { setErr("鎖定失敗"); } finally { setBusy(false); }
-  };
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
       <h1 className="mb-3 text-lg text-ink">列印管理・中元普渡・正式作業編號管理</h1>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
         <label>年度 <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value) || currentYear)} className="w-20 rounded border border-cream-300 px-2 py-1" /></label>
-        <label>項目
-          <select value={itemKey} onChange={(e) => setItemKey(e.target.value)} className="ml-1 rounded border border-cream-300 px-2 py-1">
-            {itemTypes.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
+        <label>列印批次
+          <select value={batch} onChange={(e) => setBatch(e.target.value as "ancestor-soul" | "creditor")} className="ml-1 rounded border border-cream-300 px-2 py-1">
+            <option value="ancestor-soul">祖先／乙位正魂／地基主（黃紙）</option>
+            <option value="creditor">冤親／無緣（粉紅紙）</option>
           </select>
         </label>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜尋 姓名/家戶/陽上/號碼" className="rounded border border-cream-300 px-2 py-1" />
@@ -186,7 +164,6 @@ function Inner() {
         <button onClick={renumber} disabled={busy || locked} className="rounded-full bg-cream-100 px-3 py-1 disabled:opacity-40">依目前排序重新編號</button>
         <button onClick={() => void load()} disabled={busy} className="rounded-full bg-cream-100 px-3 py-1">恢復原始順序</button>
         <button onClick={() => void save()} disabled={busy || locked} className="rounded-full bg-yolk-200 px-4 py-1 disabled:opacity-40">儲存</button>
-        <button onClick={() => void toggleLock()} disabled={busy} className={`rounded-full px-3 py-1 ${locked ? "bg-rose-200" : "bg-sage-100"}`}>{locked ? "🔒 已鎖定（點此解除）" : "🔓 鎖定"}</button>
       </div>
       <p className="mb-2 text-xs text-ink-faint">號碼已自動帶入（1..N，不用手動編）。要調整順序：在該筆「移到」框輸入目標號碼按「移」——例如把 76 移到 5，原本 5 之後全部自動順延；或用 ▲▼ 一格格移。改完按「儲存」。</p>
       {locked && <p className="mb-2 text-xs text-rose-600">已鎖定：Excel／牌位／寶袋使用已鎖定號碼；需先解除才能修改，新增資料排最後不重排既有號。</p>}

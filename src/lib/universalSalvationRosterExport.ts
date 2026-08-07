@@ -59,11 +59,13 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
   });
   const activityName = event?.name ?? "中元普渡";
 
+  // V38：總名單＝「只要有成立報名就列」（含 DRAFT，方便當天現場比對），不再限 CONFIRMED；
+  //   只排除已取消／已刪除／已封存家戶。排序照建立先後（＝Excel 匯入順序在前、ERP 之後新增往後）。
   const items = await prisma.ritualRegistrationItem.findMany({
     where: {
       deletedAt: null,
-      status: "CONFIRMED",
-      ritualRecord: { deletedAt: null, status: "CONFIRMED", year, activityType: "UNIVERSAL_SALVATION" },
+      status: { not: "CANCELLED" },
+      ritualRecord: { deletedAt: null, year, activityType: "UNIVERSAL_SALVATION", household: { deletedAt: null } },
     },
     select: {
       id: true, quantity: true, amountDue: true, amountUnpaid: true, customName: true,
@@ -72,6 +74,7 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
       member: { select: { name: true } },
       universalSalvationEntry: { select: { displayName: true, tabletAddress: true, yangshangName: true, yangshangNames: true } },
     },
+    orderBy: { createdAt: "asc" },
   });
 
   const ids = items.map((i) => i.id);

@@ -141,8 +141,12 @@ export async function quickRegister(
   } else {
     const name = s(input.registrant.name);
     if (!name) return { ok: false, status: 400, error: "請輸入報名人姓名" };
+    // V38：新家戶戶名沿用既有規格「{姓}家」（例：許佩瑜→許家），與 Excel 匯入一致；
+    //   聯絡人仍存本人全名。姓＝姓名第一個字（複姓少見，現場可事後於家戶頁改名）。
+    const surname = name.charAt(0);
+    const householdName = surname ? `${surname}家` : name;
     const hh = await createHousehold(
-      { name, contactName: name, address: registrantAddress },
+      { name: householdName, contactName: name, address: registrantAddress },
       operator.name
     );
     householdId = hh.household.id;
