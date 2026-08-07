@@ -139,6 +139,18 @@ test("#3 匯出總名單：含 DRAFT、排除封存戶、照建立順序", () =>
   assert.ok(src.includes('orderBy: { createdAt: "asc" }'), "照建立順序＝匯入在前、ERP 往後");
 });
 
+test("#3b 匯出總名單工作表照列印批次歸類（表一祖先/正魂/地基主、表二冤親/無緣）", () => {
+  const src = read("src/lib/universalSalvationRosterExport.ts");
+  // 表一含地基主（US_WUYUAN 含「地基主」主文分流進表一）。
+  assert.ok(src.includes('r.key === "US_WUYUAN" && isEarthGod(r)'), "地基主歸入祖先/正魂表");
+  // 表二含無緣子女（非地基主的 US_WUYUAN）。
+  assert.ok(src.includes('r.key === "US_WUYUAN" && !isEarthGod(r)'), "無緣子女歸入冤親表");
+  assert.ok(src.includes("creditorUnborn"), "有冤親+無緣合併表");
+  const route = read("src/app/api/universal-salvation/[year]/roster-export/route.ts");
+  assert.ok(route.includes('"祖先+乙位正魂+地基主"'), "分頁一：祖先/正魂/地基主");
+  assert.ok(route.includes('"累世冤親債主+無緣子女"'), "分頁二：冤親/無緣");
+});
+
 test("#4 作業編號照列印批次合併（祖先組／冤親組，地基主分流）", () => {
   const repo = read("src/lib/workOrderRepo.ts");
   assert.ok(repo.includes("listWorkOrderRowsForBatch"), "有批次查詢");

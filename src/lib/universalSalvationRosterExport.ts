@@ -11,7 +11,6 @@
  */
 import { prisma } from "@/lib/prisma";
 import { resolveYangshangNames } from "@/lib/yangshang";
-import { displayDebtCreditorName } from "@/lib/debtCreditorName";
 import { orderCell, sortByRegistrationOrder, sortByTypeThenOrder } from "@/lib/rosterSort";
 import { printNumberOf } from "@/lib/workOrder";
 import { resolvePrintMainText, resolvePrintAddress } from "@/lib/tabletPrintFields";
@@ -31,8 +30,7 @@ export type RosterExportData = {
   };
   sheets: {
     ancestorSoul: RosterSheet;
-    debtCreditor: RosterSheet;
-    unborn: RosterSheet;
+    creditorUnborn: RosterSheet;
     rice: RosterSheet;
     sponsor: RosterSheet;
   };
@@ -147,28 +145,28 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
     extraPocket,
   };
 
-  // A. 超拔祖先＋乙位正魂（同表、各自從 1；不混成一條序列）。編號＝workOrder；主文＝實際列印主文；地址＝entry→Member。
-  const asRows = sortByTypeThenOrder(raw.filter((r) => ["US_ANCESTOR", "US_ZHENGHUN"].includes(r.key)), { US_ANCESTOR: 1, US_ZHENGHUN: 2 });
+  // V38：工作表照「列印批次」歸類（與實體列印、作業編號一致，方便核對手寫本）。
+  //   表一（黃紙）＝祖先＋乙位正魂＋地基主；表二（粉紅）＝冤親＋無緣子女。
+  //   UNBORN_CHILD 依主文分流（含「地基主」→表一；其餘無緣子女→表二）。
+  //   一條連續順序、照建立先後（＝Excel 匯入在前、ERP 新增往後；raw 已 orderBy createdAt）。
+  const isEarthGod = (r: (typeof raw)[number]) => (r.entryName ?? "").includes("地基主");
+  const earthGodCount = raw.filter((r) => r.key === "US_WUYUAN" && isEarthGod(r)).length;
+  const unbornCount = raw.filter((r) => r.key === "US_WUYUAN" && !isEarthGod(r)).length;
+
+  // 表一：祖先＋乙位正魂＋地基主（保持 raw 的建立先後＝匯入順序，不再各自分塊）。
+  const asRows = raw.filter((r) => r.key === "US_ANCESTOR" || r.key === "US_ZHENGHUN" || (r.key === "US_WUYUAN" && isEarthGod(r)));
   const ancestorSoul = {
     header: ["正式作業號", "報名項目", "牌位主文", "陽上", "地址", "收款狀態", "列印狀態"],
-    stat: `超拔祖先 ${counts.ancestor} 筆／乙位正魂 ${counts.soul} 筆`,
+    stat: `祖先 ${counts.ancestor} 筆／乙位正魂 ${counts.soul} 筆／地基主 ${earthGodCount} 筆`,
     rows: asRows.map((r) => [orderCell(r.registrationOrder), r.typeName, r.entryName ?? "", r.yangshang.join("、"), r.address, r.unpaid > 0 ? `未收 ${r.unpaid}` : "已收足/免費", r.printStatus]),
   };
 
-  // B. 累世冤親債主——**只用自己的 workOrder**（No.1..N，不接續祖先）；報名者為該筆冤親自身。
-  const dc = sortByRegistrationOrder(raw.filter((r) => r.key === "US_YUANQIN"));
-  const debtCreditor = {
-    header: ["正式作業號", "冤親報名者姓名", "地址"],
-    stat: `累世冤親債主 ${counts.debtCreditor} 筆`,
-    rows: dc.map((r) => [orderCell(r.registrationOrder), displayDebtCreditorName(r.entryName ?? r.memberName ?? ""), r.address]),
-  };
-
-  // C'. 無緣子女（§8.C）——顯示實際 printMainText（有值優先，例：本宅地基主）；各自 workOrder。
-  const wy = sortByRegistrationOrder(raw.filter((r) => r.key === "US_WUYUAN"));
-  const unborn = {
-    header: ["正式作業號", "牌位主文", "陽上", "地址"],
-    stat: `無緣子女 ${counts.unborn} 筆`,
-    rows: wy.map((r) => [orderCell(r.registrationOrder), r.entryName ?? "", r.yangshang.join("、"), r.address]),
+  // 表二：冤親＋無緣子女（一條連續順序，照匯入先後）。
+  const cuRows = raw.filter((r) => r.key === "US_YUANQIN" || (r.key === "US_WUYUAN" && !isEarthGod(r)));
+  const creditorUnborn = {
+    header: ["正式作業號", "報名項目", "牌位主文", "陽上", "地址", "收款狀態", "列印狀態"],
+    stat: `累世冤親債主 ${counts.debtCreditor} 筆／無緣子女 ${unbornCount} 筆`,
+    rows: cuRows.map((r) => [orderCell(r.registrationOrder), r.typeName, r.entryName ?? "", r.yangshang.join("、"), r.address, r.unpaid > 0 ? `未收 ${r.unpaid}` : "已收足/免費", r.printStatus]),
   };
 
   // C. 白米——自己的 registrationOrder。
@@ -187,5 +185,5 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
     rows: sp.map((r) => [orderCell(r.registrationOrder), r.typeName, r.memberName ?? r.customName ?? "", r.quantity, r.amountDue]),
   };
 
-  return { year, activityName, counts, sheets: { ancestorSoul, debtCreditor, unborn, rice, sponsor } };
+  return { year, activityName, counts, sheets: { ancestorSoul, creditorUnborn, rice, sponsor } };
 }

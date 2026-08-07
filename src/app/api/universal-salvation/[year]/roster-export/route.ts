@@ -27,9 +27,9 @@ export async function GET(
   // 每張工作表頂部放「統計」行（各項目人數），再放表頭與資料列。
   const add = (name: string, sheet: { header: string[]; stat: string; rows: (string | number)[][] }) =>
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[sheet.stat], sheet.header, ...sheet.rows]), name);
-  add("超拔祖先+乙位正魂", data.sheets.ancestorSoul);
-  add("累世冤親債主", data.sheets.debtCreditor);
-  add("無緣子女", data.sheets.unborn);
+  // V38：工作表照列印批次歸類（表一黃紙、表二粉紅），方便對牌位與手寫本。
+  add("祖先+乙位正魂+地基主", data.sheets.ancestorSoul);
+  add("累世冤親債主+無緣子女", data.sheets.creditorUnborn);
   add("白米", data.sheets.rice);
   add("贊普+隨喜贊普", data.sheets.sponsor);
 
