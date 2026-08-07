@@ -34,6 +34,7 @@ function Inner() {
       <AddressAudit />
       <PurgeArchivedUsRecords />
       <BackfillCreditorUnborn />
+      <BackfillCreditorUnbornYangshang />
       <WorshipDedup />
       <BackfillAddress />
       <MergeCheck />
@@ -373,6 +374,44 @@ function BackfillCreditorUnborn() {
             </button>
           )}
           {changes.length === 0 && !error && <p className="mt-2 text-emerald-700">✅ 沒有空白的冤親／無緣地址（或都已補齊）。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type YangChange = { entryId: string; householdId: string | null; category: string; displayName: string; newYangshang: string; source: string };
+
+function BackfillCreditorUnbornYangshang() {
+  const { report, committed, busy, error, run } = useTool("backfill-creditor-unborn-yangshang");
+  const changes: YangChange[] = report?.changes ?? [];
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">冤親／無緣 空白陽上人回填</h2>
+      <p className="mt-1 text-sm text-ink-soft">把本年度<b>冤親／無緣子女／地基主</b>目前<b>陽上人空白</b>的牌位補上（例：馮是嘉的無緣，地址有、陽上人空）。來源＝<b>該筆的報名人</b>。不用刪掉重報；只補空白、不動已有的、不動地址／收款。</p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（不寫入）"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">陽上人目前空白 {report.totalBlank} 張｜{committed ? "已補上" : "可補上"} {changes.length} 張｜仍無來源 {report.stillBlank} 張</p>
+          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
+            {changes.slice(0, 300).map((c) => (
+              <li key={c.entryId} className="rounded bg-cream-50 px-2 py-1">
+                {c.householdId ?? "—"}｜{c.category === "DEBT_CREDITOR" ? "冤親" : "無緣/地基主"}｜陽上人 →<b>{c.newYangshang}</b>　<span className="text-ink-faint">（{c.source}）</span>
+              </li>
+            ))}
+          </ul>
+          {!committed && changes.length > 0 && (
+            <button type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`確定回填 ${changes.length} 張冤親／無緣牌位的陽上人？只補空白，可再預覽確認。`)) run(true); }}
+              style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+              className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "回填中…" : `2) 確認回填（${changes.length} 張）`}
+            </button>
+          )}
+          {changes.length === 0 && !error && <p className="mt-2 text-emerald-700">✅ 沒有空白的冤親／無緣陽上人（或都已補齊）。</p>}
         </div>
       )}
     </section>

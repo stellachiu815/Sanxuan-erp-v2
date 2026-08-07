@@ -240,6 +240,7 @@ function Inner() {
       {/* ② 要報名什麼 */}
       <section className={card}>
         <h2 className="text-base font-medium text-ink">② 要報名什麼</h2>
+        <p className="mt-1 text-xs text-ink-faint">＊「增加寶袋」在每一列<b>歷代祖先／乙位正魂</b>的下面——先按該類的「＋加一筆」，展開後就能各自填寶袋份數／姓名（可多張各自加）。</p>
 
         {/* 歷代祖先 */}
         <div className="mt-4">

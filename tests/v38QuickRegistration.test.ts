@@ -111,6 +111,15 @@ test("收回已封存家戶的普渡報名：只收未收款未列印、軟刪�
   assert.ok(arch.includes("purgeArchivedHouseholdUsRecords"), "封存家戶時會自動一起收（未來不再殘留）");
 });
 
+test("冤親／無緣空白陽上人回填：來源＝報名人（nameSnapshot），只補空白", () => {
+  const src = read("src/lib/backfillCreditorUnbornYangshang.ts");
+  assert.ok(src.includes('category: { in: ["DEBT_CREDITOR", "UNBORN_CHILD"] }'), "只處理冤親／無緣");
+  assert.ok(src.includes("nameSnapshot"), "陽上人來源＝報名人 nameSnapshot");
+  assert.ok(src.includes("yangshangNames: [c.newYangshang], yangshangName: c.newYangshang"), "同時寫陣列與單值");
+  const route = read("src/app/api/admin/universal-salvation/maintenance/route.ts");
+  assert.ok(route.includes('"backfill-creditor-unborn-yangshang"'), "維護 API 有掛這個動作");
+});
+
 test("列印排除已封存家戶（雙保險）", () => {
   const src = read("src/lib/additionalPrintItems.ts");
   assert.ok(src.includes("household: { deletedAt: null }"), "列印查詢排除已封存家戶");

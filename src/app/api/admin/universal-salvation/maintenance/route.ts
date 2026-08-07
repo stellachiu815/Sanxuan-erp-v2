@@ -6,6 +6,7 @@ import { cleanupWorshipDuplicates } from "@/lib/cleanupWorshipDuplicates";
 import { alignHouseholdAddress } from "@/lib/alignHouseholdAddress";
 import { backfillEntryAddress } from "@/lib/backfillEntryAddress";
 import { backfillCreditorUnbornAddress } from "@/lib/backfillCreditorUnbornAddress";
+import { backfillCreditorUnbornYangshang } from "@/lib/backfillCreditorUnbornYangshang";
 import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
 import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
 import { checkImportMerges } from "@/lib/checkImportMerges";
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "backfill-creditor-unborn-address") {
       const report = await backfillCreditorUnbornAddress(year, { commit });
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "backfill-creditor-unborn-yangshang") {
+      const report = await backfillCreditorUnbornYangshang(year, { commit });
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "dedup-creditor-unborn") {
