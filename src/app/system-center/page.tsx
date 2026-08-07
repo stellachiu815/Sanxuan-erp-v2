@@ -28,6 +28,7 @@ export default function SystemCenterHomePage() {
     { href: "/system-center/data-import", label: "📥 信眾資料匯入", desc: "正式家戶 Excel（家戶／成員／祖先／乙位正魂）欄位對照、預覽、匯入", color: "bg-yolk-100 hover:bg-yolk-200" },
     { href: "/system-center/household-maintenance", label: "🧹 家戶資料整理", desc: "牌位地址逐筆對帳、永久牌位重複清理、地址回填", color: "bg-cream-200 hover:bg-cream-300" },
     { href: "/system-center/universal-salvation-reset", label: "🔄 中元普渡・範圍化重置", desc: "重匯前清空某年度普渡報名（不動家戶／信眾／收款）", color: "bg-blossom-100 hover:bg-blossom-200" },
+    { href: "/system-center/public-registrations", label: "🀄 信眾公開報名・後台", desc: "設定活動線上報名表、產生網址＋QR、待確認清單（確認即轉正式）", color: "bg-sage-100 hover:bg-sage-200" },
   ];
 
   return (

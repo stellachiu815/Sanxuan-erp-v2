@@ -139,6 +139,19 @@ export async function createTempleEvent(
   // copyActivityOfferingsForNewEvent() 沿用去年設定，不重覆補預設。
   await seedDefaultActivityOfferings(created.id, input.activityType, operatorName);
 
+  // V38：建普渡活動時，自動產生一張「信眾公開報名表」＋網址（/join/普渡{年}）。
+  //   目前僅普渡有對應的報名頁項目集；其他活動類型之後再擴充。best-effort，失敗不影響建活動。
+  if (input.activityType === "UNIVERSAL_SALVATION") {
+    try {
+      const { upsertPublicRegForm, DEFAULT_PRICES } = await import("@/lib/publicReg");
+      const cfg = { config: { fields: ["phone", "address"] as ("phone" | "address" | "birthday")[], prices: DEFAULT_PRICES }, isOpen: true, createdByName: operatorName ?? null, headerNote: null };
+      let res = await upsertPublicRegForm({ templeEventId: created.id, slug: `普渡${input.year}`, ...cfg });
+      if (!res.ok) {
+        await upsertPublicRegForm({ templeEventId: created.id, slug: `普渡${input.year}-${Math.random().toString(36).slice(2, 6)}`, ...cfg });
+      }
+    } catch { /* 自動產生報名表失敗不影響建活動 */ }
+  }
+
   return { ok: true, data: { id: created.id } };
 }
 

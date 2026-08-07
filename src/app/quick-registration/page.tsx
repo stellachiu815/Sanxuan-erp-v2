@@ -59,7 +59,9 @@ function Inner() {
   const [unborn, setUnborn] = useState<UnbornRow[]>([]);
   const [riceKg, setRiceKg] = useState("");
   const [sponsorQty, setSponsorQty] = useState("");
+  const [sponsorName, setSponsorName] = useState("");
   const [donation, setDonation] = useState("");
+  const [donationName, setDonationName] = useState("");
 
   const [confirm, setConfirm] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -144,7 +146,9 @@ function Inner() {
       unborn: unborn.map((u) => ({ mainText: u.mainText, yangshangNames: splitYang(u.yangshang), tabletAddress: u.tabletAddress.trim() || null })),
       riceKg: Number(riceKg) > 0 ? Number(riceKg) : null,
       sponsorQty: Number(sponsorQty) > 0 ? Math.floor(Number(sponsorQty)) : null,
+      sponsorName: sponsorName.trim() || null,
       donationAmount: Number(donation) > 0 ? Math.round(Number(donation)) : null,
+      donationName: donationName.trim() || null,
       confirm,
     };
     try {
@@ -159,7 +163,7 @@ function Inner() {
     setName(""); setAddress(""); setExisting(null); setHits([]);
     setBirthdayType(""); setSolarDate(""); setLunarY(""); setLunarM(""); setLunarD(""); setLunarLeap(false);
     setAncestors([]); setSouls([]); setCreditor(false); setCreditorYang(""); setUnborn([]);
-    setRiceKg(""); setSponsorQty(""); setDonation(""); setResult(null); setError(null);
+    setRiceKg(""); setSponsorQty(""); setSponsorName(""); setDonation(""); setDonationName(""); setResult(null); setError(null);
   }
 
   return (
@@ -323,13 +327,18 @@ function Inner() {
         </div>
 
         {/* 白米／贊普／隨喜 */}
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">白米（斤）</span>
             <input value={riceKg} onChange={(e) => setRiceKg(e.target.value)} inputMode="numeric" placeholder="0" className={inputCls} /></label>
+          <div className="hidden sm:block" />
           <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">贊普（數量）</span>
             <input value={sponsorQty} onChange={(e) => setSponsorQty(e.target.value)} inputMode="numeric" placeholder="0" className={inputCls} /></label>
-          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">隨喜贊普（金額）</span>
+          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">贊普認購人（可填公司名，留空＝報名人）</span>
+            <input value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="留空＝報名人姓名" className={inputCls} /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">大額贊普（金額自填）</span>
             <input value={donation} onChange={(e) => setDonation(e.target.value)} inputMode="numeric" placeholder="0" className={inputCls} /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">大額贊普認購人（可填公司名，留空＝報名人）</span>
+            <input value={donationName} onChange={(e) => setDonationName(e.target.value)} placeholder="留空＝報名人姓名" className={inputCls} /></label>
         </div>
       </section>
 

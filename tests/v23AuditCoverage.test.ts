@@ -32,6 +32,7 @@ const SERVICE_ENFORCED_OR_STATELESS = new Set([
   "receipt-center/allocations/[id]/mark-no-receipt-required/route.ts", // service 內部查證
   "receipt-center/receipts/[id]/revoke-no-receipt-required/route.ts", // service 內部查證
   "system-center/backup/restore/route.ts", // restoreFromBackup() 內部查 restoreBackup 權限
+  "public-reg/[slug]/submit/route.ts", // V38 信眾公開報名送出：刻意免登入（信眾自填），只寫入「待確認」、不建正式牌位；有必填檢查＋IP+姓名 30 秒防重複
 ]);
 
 test("所有寫入 API 皆有權限防護（route 層 assert 或 service 層查證），無裸露寫入端點", () => {

@@ -19,6 +19,8 @@ export function middleware(request: NextRequest) {
     // 公開法務頁（隱私權政策／使用條款）：Google OAuth 驗證要求免登入即可存取。
     pathname === "/privacy" ||
     pathname === "/terms" ||
+    // V38 信眾公開報名頁（/join/[slug]）：免登入，信眾自己填。
+    pathname.startsWith("/join/") ||
     pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico"

@@ -76,8 +76,12 @@ export type QuickRegInput = {
   riceKg?: number | null;
   /** 贊普數量（固定價）。 */
   sponsorQty?: number | null;
+  /** 贊普認購人名稱（可填公司名；留空＝用報名人姓名）。 */
+  sponsorName?: string | null;
   /** 隨喜贊普金額（自由）。 */
   donationAmount?: number | null;
+  /** 隨喜贊普認購人名稱（可填公司名；留空＝用報名人姓名）。 */
+  donationName?: string | null;
   /** 送出後是否立即確認（草稿→正式）；失敗則保留草稿並回報原因。 */
   confirm?: boolean;
 };
@@ -331,7 +335,7 @@ export async function quickRegister(
             itemKey: "US_SPONSOR",
             active: true,
             pricing: { mode: "FIXED", quantity: sponsorQty, fixedUnitPrice: yearSponsorPrice },
-            customName: registrantName,
+            customName: s(input.sponsorName) ?? registrantName,
             status: "DRAFT",
             operatorName: operator.name,
           });
@@ -342,7 +346,7 @@ export async function quickRegister(
             itemKey: "US_SPONSOR_DONATION",
             active: true,
             pricing: { mode: "FREE", amount: donationAmount },
-            customName: registrantName,
+            customName: s(input.donationName) ?? registrantName,
             status: "DRAFT",
             operatorName: operator.name,
           });

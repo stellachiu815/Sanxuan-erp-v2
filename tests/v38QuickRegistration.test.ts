@@ -167,6 +167,30 @@ test("#1 列印字體：三欄陽上人讓寬給地址（修地址過小）", ()
   assert.ok(src.includes("const YANG_REMAIN_RATIO = 0.33"), "陽上人 0.42→0.33，地址欄變寬");
 });
 
+test("贊普／大額贊普認購人名稱：留空＝報名人", () => {
+  const src = read("src/lib/quickRegistration.ts");
+  assert.ok(src.includes("s(input.sponsorName) ?? registrantName"), "贊普認購人可填公司名，空＝報名人");
+  assert.ok(src.includes("s(input.donationName) ?? registrantName"), "大額贊普認購人可填公司名，空＝報名人");
+});
+
+test("信眾公開報名：免登入頁、送出只進待確認、確認即轉正式", () => {
+  const mw = read("src/middleware.ts");
+  assert.ok(mw.includes('pathname.startsWith("/join/")'), "/join/ 免登入");
+  const lib = read("src/lib/publicReg.ts");
+  assert.ok(lib.includes("'PENDING'") || lib.includes('"PENDING"') || lib.includes("PENDING"), "送出進待確認");
+  assert.ok(lib.includes("quickRegister(input"), "確認時重用 quickRegister 轉正式");
+  assert.ok(lib.includes("confirm: true"), "確認即轉正式");
+  assert.ok(lib.includes("INTERVAL '30 seconds'"), "有防重複送出");
+  const route = read("src/app/api/public-reg/[slug]/submit/route.ts");
+  assert.ok(!/assert[A-Za-z]*Permission/.test(route), "公開送出端點刻意免登入");
+});
+
+test("建普渡活動時自動產生公開報名表", () => {
+  const src = read("src/lib/templeEvents.ts");
+  assert.ok(src.includes("upsertPublicRegForm"), "建活動時自動產生報名表");
+  assert.ok(src.includes("普渡${input.year}"), "預設 slug 普渡{年}");
+});
+
 test("作業編號『移到第 N 號』＝插入語意（其餘順延、連號重編）", async () => {
   const { moveToPosition } = await import("../src/lib/workOrder");
   const rows = ["a", "b", "c", "d", "e"].map((id, i) => ({ id, categoryKey: "K", workOrder: i + 1 }));
