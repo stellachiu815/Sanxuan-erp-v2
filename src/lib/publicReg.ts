@@ -122,8 +122,10 @@ export async function upsertPublicRegForm(input: {
   }
 
   const id = `prf_${randomUUID()}`;
+  // 明確帶 createdAt／updatedAt：這兩張表由 Prisma 建立，updatedAt 為 @updatedAt（無 DB 預設），
+  //   raw SQL 不補會踩 NOT NULL（23502）。
   await prisma.$executeRawUnsafe(
-    `INSERT INTO "public_reg_forms" ("id","templeEventId","slug","fieldsConfig","isOpen","headerNote","createdByName") VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7)`,
+    `INSERT INTO "public_reg_forms" ("id","templeEventId","slug","fieldsConfig","isOpen","headerNote","createdByName","createdAt","updatedAt") VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
     id, input.templeEventId, slug, configJson, input.isOpen ?? true, input.headerNote ?? null, input.createdByName ?? null
   );
   const ev = await eventInfo(input.templeEventId);
@@ -179,7 +181,7 @@ export async function submitPublicRegistration(
 
   const id = `prg_${randomUUID()}`;
   await prisma.$executeRawUnsafe(
-    `INSERT INTO "public_registrations" ("id","formId","status","payload","submitterHash") VALUES ($1,$2,'PENDING',$3::jsonb,$4)`,
+    `INSERT INTO "public_registrations" ("id","formId","status","payload","submitterHash","createdAt","updatedAt") VALUES ($1,$2,'PENDING',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
     id, form.id, JSON.stringify(payload), submitterHash
   );
   return { ok: true, id };

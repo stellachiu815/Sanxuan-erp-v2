@@ -223,6 +223,22 @@ test("數量欄可直接輸入（不再只能按上下鍵）", () => {
   assert.ok(src.includes("onBlur={() => { if (!s.quantity"), "離開時補回至少 1");
 });
 
+test("公開報名 raw INSERT 明確帶 updatedAt（避免 23502 NOT NULL）", () => {
+  const src = read("src/lib/publicReg.ts");
+  assert.ok(src.includes('"createdAt","updatedAt") VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'), "form INSERT 帶 updatedAt");
+  assert.ok(src.includes('"submitterHash","createdAt","updatedAt") VALUES ($1,$2,\'PENDING\',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'), "registration INSERT 帶 updatedAt");
+});
+
+test("乙位正魂一鍵轉歷代祖先（永久牌位＋本年度報名皆可）", () => {
+  const src = read("src/lib/auditIndividualSoulNames.ts");
+  assert.ok(src.includes("convertSoulToAncestor"), "有轉換函式");
+  assert.ok(src.includes('type: "ANCESTOR_LINE"'), "永久牌位改 type");
+  assert.ok(src.includes('category: "ANCESTOR_LINE"'), "報名牌位改 category");
+  assert.ok(src.includes('key: "US_ANCESTOR"'), "連動計價項目改成歷代祖先");
+  const route = read("src/app/api/admin/universal-salvation/maintenance/route.ts");
+  assert.ok(route.includes('"convert-soul-to-ancestor"'), "維護 API 有掛轉換動作");
+});
+
 test("作業編號『移到第 N 號』＝插入語意（其餘順延、連號重編）", async () => {
   const { moveToPosition } = await import("../src/lib/workOrder");
   const rows = ["a", "b", "c", "d", "e"].map((id, i) => ({ id, categoryKey: "K", workOrder: i + 1 }));

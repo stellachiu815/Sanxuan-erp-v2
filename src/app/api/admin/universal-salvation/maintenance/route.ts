@@ -9,7 +9,7 @@ import { backfillCreditorUnbornAddress } from "@/lib/backfillCreditorUnbornAddre
 import { backfillCreditorUnbornYangshang } from "@/lib/backfillCreditorUnbornYangshang";
 import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
 import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
-import { auditIndividualSoulNames } from "@/lib/auditIndividualSoulNames";
+import { auditIndividualSoulNames, convertSoulToAncestor } from "@/lib/auditIndividualSoulNames";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[] };
+  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[]; id?: string; source?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 }); }
 
   const commit = body?.commit === true;
@@ -70,6 +70,14 @@ export async function POST(request: NextRequest) {
     if (body?.action === "soul-name-audit") {
       const report = await auditIndividualSoulNames(year);
       return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "convert-soul-to-ancestor") {
+      const id = typeof body?.id === "string" ? body.id : "";
+      const src = body?.source === "本年度報名" ? "本年度報名" : "永久牌位";
+      if (!id) return NextResponse.json({ error: "缺少牌位 id" }, { status: 400 });
+      const res = await convertSoulToAncestor(id, src, check.operator.name);
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
+      return NextResponse.json({ ok: true });
     }
     if (body?.action === "address-audit") {
       const report = await auditTabletAddresses(year);

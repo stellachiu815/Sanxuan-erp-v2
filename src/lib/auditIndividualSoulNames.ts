@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { normalizeRitualNameForStore } from "@/lib/ritualDisplayName";
 
 /**
  * V38 檢查「乙位正魂」命名是否誤用「某姓」（祖先式命名）。
@@ -63,4 +64,45 @@ export async function auditIndividualSoulNames(year: number): Promise<AuditSoulN
   suspicious.sort((a, b) => ((a.householdId ?? "") < (b.householdId ?? "") ? -1 : 1));
 
   return { ok: true, totalSouls: worship.length + entries.length, suspicious };
+}
+
+/**
+ * V38 一鍵把一筆誤植的「乙位正魂」轉成「歷代祖先」。
+ * 永久牌位（WorshipRecord）：type INDIVIDUAL → ANCESTOR_LINE。
+ * 本年度報名（UniversalSalvationEntry）：category INDIVIDUAL_SOUL → ANCESTOR_LINE，並把連動計價項目
+ *   由乙位正魂（US_ZHENGHUN）改為歷代祖先（US_ANCESTOR）。保留地址／陽上人；主文依類別正規化。
+ */
+export async function convertSoulToAncestor(
+  id: string,
+  source: "永久牌位" | "本年度報名",
+  operatorName: string | null
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (source === "永久牌位") {
+    const wr = await prisma.worshipRecord.findUnique({ where: { id }, select: { id: true, type: true, displayName: true } });
+    if (!wr) return { ok: false, error: "找不到這筆永久牌位" };
+    if (wr.type !== "INDIVIDUAL") return { ok: false, error: "這筆已不是乙位正魂" };
+    await prisma.worshipRecord.update({
+      where: { id },
+      data: { type: "ANCESTOR_LINE", displayName: normalizeRitualNameForStore("ANCESTOR_LINE", wr.displayName) },
+    });
+    return { ok: true };
+  }
+
+  const entry = await prisma.universalSalvationEntry.findUnique({
+    where: { id },
+    select: { id: true, category: true, displayName: true, registrationItem: { select: { id: true } } },
+  });
+  if (!entry) return { ok: false, error: "找不到這筆報名牌位" };
+  if (entry.category !== "INDIVIDUAL_SOUL") return { ok: false, error: "這筆已不是乙位正魂" };
+  const ancType = await prisma.registrationItemType.findFirst({ where: { key: "US_ANCESTOR" }, select: { id: true } });
+  await prisma.$transaction(async (tx) => {
+    await tx.universalSalvationEntry.update({
+      where: { id },
+      data: { category: "ANCESTOR_LINE", displayName: normalizeRitualNameForStore("ANCESTOR_LINE", entry.displayName) },
+    });
+    if (entry.registrationItem && ancType) {
+      await tx.ritualRegistrationItem.update({ where: { id: entry.registrationItem.id }, data: { registrationItemTypeId: ancType.id } });
+    }
+  });
+  return { ok: true };
 }

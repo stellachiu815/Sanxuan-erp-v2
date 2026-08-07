@@ -311,6 +311,23 @@ type SoulNameRow = { source: string; id: string; householdId: string | null; dis
 function SoulNameAudit() {
   const { report, busy, error, run } = useTool("soul-name-audit");
   const rows: SoulNameRow[] = report?.suspicious ?? [];
+  const [converting, setConverting] = useState<string | null>(null);
+  const [convMsg, setConvMsg] = useState<string | null>(null);
+  const [convErr, setConvErr] = useState<string | null>(null);
+
+  async function convert(r: SoulNameRow) {
+    if (!window.confirm(`確定把「${r.displayName}乙位正魂」轉成「${r.displayName}歷代祖先」？（保留地址／陽上人；可再查詢確認）`)) return;
+    setConverting(r.id); setConvErr(null); setConvMsg(null);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "convert-soul-to-ancestor", id: r.id, source: r.source, commit: true, confirm: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setConvErr(toFriendlyError(res.status, data?.error)); return; }
+      setConvMsg(`已把「${r.displayName}乙位正魂」轉成歷代祖先。`);
+      await run(false);
+    } catch { setConvErr("轉換失敗，請稍後再試。"); } finally { setConverting(null); }
+  }
   return (
     <section className="rounded-2xl bg-white/70 p-5 shadow-card">
       <h2 className="text-base font-medium text-ink">乙位正魂命名檢查（找「某姓乙位正魂」）</h2>
@@ -319,17 +336,26 @@ function SoulNameAudit() {
         <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "查詢可疑命名"}</button>
       </div>
       {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {convMsg && <p className="mt-2 text-sm text-emerald-700">{convMsg}</p>}
+      {convErr && <p className="mt-2 text-sm text-blossom-500">⚠️ {convErr}</p>}
       {report && (
         <div className="mt-3 text-sm">
-          <p className="text-ink">乙位正魂共 {report.totalSouls} 筆｜<b className="text-blossom-500">可疑 {rows.length} 筆</b>（主文以「姓」結尾或只有一個字）。</p>
-          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
+          <p className="text-ink">乙位正魂共 {report.totalSouls} 筆｜<b className="text-blossom-500">可疑 {rows.length} 筆</b>（主文以「姓」結尾或只有一個字）。可直接按「轉成歷代祖先」一鍵更正。</p>
+          <ul className="mt-2 max-h-80 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
             {rows.map((r) => (
-              <li key={r.id} className="rounded bg-blossom-50 px-2 py-1">
-                <b className="text-ink">{r.displayName}乙位正魂</b>
-                <span className="text-ink-faint">（{r.source}）</span>
-                {r.householdId && <> ｜家戶 <a href={`/household/${r.householdId}`} className="text-blossom-500 underline">{r.householdId}</a></>}
-                {r.yangshang && <> ｜陽上：{r.yangshang}</>}
-                {r.location && <> ｜安奉地：{r.location}</>}
+              <li key={r.id} className="rounded bg-blossom-50 px-2 py-2 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <b className="text-ink">{r.displayName}乙位正魂</b>
+                  <span className="text-ink-faint">（{r.source}）</span>
+                  {r.householdId && <> ｜家戶 <a href={`/household/${r.householdId}`} className="text-blossom-500 underline">{r.householdId}</a></>}
+                  {r.yangshang && <> ｜陽上：{r.yangshang}</>}
+                  {r.location && <> ｜安奉地：{r.location}</>}
+                </span>
+                <button type="button" disabled={converting === r.id} onClick={() => convert(r)}
+                  style={{ backgroundColor: "#2f7d5b", color: "#fff", opacity: converting === r.id ? 0.5 : 1 }}
+                  className="rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap">
+                  {converting === r.id ? "轉換中…" : "轉成歷代祖先"}
+                </button>
               </li>
             ))}
           </ul>
