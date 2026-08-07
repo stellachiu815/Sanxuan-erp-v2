@@ -18,7 +18,7 @@ import { registerActivity } from "@/lib/activityRegistration";
 import { confirmRegistration } from "@/lib/activityRegistration";
 import { createUniversalSalvationEntry } from "@/lib/ritual";
 import { registerRice } from "@/lib/whiteRiceService";
-import { syncSponsorItemInTx } from "@/lib/registrationItemRegistration";
+import { addSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { normalizeYangshangNames } from "@/lib/yangshang";
@@ -74,6 +74,8 @@ export type QuickRegInput = {
   unborn?: QuickRegUnbornTablet[];
   /** 白米斤數。 */
   riceKg?: number | null;
+  /** 白米認購人名稱（可填公司名；留空＝用報名人姓名）。 */
+  riceName?: string | null;
   /** 贊普數量（固定價）。 */
   sponsorQty?: number | null;
   /** 贊普認購人名稱（可填公司名；留空＝用報名人姓名）。 */
@@ -316,7 +318,7 @@ export async function quickRegister(
   // ── 5. 白米 ──
   if (input.riceKg && input.riceKg > 0) {
     const rice = await registerRice(
-      { ritualRecordId, memberId, kg: input.riceKg, overageReason: null },
+      { ritualRecordId, memberId, kg: input.riceKg, customName: s(input.riceName) ?? null, overageReason: null },
       { role: operator.role, userId: operator.id, name: operator.name }
     );
     if (!rice.ok) return { ok: false, status: rice.status, error: `白米：${rice.error}` };
@@ -329,26 +331,23 @@ export async function quickRegister(
     const yearSponsorPrice = await getUniversalSalvationSponsorPrice(year);
     try {
       await prisma.$transaction(async (tx) => {
+        // V38：現場快速報名每個認購人各自一筆（append），不合併、不蓋掉既有認購人。
         if (sponsorQty > 0) {
-          await syncSponsorItemInTx(tx, {
+          await addSponsorItemInTx(tx, {
             ritualRecordId,
             itemKey: "US_SPONSOR",
-            active: true,
             pricing: { mode: "FIXED", quantity: sponsorQty, fixedUnitPrice: yearSponsorPrice },
             customName: s(input.sponsorName) ?? registrantName,
             status: "DRAFT",
-            operatorName: operator.name,
           });
         }
         if (donationAmount > 0) {
-          await syncSponsorItemInTx(tx, {
+          await addSponsorItemInTx(tx, {
             ritualRecordId,
             itemKey: "US_SPONSOR_DONATION",
-            active: true,
             pricing: { mode: "FREE", amount: donationAmount },
             customName: s(input.donationName) ?? registrantName,
             status: "DRAFT",
-            operatorName: operator.name,
           });
         }
       });

@@ -153,16 +153,16 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
   const earthGodCount = raw.filter((r) => r.key === "US_WUYUAN" && isEarthGod(r)).length;
   const unbornCount = raw.filter((r) => r.key === "US_WUYUAN" && !isEarthGod(r)).length;
 
-  // 表一：祖先＋乙位正魂＋地基主（保持 raw 的建立先後＝匯入順序，不再各自分塊）。
-  const asRows = raw.filter((r) => r.key === "US_ANCESTOR" || r.key === "US_ZHENGHUN" || (r.key === "US_WUYUAN" && isEarthGod(r)));
+  // 表一：祖先＋乙位正魂＋地基主，**依作業號由小到大排**（對得上牌位上的號碼；無號者排最後）。
+  const asRows = sortByRegistrationOrder(raw.filter((r) => r.key === "US_ANCESTOR" || r.key === "US_ZHENGHUN" || (r.key === "US_WUYUAN" && isEarthGod(r))));
   const ancestorSoul = {
     header: ["正式作業號", "報名項目", "牌位主文", "陽上", "地址", "收款狀態", "列印狀態"],
     stat: `祖先 ${counts.ancestor} 筆／乙位正魂 ${counts.soul} 筆／地基主 ${earthGodCount} 筆`,
     rows: asRows.map((r) => [orderCell(r.registrationOrder), r.typeName, r.entryName ?? "", r.yangshang.join("、"), r.address, r.unpaid > 0 ? `未收 ${r.unpaid}` : "已收足/免費", r.printStatus]),
   };
 
-  // 表二：冤親＋無緣子女（一條連續順序，照匯入先後）。
-  const cuRows = raw.filter((r) => r.key === "US_YUANQIN" || (r.key === "US_WUYUAN" && !isEarthGod(r)));
+  // 表二：冤親＋無緣子女，**依作業號由小到大排**（對得上牌位上的號碼；無號者排最後）。
+  const cuRows = sortByRegistrationOrder(raw.filter((r) => r.key === "US_YUANQIN" || (r.key === "US_WUYUAN" && !isEarthGod(r))));
   const creditorUnborn = {
     header: ["正式作業號", "報名項目", "牌位主文", "陽上", "地址", "收款狀態", "列印狀態"],
     stat: `累世冤親債主 ${counts.debtCreditor} 筆／無緣子女 ${unbornCount} 筆`,
@@ -172,17 +172,19 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
   // C. 白米——自己的 registrationOrder。
   const rc = sortByRegistrationOrder(raw.filter((r) => r.key === "US_RICE"));
   const rice = {
-    header: ["編號", "報名者", "斤數"],
+    header: ["編號", "認購人", "斤數"],
     stat: `白米 ${counts.rice} 筆／合計 ${counts.riceTotalKg} 斤`,
-    rows: rc.map((r) => [orderCell(r.registrationOrder), r.memberName ?? r.customName ?? "", r.quantity]),
+    // V38：白米也顯示「認購人」＝自訂名（可為公司名）優先，沒填才用成員姓名。
+    rows: rc.map((r) => [orderCell(r.registrationOrder), r.customName ?? r.memberName ?? "", r.quantity]),
   };
 
   // D. 贊普／隨喜贊普——各自類別、各自 registrationOrder（同表分區塊）。
   const sp = sortByTypeThenOrder(raw.filter((r) => ["US_SPONSOR", "US_SPONSOR_DONATION"].includes(r.key)), { US_SPONSOR: 1, US_SPONSOR_DONATION: 2 });
   const sponsor = {
-    header: ["編號", "報名項目", "報名者", "數量", "金額"],
+    header: ["編號", "報名項目", "認購人", "數量", "金額"],
     stat: `贊普 ${counts.sponsor} 筆／隨喜贊普 ${counts.sponsorDonation} 筆`,
-    rows: sp.map((r) => [orderCell(r.registrationOrder), r.typeName, r.memberName ?? r.customName ?? "", r.quantity, r.amountDue]),
+    // V38：贊普顯示「認購人」＝自訂名（可為公司名）優先，沒有才用成員姓名。
+    rows: sp.map((r) => [orderCell(r.registrationOrder), r.typeName, r.customName ?? r.memberName ?? "", r.quantity, r.amountDue]),
   };
 
   return { year, activityName, counts, sheets: { ancestorSoul, creditorUnborn, rice, sponsor } };

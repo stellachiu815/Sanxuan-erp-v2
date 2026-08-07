@@ -15,6 +15,8 @@ import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
 import { archiveHouseholdsByCode } from "@/lib/archiveHouseholdsByCode";
+import { auditSponsorItems, restoreSponsorItem } from "@/lib/sponsorAudit";
+import { clearAllRice } from "@/lib/whiteRiceService";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[]; id?: string; source?: string };
+  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[]; id?: string; source?: string; query?: string; itemId?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 }); }
 
   const commit = body?.commit === true;
@@ -95,6 +97,21 @@ export async function POST(request: NextRequest) {
     if (body?.action === "archive-households") {
       const report = await archiveHouseholdsByCode(body?.codes ?? [], { commit, operatorName: "系統管理（依編號封存）" });
       return NextResponse.json({ ok: report.ok, report });
+    }
+    if (body?.action === "sponsor-audit") {
+      const report = await auditSponsorItems(year, typeof body?.query === "string" ? body.query : "");
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "restore-sponsor-item") {
+      const itemId = typeof body?.itemId === "string" ? body.itemId : "";
+      if (!itemId) return NextResponse.json({ error: "缺少贊普項目 id" }, { status: 400 });
+      const res = await restoreSponsorItem(itemId, check.operator.name);
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+    if (body?.action === "clear-all-rice") {
+      const report = await clearAllRice(year, { commit, operatorName: check.operator.name });
+      return NextResponse.json({ ok: true, report });
     }
     return NextResponse.json({ error: "未知的整理動作" }, { status: 400 });
   } catch (e) {

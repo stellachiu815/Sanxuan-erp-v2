@@ -1394,18 +1394,11 @@ export async function syncSponsorItemInTx(
       throw new Error(`此報名有多筆已收款的${label}，請先於收款中心處理後再由人工整理，系統不自動變更`);
     }
     // 保留者：已收款者優先，否則最早建立者。
+    // V38：贊普／隨喜贊普改為「一戶可多筆、每筆各自認購人」。
+    //   ★ 不再自動取消其他同 key 贊普 ★——過去這裡會把別的認購人整筆軟刪除，
+    //   造成「一戶只留一筆、認購人被蓋掉」（吳明仁/高燕玉…消失的病根）。現在只更新 keeper 本身，
+    //   其餘認購人一律保留。多筆重複改由前端防呆＋維護頁「贊普查詢/還原」處理。
     const keeper = paidItems[0] ?? actives[0] ?? null;
-    // 取消其他未收款重複（避免兩次應收）。
-    for (const a of actives) {
-      if (keeper && a.id === keeper.id) continue;
-      if (Number(a.amountPaid) > 0) {
-        throw new Error(`此報名有多筆已收款的${label}，請人工處理`);
-      }
-      await tx.ritualRegistrationItem.update({
-        where: { id: a.id },
-        data: { status: "CANCELLED", amountUnpaid: 0, deletedAt: new Date(), deletedByName: params.operatorName ?? `系統：整理重複${label}` },
-      });
-    }
 
     // 依計價模式決定 數量／鎖定單價／金額（後端唯一計算，不信任前端一般贊普單價）。
     let qty: number;
@@ -1467,9 +1460,14 @@ export async function syncSponsorItemInTx(
       await tx.ritualRegistrationItem.update({ where: { id: keeper.id }, data: { customName: name } });
     }
   } else {
-    // active=false：取消所有未收款有效 item；有已收款則丟錯（不可用取消勾選繞過退款）。
+    // active=false：取消未收款有效 item；有已收款則丟錯（不可用取消勾選繞過退款）。
     if (paidItems.length > 0) {
       throw new Error(`此報名的${label}已有收款，請先於收款中心處理退款後再取消`);
+    }
+    // V38：一戶多認購人時，單一編輯表單無法辨識要取消哪一筆——不整批砍（避免誤刪別的認購人）。
+    //   請改至收款中心／維護頁「贊普查詢」逐筆處理。
+    if (actives.length > 1) {
+      throw new Error(`此戶有多筆${label}認購人，系統不自動整批取消；請至收款中心或維護頁「贊普查詢」逐筆處理`);
     }
     for (const a of actives) {
       await tx.ritualRegistrationItem.update({
@@ -1478,6 +1476,64 @@ export async function syncSponsorItemInTx(
       });
     }
   }
+}
+
+/**
+ * V38 現場快速報名專用：直接**新增一筆**贊普／隨喜贊普（一戶多認購人）。
+ * 不查既有、不合併、不取消任何項目——每個認購人各自一筆、各自計價。
+ * 重複（同認購人不小心報兩次）交由前端防呆＋維護頁「贊普查詢」處理。
+ */
+export async function addSponsorItemInTx(
+  tx: Prisma.TransactionClient,
+  params: {
+    ritualRecordId: string;
+    itemKey: SponsorItemKey;
+    pricing: SponsorPricing;
+    customName?: string | null;
+    status: RitualRecordStatus;
+  }
+): Promise<void> {
+  const label = SPONSOR_KEY_LABEL[params.itemKey];
+  const type = await tx.registrationItemType.findUnique({ where: { key: params.itemKey }, select: { id: true } });
+  if (!type) return;
+  const name = (params.customName ?? "").trim() || null;
+
+  let qty: number;
+  let lockedUnitPrice: number;
+  let amount: number;
+  if (params.pricing.mode === "FIXED") {
+    qty = Math.max(1, Math.floor(params.pricing.quantity) || 1);
+    const unit = params.pricing.fixedUnitPrice;
+    if (unit == null || !Number.isFinite(unit)) {
+      throw new Error(`尚未設定 ${label} 的年度固定單價，請先於活動設定頁設定後再報名`);
+    }
+    lockedUnitPrice = unit;
+    amount = Math.round(qty * unit);
+  } else {
+    qty = 1;
+    amount = Math.max(0, Math.round(Number(params.pricing.amount) || 0));
+    lockedUnitPrice = amount;
+  }
+
+  const rec = await tx.ritualRecord.findUnique({ where: { id: params.ritualRecordId }, select: { householdId: true } });
+  const member = rec
+    ? await tx.member.findFirst({ where: { householdId: rec.householdId, deletedAt: null }, orderBy: [{ isPrimaryContact: "desc" }, { createdAt: "asc" }], select: { id: true } })
+    : null;
+  await tx.ritualRegistrationItem.create({
+    data: {
+      ritualRecordId: params.ritualRecordId,
+      registrationItemTypeId: type.id,
+      memberId: member?.id ?? null,
+      quantity: qty,
+      customName: name,
+      lockedUnitPrice,
+      amountDue: amount,
+      amountPaid: 0,
+      amountUnpaid: amount,
+      feeChoice: "FIXED",
+      status: params.status,
+    },
+  });
 }
 
 export async function listRegisteredItems(ritualRecordId: string): Promise<RegisteredItemView[]> {

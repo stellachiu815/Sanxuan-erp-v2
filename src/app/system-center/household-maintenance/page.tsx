@@ -32,6 +32,8 @@ function Inner() {
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
       <BatchConfirmUs />
+      <SponsorAudit />
+      <ClearAllRice />
       <AddressAudit />
       <SoulNameAudit />
       <PurgeArchivedUsRecords />
@@ -350,6 +352,120 @@ function BatchConfirmUs() {
           )}
           {committed && <p className="mt-2 text-emerald-700">✅ 已確認 {report.confirmed} 筆轉正式。</p>}
           {report.totalDraft === 0 && <p className="mt-2 text-emerald-700">✅ 沒有停在草稿的普渡報名。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type SponsorAuditRow = {
+  itemId: string; key: string; label: string; buyerName: string | null;
+  householdCode: string | null; householdName: string | null; quantity: number;
+  amountDue: number; amountPaid: number; status: string; isDeleted: boolean;
+  deletedByName: string | null; createdAt: string; restorable: boolean;
+};
+
+function SponsorAudit() {
+  const [query, setQuery] = useState("");
+  const [report, setReport] = useState<{ total: number; rows: SponsorAuditRow[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function search() {
+    setBusy(true); setError(null); setMsg(null);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "sponsor-audit", query }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
+      setReport(data.report);
+    } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
+  }
+  async function restore(r: SponsorAuditRow) {
+    if (!window.confirm(`確定還原「${r.buyerName ?? "（無名）"}」的${r.label}（${r.amountDue} 元）？還原後會回到正式名單。`)) return;
+    setRestoring(r.itemId); setError(null); setMsg(null);
+    try {
+      const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+        method: "POST", body: JSON.stringify({ action: "restore-sponsor-item", itemId: r.itemId, commit: true, confirm: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
+      setMsg(`已還原「${r.buyerName ?? "（無名）"}」的${r.label}。`);
+      await search();
+    } catch { setError("還原失敗，請稍後再試。"); } finally { setRestoring(null); }
+  }
+
+  const statusZh = (r: SponsorAuditRow) =>
+    r.isDeleted ? "已刪除" : r.status === "CANCELLED" ? "已取消" : r.status === "CONFIRMED" ? "正式" : r.status === "DRAFT" ? "草稿" : r.status;
+
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">贊普認購人查詢／還原</h2>
+      <p className="mt-1 text-sm text-ink-soft">舊版贊普是「<b>一戶只留一筆</b>」，同戶報第二個認購人時會把前一筆<b>蓋掉／取消</b>，認購人就「消失」了。這裡輸入<b>認購人名字、戶名或戶號</b>，把符合的<b>所有</b>贊普／隨喜贊普都列出來（含<b>已取消／已刪除</b>）。被系統誤刪、未收款的可以<b>一鍵還原</b>回名單。<br/><span className="text-ink-faint">（註：若當初是「同一筆一直被改名」覆蓋掉，舊名字沒有留存、無法還原，需重新報名。）</span></p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }}
+          placeholder="認購人名字／戶名／戶號（留空＝全部贊普）"
+          className="rounded-full border border-mist-200 bg-white px-4 py-1.5 text-sm text-ink w-72" />
+        <button type="button" disabled={busy} onClick={search} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "查詢"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {msg && <p className="mt-2 text-sm text-emerald-700">{msg}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">共 {report.total} 筆（含已取消／已刪除）｜可還原 <b className="text-blossom-500">{report.rows.filter((r) => r.restorable).length}</b> 筆。</p>
+          <ul className="mt-2 max-h-96 overflow-auto text-xs flex flex-col gap-1">
+            {report.rows.map((r) => (
+              <li key={r.itemId} className={`rounded px-2 py-2 flex flex-wrap items-center justify-between gap-2 ${r.isDeleted || r.status === "CANCELLED" ? "bg-blossom-50" : "bg-cream-50"}`}>
+                <span>
+                  <b className="text-ink">{r.buyerName ?? "（無名）"}</b>
+                  <span className="text-ink-faint"> ｜{r.label}×{r.quantity}｜{r.amountDue} 元</span>
+                  {r.householdCode && <span className="text-ink-faint"> ｜戶 {r.householdCode}{r.householdName ? `（${r.householdName}）` : ""}</span>}
+                  <span className={r.isDeleted || r.status === "CANCELLED" ? "text-blossom-500" : "text-emerald-700"}> ｜{statusZh(r)}</span>
+                  {r.amountPaid > 0 && <span className="text-emerald-700"> ｜已收 {r.amountPaid}</span>}
+                </span>
+                {r.restorable && (
+                  <button type="button" disabled={restoring === r.itemId} onClick={() => restore(r)}
+                    style={{ backgroundColor: "#2f7d5b", color: "#fff", opacity: restoring === r.itemId ? 0.5 : 1 }}
+                    className="rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap">
+                    {restoring === r.itemId ? "還原中…" : "一鍵還原"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {report.total === 0 && <p className="mt-2 text-ink-soft">查無符合的贊普。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ClearAllRice() {
+  const { report, committed, busy, error, run } = useTool("clear-all-rice");
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">白米全部清空（重做用）</h2>
+      <p className="mt-1 text-sm text-ink-soft">把本年度<b>所有白米報名一次清空</b>（軟刪除、可從回收區還原），清完再用「現場快速報名」重報。<b>已收款的不動</b>（避免帳務對不上）。先按預覽看會清幾筆，再確認。</p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（看會清幾筆）"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">目前有效白米 {report.matched} 筆｜{committed ? `已清空 ${report.cleared}` : `將清空 ${report.matched - report.skippedPaid}`} 筆｜已收款略過 {report.skippedPaid} 筆</p>
+          {!committed && (report.matched - report.skippedPaid) > 0 && (
+            <button type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`確定清空 ${report.matched - report.skippedPaid} 筆白米報名？（軟刪除、可還原；已收款不動）`)) run(true); }}
+              style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+              className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "清空中…" : `2) 全部清空（${report.matched - report.skippedPaid} 筆）`}
+            </button>
+          )}
+          {committed && <p className="mt-2 text-emerald-700">✅ 已清空 {report.cleared} 筆白米，可以開始重報了。</p>}
+          {report.matched === 0 && <p className="mt-2 text-ink-soft">目前沒有白米報名。</p>}
         </div>
       )}
     </section>

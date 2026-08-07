@@ -173,6 +173,8 @@ export type RegisterRiceInput = {
   ritualRecordId: string;
   memberId?: string | null;
   kg: number;
+  /** V38：白米認購人自訂名（可為公司名）。空＝總名單回退成員姓名。 */
+  customName?: string | null;
   /** 超額時（僅 ADMIN／SUPER_ADMIN 可）必填。 */
   overageReason?: string | null;
 };
@@ -242,6 +244,7 @@ export async function registerRice(
           ritualRecordId: record.id,
           registrationItemTypeId: type.id,
           memberId: input.memberId ?? null,
+          customName: (input.customName ?? "").trim() || null,
           quantity: calc.data.quantity,
           amountDue: new Prisma.Decimal(calc.data.amountDue),
           amountPaid: new Prisma.Decimal(0),
@@ -348,4 +351,32 @@ export async function updateRiceQuantity(
     return { ok: true as const, quantity: calc.data.quantity, amountDue: calc.data.amountDue, amountUnpaid };
   };
   return db ? run(db) : prisma.$transaction(run);
+}
+
+/**
+ * V38 一鍵清空本年度白米報名（軟刪除、可還原）。
+ * 把所有有效白米項目標記 CANCELLED＋deletedAt（不硬刪、資料留存），供全部重做。
+ * 已收款者不動（避免帳務對不上）；commit=false 只回報將清幾筆。
+ */
+export async function clearAllRice(
+  year: number,
+  opts: { commit: boolean; operatorName: string | null }
+): Promise<{ ok: true; commit: boolean; year: number; matched: number; cleared: number; skippedPaid: number }> {
+  const items = await prisma.ritualRegistrationItem.findMany({
+    where: validRiceItemWhere(year),
+    select: { id: true, amountPaid: true, quantity: true },
+  });
+  const unpaid = items.filter((i) => Number(i.amountPaid) === 0);
+  const skippedPaid = items.length - unpaid.length;
+
+  let cleared = 0;
+  if (opts.commit && unpaid.length) {
+    const r = await prisma.ritualRegistrationItem.updateMany({
+      where: { id: { in: unpaid.map((i) => i.id) } },
+      data: { status: "CANCELLED", amountUnpaid: 0, deletedAt: new Date(), deletedByName: opts.operatorName ?? "系統：清空白米重做" },
+    });
+    cleared = r.count;
+  }
+
+  return { ok: true, commit: opts.commit, year, matched: items.length, cleared, skippedPaid };
 }
