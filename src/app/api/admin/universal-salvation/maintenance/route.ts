@@ -10,6 +10,7 @@ import { backfillCreditorUnbornYangshang } from "@/lib/backfillCreditorUnbornYan
 import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
 import { purgeArchivedHouseholdUsRecords } from "@/lib/purgeArchivedHouseholdUsRecords";
 import { auditIndividualSoulNames, convertSoulToAncestor } from "@/lib/auditIndividualSoulNames";
+import { batchConfirmUniversalSalvation } from "@/lib/batchConfirmUniversalSalvation";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
@@ -65,6 +66,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "import-merge-check") {
       const report = await checkImportMerges(year);
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "batch-confirm-us") {
+      const report = await batchConfirmUniversalSalvation(year, { commit, operatorName: check.operator.name });
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "soul-name-audit") {
