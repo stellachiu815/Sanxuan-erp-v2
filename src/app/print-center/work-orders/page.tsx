@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { OperatorProvider } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
-import { renumberByCurrentSort, type WorkOrderRow as WORow } from "@/lib/workOrder";
+import { renumberByCurrentSort, autoAssignWorkOrders, moveToPosition, type WorkOrderRow as WORow } from "@/lib/workOrder";
 
 /**
  * V32 列印管理 → 中元普渡 → 正式作業編號管理（正式可操作 UI）。
@@ -43,6 +43,7 @@ function Inner() {
   const [orig, setOrig] = useState<Map<string, number | null>>(new Map());
   const [locked, setLocked] = useState(false);
   const [q, setQ] = useState("");
+  const [moveTarget, setMoveTarget] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,8 +65,21 @@ function Inner() {
       const res = await fetchRegistration(`/api/universal-salvation/${year}/work-orders?itemKey=${itemKey}`);
       const d = await res.json();
       if (!res.ok) { setErr(toFriendlyError(res.status, d?.error)); return; }
-      setRows(d.rows); setLocked(d.locked);
-      setOrig(new Map((d.rows as Row[]).map((r) => [r.id, r.workOrder])));
+      const loaded = d.rows as Row[];
+      // V38：號碼不再一片空白——載入時自動把「沒有號」的填成接續的號碼（不覆蓋既有號）。
+      //   未鎖定才自動帶入；帶入後視為未儲存變更，按「儲存」才寫回。
+      let shown = loaded;
+      if (!d.locked) {
+        const active = loaded.filter((r) => r.status !== "CANCELLED");
+        const fill = autoAssignWorkOrders(active.map<WORow>((r) => ({ id: r.id, categoryKey: r.itemKey, workOrder: r.workOrder })));
+        if (fill.length > 0) {
+          const fm = new Map(fill.map((f) => [f.id, f.workOrder]));
+          shown = loaded.map((r) => (fm.has(r.id) ? { ...r, workOrder: fm.get(r.id)! } : r));
+        }
+      }
+      setRows(shown); setLocked(d.locked);
+      // orig＝資料庫實際值（含 null），這樣自動帶入的號會被視為「需儲存」。
+      setOrig(new Map(loaded.map((r) => [r.id, r.workOrder])));
     } catch { setErr("讀取失敗"); }
   }, [year, itemKey]);
   useEffect(() => { void load(); }, [load]);
@@ -75,12 +89,43 @@ function Inner() {
     return rows.filter((r) => !nq || r.subject.includes(nq) || r.household.includes(nq) || r.yangshang.includes(nq) || String(r.workOrder ?? "").includes(nq));
   }, [rows, q]);
 
+  // 依目前 rows 陣列順序，把 active（未取消）重編 1..N；順序不變、只更新號碼。
+  const resequence = (arr: Row[]): Row[] => {
+    const active = arr.filter((r) => r.status !== "CANCELLED");
+    const out = renumberByCurrentSort(active.map<WORow>((r) => ({ id: r.id, categoryKey: r.itemKey, workOrder: r.workOrder })));
+    const m = new Map(out.map((o) => [o.id, o.workOrder]));
+    return arr.map((r) => (m.has(r.id) ? { ...r, workOrder: m.get(r.id)! } : r));
+  };
+
+  // ▲▼：上下移一格，並**即時重編號碼**（可連續移動，不再只動一次）。
   const move = (idx: number, dir: -1 | 1) => {
+    if (locked) return;
     const next = [...rows];
     const j = idx + dir;
     if (j < 0 || j >= next.length) return;
     [next[idx], next[j]] = [next[j], next[idx]];
-    setRows(next);
+    setRows(resequence(next));
+  };
+
+  // 「移到第 N 號」：插入語意——本筆跳到第 N 號，原本第 N..尾各自順延 +1，全類別重編 1..N。
+  const moveTo = (id: string, targetStr: string) => {
+    if (locked) return;
+    const target = Number(targetStr);
+    if (!Number.isFinite(target) || target < 1) { setErr("請輸入要移到的號碼（1 起算）"); return; }
+    setErr(null);
+    const active = rows.filter((r) => r.status !== "CANCELLED");
+    const out = moveToPosition(active.map<WORow>((r) => ({ id: r.id, categoryKey: r.itemKey, workOrder: r.workOrder })), id, target);
+    const m = new Map(out.map((o) => [o.id, o.workOrder]));
+    const withNums = rows.map((r) => (m.has(r.id) ? { ...r, workOrder: m.get(r.id)! } : r));
+    // 依新號碼重新排序，讓畫面立刻反映移動結果（取消者排最後）。
+    withNums.sort((a, b) => {
+      const ca = a.status === "CANCELLED" ? 1 : 0, cb = b.status === "CANCELLED" ? 1 : 0;
+      if (ca !== cb) return ca - cb;
+      return (a.workOrder ?? 1e9) - (b.workOrder ?? 1e9);
+    });
+    setRows(withNums);
+    setMoveTarget((t) => ({ ...t, [id]: "" }));
+    setMsg(`已移到第 ${Math.floor(target)} 號，其餘自動順延（尚未儲存，記得按「儲存」）。`);
   };
   const setWo = (id: string, v: string) => {
     const n = v.trim() === "" ? null : Number(v);
@@ -143,6 +188,7 @@ function Inner() {
         <button onClick={() => void save()} disabled={busy || locked} className="rounded-full bg-yolk-200 px-4 py-1 disabled:opacity-40">儲存</button>
         <button onClick={() => void toggleLock()} disabled={busy} className={`rounded-full px-3 py-1 ${locked ? "bg-rose-200" : "bg-sage-100"}`}>{locked ? "🔒 已鎖定（點此解除）" : "🔓 鎖定"}</button>
       </div>
+      <p className="mb-2 text-xs text-ink-faint">號碼已自動帶入（1..N，不用手動編）。要調整順序：在該筆「移到」框輸入目標號碼按「移」——例如把 76 移到 5，原本 5 之後全部自動順延；或用 ▲▼ 一格格移。改完按「儲存」。</p>
       {locked && <p className="mb-2 text-xs text-rose-600">已鎖定：Excel／牌位／寶袋使用已鎖定號碼；需先解除才能修改，新增資料排最後不重排既有號。</p>}
       {changedPrinted.length > 0 && <p className="mb-2 text-xs text-amber-700">⚠ 有 {changedPrinted.length} 筆曾列印且號碼已變更，儲存後需重新列印。</p>}
       {msg && <p className="mb-2 text-xs text-sage-700">{msg}</p>}
@@ -158,9 +204,24 @@ function Inner() {
               const realIdx = rows.findIndex((x) => x.id === r.id);
               return (
                 <tr key={r.id} className={`border-t border-cream-200 ${r.status === "CANCELLED" ? "opacity-50" : ""}`}>
-                  <td className="px-2 py-1">
+                  <td className="px-2 py-1 whitespace-nowrap">
                     <button onClick={() => move(realIdx, -1)} disabled={locked} className="px-1">▲</button>
                     <button onClick={() => move(realIdx, 1)} disabled={locked} className="px-1">▼</button>
+                    {r.status !== "CANCELLED" && (
+                      <span className="ml-1 inline-flex items-center gap-1">
+                        <span className="text-ink-faint">移到</span>
+                        <input
+                          value={moveTarget[r.id] ?? ""}
+                          onChange={(e) => setMoveTarget((t) => ({ ...t, [r.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === "Enter") moveTo(r.id, moveTarget[r.id] ?? ""); }}
+                          disabled={locked}
+                          inputMode="numeric"
+                          placeholder="第?號"
+                          className="w-14 rounded border border-cream-300 px-1 py-0.5"
+                        />
+                        <button onClick={() => moveTo(r.id, moveTarget[r.id] ?? "")} disabled={locked} className="rounded bg-sage-100 px-2 py-0.5 disabled:opacity-40">移</button>
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1 text-ink-faint">{r.registrationOrder ?? "—"}</td>
                   <td className="px-2 py-1">

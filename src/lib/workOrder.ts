@@ -75,6 +75,27 @@ export function swapWorkOrder(rows: WorkOrderRow[], id: string, targetOrder: num
   return updates;
 }
 
+/**
+ * V38 人工「移到第 N 號」（插入語意，非互換）：把某筆插到目標位置，其餘依序往後遞延、重編 1..N。
+ *
+ * 例：把 No.76 移到 No.5 → 本筆變 5，原本 5..75 各自 +1（5→6、6→7…），全類別維持連號不跳號。
+ * 這是使用者對「移動」的直覺（插入），與 swapWorkOrder（兩筆互換）不同。
+ *
+ * @param rows 同一類別、依「目前畫面順序」傳入（順序＝現況排序）。
+ * @param id   要移動的那筆。
+ * @param targetOrder 目標號碼（1 起算；超出範圍會夾到頭／尾）。
+ * 回傳全部筆的新 workOrder（1..N，方便一次寫入）。
+ */
+export function moveToPosition(rows: WorkOrderRow[], id: string, targetOrder: number): { id: string; workOrder: number }[] {
+  const idx = rows.findIndex((r) => r.id === id);
+  if (idx === -1) return renumberByCurrentSort(rows);
+  const arr = [...rows];
+  const [row] = arr.splice(idx, 1);
+  const clamped = Math.max(1, Math.min(Math.floor(targetOrder), arr.length + 1));
+  arr.splice(clamped - 1, 0, row);
+  return renumberByCurrentSort(arr);
+}
+
 /** 驗證一批 workOrder 在各類別內無重號、無 <1。 */
 export function hasNoDuplicateWorkOrders(rows: WorkOrderRow[]): boolean {
   const seen = new Map<string, Set<number>>();

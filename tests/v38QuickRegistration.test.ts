@@ -64,3 +64,43 @@ test("quick-registration API：POST 與 GET 皆有權限檢查", () => {
   const checks = src.match(/assertUniversalSalvationPermissionForOperator/g) ?? [];
   assert.ok(checks.length >= 2, "GET 與 POST 都要有權限檢查");
 });
+
+test("冤親／無緣地址：createUniversalSalvationEntry 會自動帶入（不再空白）", () => {
+  const src = read("src/lib/ritual.ts");
+  // 兩類都納入自動帶入集合
+  assert.match(src, /AUTO_ADDRESS_CATS = new Set\(\["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"\]\)/);
+  // 冤親／無緣以陽上人姓名在本戶找有地址的成員帶入
+  assert.match(src, /input\.category === "DEBT_CREDITOR" \|\| input\.category === "UNBORN_CHILD"/);
+  assert.match(src, /name: yName, deletedAt: null, address: \{ not: null \}/);
+  // linked member 的 select 有帶 address（修正舊版永遠 undefined 的漏洞）
+  assert.match(src, /select: \{ id: true, householdId: true, address: true \}/);
+});
+
+test("回填工具：冤親／無緣空白地址（陽上人個人地址→家戶地址）", () => {
+  const src = read("src/lib/backfillCreditorUnbornAddress.ts");
+  assert.ok(src.includes('category: { in: ["DEBT_CREDITOR", "UNBORN_CHILD"] }'), "只處理冤親／無緣");
+  assert.ok(src.includes("!norm(e.tabletAddress)"), "只補目前空白者");
+  const route = read("src/app/api/admin/universal-salvation/maintenance/route.ts");
+  assert.ok(route.includes('"backfill-creditor-unborn-address"'), "維護 API 有掛這個動作");
+});
+
+test("冤親／無緣重複牌位清理：走安全流程 removeRegisteredItem", () => {
+  const src = read("src/lib/dedupCreditorUnbornTablets.ts");
+  assert.ok(src.includes("removeRegisteredItem"), "用既有安全流程取消（含軟刪牌位、擋已收款／已列印）");
+  assert.ok(src.includes('category: { in: ["DEBT_CREDITOR", "UNBORN_CHILD"] }'), "只清冤親／無緣");
+});
+
+test("作業編號『移到第 N 號』＝插入語意（其餘順延、連號重編）", async () => {
+  const { moveToPosition } = await import("../src/lib/workOrder");
+  const rows = ["a", "b", "c", "d", "e"].map((id, i) => ({ id, categoryKey: "K", workOrder: i + 1 }));
+  // 把最後一筆 e（第 5 號）移到第 2 號。
+  const out = moveToPosition(rows, "e", 2);
+  const byId = new Map(out.map((o) => [o.id, o.workOrder]));
+  assert.equal(byId.get("a"), 1, "a 維持 1");
+  assert.equal(byId.get("e"), 2, "e 變成 2");
+  assert.equal(byId.get("b"), 3, "原本 2（b）順延成 3");
+  assert.equal(byId.get("c"), 4, "原本 3（c）順延成 4");
+  assert.equal(byId.get("d"), 5, "原本 4（d）順延成 5");
+  // 全體連號 1..N、不重複。
+  assert.deepEqual([...byId.values()].sort((x, y) => x - y), [1, 2, 3, 4, 5]);
+});

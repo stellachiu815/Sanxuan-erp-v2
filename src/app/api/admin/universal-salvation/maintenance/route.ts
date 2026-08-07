@@ -5,6 +5,8 @@ import { readOperatorUserId } from "@/lib/requestOperator";
 import { cleanupWorshipDuplicates } from "@/lib/cleanupWorshipDuplicates";
 import { alignHouseholdAddress } from "@/lib/alignHouseholdAddress";
 import { backfillEntryAddress } from "@/lib/backfillEntryAddress";
+import { backfillCreditorUnbornAddress } from "@/lib/backfillCreditorUnbornAddress";
+import { dedupCreditorUnbornTablets } from "@/lib/dedupCreditorUnbornTablets";
 import { checkImportMerges } from "@/lib/checkImportMerges";
 import { auditTabletAddresses } from "@/lib/auditTabletAddresses";
 import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
@@ -40,6 +42,14 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "backfill-address") {
       const report = await backfillEntryAddress(year, { commit });
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "backfill-creditor-unborn-address") {
+      const report = await backfillCreditorUnbornAddress(year, { commit });
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "dedup-creditor-unborn") {
+      const report = await dedupCreditorUnbornTablets(year, { commit, operatorName: check.operator.name });
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "import-merge-check") {

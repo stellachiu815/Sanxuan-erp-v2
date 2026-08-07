@@ -632,20 +632,15 @@ export async function createUniversalSalvationEntry(
   const nextSortOrder =
     sameCategory.length > 0 ? Math.max(...sameCategory.map((e) => e.sortOrder)) + 1 : 1;
 
-  // V15R3（安全地址來源）：祖先／乙位正魂新增未帶牌位地址時自動帶入，但**只能用這一筆
-  // 自己的來源**——新建沒有「同一筆既有 entry」可參考，故僅：本次輸入 → 本家戶
-  // Household.address → 留空（顯示「缺牌位地址」）。**絕不**拿同一次報名其他牌位的地址
-  // （同 ritualRecord 可能有多筆不同祖先／正魂），也不跨家戶。冤親／無緣子女不自動帶。
-  const AUTO_ADDRESS_CATS = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL"]);
+  // V15R3／V38（安全地址來源）：牌位未帶地址時自動帶入，只用「這一筆自己的來源」，
+  //   不跨牌位、不跨戶。優先序（resolveTabletAddress）：本次輸入 → 信眾個人地址 → 家戶地址。
+  //   ‑ 祖先／乙位正魂：信眾個人地址（linked member）→ 家戶地址。
+  //   ‑ 冤親／無緣子女（V38 修正）：**陽上人個人地址** → 報名人（linked member）個人地址 → 家戶地址。
+  //     （舊版把這兩類排除在自動帶入外，導致手動報名的冤親／無緣牌位地址一片空白。）
+  const AUTO_ADDRESS_CATS = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL", "DEBT_CREDITOR", "UNBORN_CHILD"]);
   let resolvedTabletAddress = input.tabletAddress ?? null;
   if ((resolvedTabletAddress == null || resolvedTabletAddress.trim() === "") && AUTO_ADDRESS_CATS.has(input.category)) {
     const hh = await client.household.findUnique({ where: { id: householdId }, select: { address: true } });
-    /**
-     * V25：牌位地址帶入順序＝本次輸入 → **信眾個人地址（Member.address）** → 家戶地址。
-     * 個人往生者（乙位正魂）與某位成員綁定（worshipRecordId → memberId，或 linkedItemMemberId），
-     * 故先取該成員的個人地址；歷代祖先為家戶層級、無單一成員，devoteeAddress 保持 null。
-     * 取到的值只作為**建立當下**的預設，寫入後即為 tabletAddress 快照，不再變動。
-     */
     let devoteeAddress: string | null = null;
     let linkedMemberId: string | null = input.linkedItemMemberId ?? null;
     if (!linkedMemberId && input.worshipRecordId) {
@@ -653,19 +648,31 @@ export async function createUniversalSalvationEntry(
       linkedMemberId = wr?.memberId ?? null;
     }
     if (linkedMemberId) {
-      const m = await client.member.findUnique({ where: { id: linkedMemberId }, select: { id: true, householdId: true } });
-      // V36.12：只採「同一家戶」信眾的地址快照。跨戶 linked member（例：他戶報名人、家戶合併搬移後的成員）
-      //   的地址**不得**寫入本牌位 tabletAddress——否則同一報名人底下的多筆乙位正魂會一起被凍結成別戶地址。
-      devoteeAddress = m && m.householdId === householdId
-        ? ((m as unknown as { address: string | null }).address ?? null)
-        : null;
+      // V38 修正：這裡原本沒 select address，導致 m.address 永遠 undefined、個人地址帶入形同失效。
+      const m = await client.member.findUnique({ where: { id: linkedMemberId }, select: { id: true, householdId: true, address: true } });
+      // V36.12：只採「同一家戶」信眾的地址快照，不跨戶。
+      devoteeAddress = m && m.householdId === householdId ? (m.address ?? null) : null;
+    }
+    // V38：冤親／無緣＝陽上人個人地址。若無 linked member 地址，以陽上人[0] 姓名在本戶找「有地址」的成員帶入。
+    if (
+      (devoteeAddress == null || devoteeAddress.trim() === "") &&
+      (input.category === "DEBT_CREDITOR" || input.category === "UNBORN_CHILD")
+    ) {
+      const yName = ((input.yangshangNames && input.yangshangNames[0]) || input.yangshangName || "").trim();
+      if (yName) {
+        const ym = await client.member.findFirst({
+          where: { householdId, name: yName, deletedAt: null, address: { not: null } },
+          select: { address: true },
+        });
+        devoteeAddress = ym?.address ?? null;
+      }
     }
     resolvedTabletAddress = resolveTabletAddress({
       inputAddress: input.tabletAddress,
       sameEntryAddress: null, // 新建沒有同一筆既有 entry
       dedicatedTabletAddress: null, // 現行 schema 無牌位專用地址欄
       householdAddress: hh?.address ?? null,
-      devoteeAddress, // V25：信眾個人地址（Member.address）優先於家戶地址
+      devoteeAddress, // V25：信眾個人地址（V38 起冤親／無緣為陽上人個人地址）優先於家戶地址
     });
   }
 

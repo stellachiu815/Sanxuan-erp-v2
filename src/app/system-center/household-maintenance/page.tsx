@@ -32,6 +32,7 @@ function Inner() {
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
       <AddressAudit />
+      <BackfillCreditorUnborn />
       <WorshipDedup />
       <BackfillAddress />
       <MergeCheck />
@@ -292,6 +293,44 @@ function WorshipDedup() {
             </button>
           )}
           {!committed && report.duplicateGroups === 0 && <p className="mt-2 text-emerald-700">✅ 沒有發現重複的永久牌位，很乾淨。</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type CreditorUnbornChange = { entryId: string; householdId: string; category: string; displayName: string; yangshang: string | null; newAddress: string; source: string };
+
+function BackfillCreditorUnborn() {
+  const { report, committed, busy, error, run } = useTool("backfill-creditor-unborn-address");
+  const changes: CreditorUnbornChange[] = report?.changes ?? [];
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">冤親／無緣 空白地址回填</h2>
+      <p className="mt-1 text-sm text-ink-soft">把本年度<b>冤親（累世冤親債主）／無緣子女／地基主</b>目前<b>空白</b>的牌位地址一次補上（例：許佩瑜冤親、馮是嘉無緣）。來源＝<b>陽上人個人地址 → 家戶地址</b>。不用刪掉重報；只補空白、不動已有地址、不動收款。</p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（不寫入）"}</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">目前空白 {report.totalBlank} 張｜{committed ? "已補上" : "可補上"} {changes.length} 張｜仍無來源 {report.stillBlank} 張</p>
+          <ul className="mt-2 max-h-72 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
+            {changes.slice(0, 300).map((c) => (
+              <li key={c.entryId} className="rounded bg-cream-50 px-2 py-1">
+                {c.householdId}・{c.category === "DEBT_CREDITOR" ? "冤親" : "無緣/地基主"}｜陽上人：{c.yangshang || "（空）"} → <b>{c.newAddress}</b>　<span className="text-ink-faint">（{c.source}）</span>
+              </li>
+            ))}
+          </ul>
+          {!committed && changes.length > 0 && (
+            <button type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`確定回填 ${changes.length} 張冤親／無緣牌位的地址？只補空白，可再預覽確認。`)) run(true); }}
+              style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+              className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
+              {busy ? "回填中…" : `2) 確認回填（${changes.length} 張）`}
+            </button>
+          )}
+          {changes.length === 0 && !error && <p className="mt-2 text-emerald-700">✅ 沒有空白的冤親／無緣地址（或都已補齊）。</p>}
         </div>
       )}
     </section>
