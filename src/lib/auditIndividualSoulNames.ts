@@ -101,7 +101,12 @@ export async function convertSoulToAncestor(
       data: { category: "ANCESTOR_LINE", displayName: normalizeRitualNameForStore("ANCESTOR_LINE", entry.displayName) },
     });
     if (entry.registrationItem && ancType) {
-      await tx.ritualRegistrationItem.update({ where: { id: entry.registrationItem.id }, data: { registrationItemTypeId: ancType.id } });
+      // 改成歷代祖先計價項目時，一併清掉 registrationOrder／workOrder，避免撞到
+      //   唯一鍵 (templeEventId, registrationItemTypeId, registrationOrder)。用 raw SQL（sandbox 無 typed 欄位）。
+      await tx.$executeRawUnsafe(
+        `UPDATE "ritual_registration_items" SET "registrationItemTypeId"=$1, "registrationOrder"=NULL, "workOrder"=NULL, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$2`,
+        ancType.id, entry.registrationItem.id
+      );
     }
   });
   return { ok: true };

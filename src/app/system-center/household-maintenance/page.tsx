@@ -307,35 +307,42 @@ type CreditorUnbornChange = { entryId: string; householdId: string; category: st
 
 type PurgeRow = { ritualRecordId: string; householdId: string; householdName: string | null; year: number; eligible: boolean; blocker: string | null; removed?: boolean };
 
-type BatchConfirmRow = { ritualRecordId: string; householdId: string; householdName: string | null; canConfirm: boolean; reason: string | null; confirmed?: boolean };
+type BatchConfirmRow = { ritualRecordId: string; householdId: string; householdName: string | null; summary: string; participantCount: number; willAddParticipant: string | null; canConfirm: boolean; reason: string | null; confirmed?: boolean };
 
 function BatchConfirmUs() {
   const { report, committed, busy, error, run } = useTool("batch-confirm-us");
   const rows: BatchConfirmRow[] = report?.rows ?? [];
-  const blocked = rows.filter((r) => !r.canConfirm);
   return (
     <section className="rounded-2xl bg-white/70 p-5 shadow-card">
       <h2 className="text-base font-medium text-ink">一鍵批次確認（草稿→正式）</h2>
-      <p className="mt-1 text-sm text-ink-soft">把本年度「<b>有內容但還停在草稿</b>」的普渡報名一次確認轉正式。只確認「有牌位或白米／贊普等任一項目＋有報名成員」的；缺內容的會略過並說明。已收款／已列印不影響。<b>核對好手寫本後再按確認。</b></p>
+      <p className="mt-1 text-sm text-ink-soft">把本年度「<b>有內容但還停在草稿</b>」的普渡報名一次確認轉正式。下面會列出<b>每一筆的報名內容明細</b>供核對。缺報名成員的會<b>自動帶入戶長</b>當報名成員（明細會標示）。已收款／已列印不影響。<b>核對好手寫本後再按確認。</b></p>
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽（看有幾筆可確認）"}</button>
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "計算中…" : "1) 預覽明細（看每一筆內容）"}</button>
       </div>
       {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
       {report && (
         <div className="mt-3 text-sm">
-          <p className="text-ink">草稿共 {report.totalDraft} 筆｜{committed ? `已確認 ${report.confirmed}` : `可確認 ${report.confirmable}`} 筆｜略過（缺內容）{blocked.length} 筆</p>
-          {blocked.length > 0 && (
-            <ul className="mt-2 max-h-48 overflow-auto text-xs text-ink-soft flex flex-col gap-1">
-              {blocked.slice(0, 200).map((r) => (
-                <li key={r.ritualRecordId} className="rounded bg-blossom-50 px-2 py-1">
-                  {r.householdId}{r.householdName ? `（${r.householdName}）` : ""}｜<span className="text-blossom-500">略過：{r.reason}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <p className="text-ink">草稿共 {report.totalDraft} 筆｜{committed ? `已確認 ${report.confirmed}` : `可確認 ${report.confirmable}`} 筆｜略過 {rows.length - report.confirmable} 筆</p>
+          <ul className="mt-2 max-h-96 overflow-auto text-xs flex flex-col gap-1">
+            {rows.slice(0, 400).map((r) => (
+              <li key={r.ritualRecordId} className={`rounded px-2 py-1.5 ${r.canConfirm ? "bg-cream-50" : "bg-blossom-50"}`}>
+                <div>
+                  <a href={`/household/${r.householdId}`} className="text-blossom-500 underline">{r.householdId}</a>
+                  <span className="text-ink">{r.householdName ? `（${r.householdName}）` : ""}</span>
+                  <span className="text-ink-soft"> ｜ {r.summary}</span>
+                </div>
+                <div className="mt-0.5 text-ink-faint">
+                  報名成員：{r.participantCount} 位
+                  {r.willAddParticipant && <span className="text-emerald-700">（確認時自動帶入戶長「{r.willAddParticipant}」）</span>}
+                  {r.confirmed && <span className="text-emerald-700"> ｜✅ 已確認</span>}
+                  {!r.canConfirm && <span className="text-blossom-500"> ｜略過：{r.reason}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
           {!committed && report.confirmable > 0 && (
             <button type="button" disabled={busy}
-              onClick={() => { if (window.confirm(`確定把 ${report.confirmable} 筆有效草稿一次確認轉正式？（已核對手寫本）`)) run(true); }}
+              onClick={() => { if (window.confirm(`確定把 ${report.confirmable} 筆有效草稿一次確認轉正式？（缺成員者自動帶入戶長；已核對手寫本）`)) run(true); }}
               style={{ backgroundColor: "#c0392b", color: "#fff", opacity: busy ? 0.5 : 1 }}
               className="mt-3 rounded-full px-5 py-2 text-sm font-semibold">
               {busy ? "確認中…" : `2) 確認轉正式（${report.confirmable} 筆）`}

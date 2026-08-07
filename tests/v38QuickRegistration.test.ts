@@ -229,13 +229,20 @@ test("公開報名 raw INSERT 明確帶 updatedAt（避免 23502 NOT NULL）", (
   assert.ok(src.includes('"submitterHash","createdAt","updatedAt") VALUES ($1,$2,\'PENDING\',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'), "registration INSERT 帶 updatedAt");
 });
 
-test("一鍵批次確認草稿→正式（只確認有內容的、含 DRAFT）", () => {
+test("一鍵批次確認草稿→正式（明細＋缺成員自動帶戶長）", () => {
   const src = read("src/lib/batchConfirmUniversalSalvation.ts");
   assert.ok(src.includes('status: "DRAFT"'), "只找草稿");
-  assert.ok(src.includes("validateForConfirm") && src.includes("confirmRegistration"), "重用確認驗證＋確認流程");
+  assert.ok(src.includes("confirmRegistration"), "走確認流程");
+  assert.ok(src.includes("upsertParticipantsInTransaction"), "缺報名成員時自動帶入戶長");
+  assert.ok(src.includes("summary"), "回傳報名內容明細");
   assert.ok(src.includes("household: { deletedAt: null }"), "排除已封存家戶");
   const route = read("src/app/api/admin/universal-salvation/maintenance/route.ts");
   assert.ok(route.includes('"batch-confirm-us"'), "維護 API 有掛批次確認");
+});
+
+test("乙位正魂轉歷代祖先：清 registrationOrder 避免唯一鍵衝突", () => {
+  const src = read("src/lib/auditIndividualSoulNames.ts");
+  assert.ok(src.includes('"registrationOrder"=NULL'), "改類型時清 registrationOrder，避開 unique 衝突");
 });
 
 test("現場快速報名防呆：與剛送出相同內容先確認", () => {
