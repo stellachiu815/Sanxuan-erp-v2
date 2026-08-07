@@ -35,6 +35,9 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
   const [sponsorName, setSponsorName] = useState("");
   const [donation, setDonation] = useState("");
   const [donationName, setDonationName] = useState("");
+  const [pocketQty, setPocketQty] = useState("");
+  const [masterName, setMasterName] = useState("");
+  const [masterAmount, setMasterAmount] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +51,10 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
     const rice = Number(riceKg) > 0 ? Number(riceKg) * p.ricePerJin : 0;
     const sponsor = Number(sponsorQty) > 0 ? Math.floor(Number(sponsorQty)) * p.sponsorPerUnit : 0;
     const don = Number(donation) > 0 ? Math.round(Number(donation)) : 0;
-    return tabletCount * p.tablet + rice + sponsor + don;
-  }, [tabletCount, riceKg, sponsorQty, donation, p]);
+    const pocket = Number(pocketQty) > 0 ? Math.floor(Number(pocketQty)) * p.pocket : 0;
+    const master = Number(masterAmount) > 0 ? Math.round(Number(masterAmount)) : 0;
+    return tabletCount * p.tablet + rice + sponsor + don + pocket + master;
+  }, [tabletCount, riceKg, sponsorQty, donation, pocketQty, masterAmount, p]);
 
   function addAncestor() { setAncestors((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
   function addSoul() { setSouls((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
@@ -57,8 +62,11 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
 
   async function submit() {
     if (!name.trim()) { setError("請填寫報名人姓名"); return; }
-    if (tabletCount === 0 && Number(riceKg) <= 0 && Number(sponsorQty) <= 0 && Number(donation) <= 0) {
+    if (tabletCount === 0 && Number(riceKg) <= 0 && Number(sponsorQty) <= 0 && Number(donation) <= 0 && Number(pocketQty) <= 0 && !masterName.trim()) {
       setError("請至少選一項要報名的項目"); return;
+    }
+    if (Number(pocketQty) > 0 && tabletCount === 0) {
+      setError("寶袋需搭配至少一張牌位（祖先／正魂／冤親／無緣），請先報一張牌位"); return;
     }
     setBusy(true); setError(null);
     const payload = {
@@ -73,6 +81,9 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
       sponsorName: sponsorName.trim() || null,
       donationAmount: Number(donation) > 0 ? Math.round(Number(donation)) : null,
       donationName: donationName.trim() || null,
+      pocketQty: Number(pocketQty) > 0 ? Math.floor(Number(pocketQty)) : null,
+      masterName: masterName.trim() || null,
+      masterAmount: Number(masterAmount) > 0 ? Math.round(Number(masterAmount)) : null,
     };
     try {
       const res = await fetch(`/api/public-reg/${encodeURIComponent(form.slug)}/submit`, {
@@ -184,6 +195,17 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
           <label className="flex flex-col gap-1"><span className="text-sm text-ink">大額贊普（金額自填）</span>
             <input value={donation} onChange={(e) => setDonation(e.target.value)} inputMode="numeric" placeholder="0" className={input} /></label>
           {Number(donation) > 0 && <input value={donationName} onChange={(e) => setDonationName(e.target.value)} placeholder="大額贊普認購人名稱（可填公司名，留空＝報名人）" className={input} />}
+          <label className="flex flex-col gap-1"><span className="text-sm text-ink">寶袋（份）<span className="text-ink-faint">　每份 ${p.pocket}（需搭配牌位）</span></span>
+            <input value={pocketQty} onChange={(e) => setPocketQty(e.target.value)} inputMode="numeric" placeholder="0" className={input} /></label>
+        </div>
+      </section>
+
+      <section className={card}>
+        <h2 className="text-base font-medium text-ink">③ 供師（選填）</h2>
+        <p className="mt-1 text-xs text-ink-faint">金額自填，到宮裡繳納。</p>
+        <div className="mt-2 flex flex-col gap-2">
+          <input value={masterName} onChange={(e) => setMasterName(e.target.value)} placeholder="供師姓名（留空＝不報供師）" className={input} />
+          {masterName.trim() && <input value={masterAmount} onChange={(e) => setMasterAmount(e.target.value)} inputMode="numeric" placeholder="供師金額（自填）" className={input} />}
         </div>
       </section>
 

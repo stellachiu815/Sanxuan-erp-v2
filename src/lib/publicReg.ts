@@ -17,10 +17,11 @@ import type { Role } from "@/lib/permissions";
  */
 
 export type PublicRegFieldKey = "phone" | "address" | "birthday";
-export type PublicFormPrices = { tablet: number; ricePerJin: number; sponsorPerUnit: number };
+export type PublicFormPrices = { tablet: number; ricePerJin: number; sponsorPerUnit: number; pocket: number };
 export type PublicFormConfig = { fields: PublicRegFieldKey[]; prices: PublicFormPrices };
 
-export const DEFAULT_PRICES: PublicFormPrices = { tablet: 2500, ricePerJin: 32, sponsorPerUnit: 800 };
+// V38：寶袋單價可編輯，今年（115）預設 300／份；每年可在後台改。
+export const DEFAULT_PRICES: PublicFormPrices = { tablet: 2500, ricePerJin: 32, sponsorPerUnit: 800, pocket: 300 };
 
 export type PublicFormView = {
   id: string;
@@ -47,6 +48,11 @@ export type PublicPayload = {
   sponsorName?: string | null;
   donationAmount?: number | null;
   donationName?: string | null;
+  /** V38：整戶寶袋份數。 */
+  pocketQty?: number | null;
+  /** V38：供師（不進財務）姓名＋金額（自填）。 */
+  masterName?: string | null;
+  masterAmount?: number | null;
 };
 
 function normConfig(raw: unknown): PublicFormConfig {
@@ -62,6 +68,7 @@ function normConfig(raw: unknown): PublicFormConfig {
       tablet: num(p.tablet, DEFAULT_PRICES.tablet),
       ricePerJin: num(p.ricePerJin, DEFAULT_PRICES.ricePerJin),
       sponsorPerUnit: num(p.sponsorPerUnit, DEFAULT_PRICES.sponsorPerUnit),
+      pocket: num(p.pocket, DEFAULT_PRICES.pocket),
     },
   };
 }
@@ -167,7 +174,8 @@ export async function submitPublicRegistration(
     (payload.souls ?? []).some((a) => s(a.displayName)) ||
     payload.creditor ||
     (payload.unborn ?? []).length > 0 ||
-    Number(payload.riceKg) > 0 || Number(payload.sponsorQty) > 0 || Number(payload.donationAmount) > 0;
+    Number(payload.riceKg) > 0 || Number(payload.sponsorQty) > 0 || Number(payload.donationAmount) > 0 ||
+    Number(payload.pocketQty) > 0 || !!s(payload.masterName);
   if (!anySelected) return { ok: false, status: 400, error: "請至少選擇一項要報名的項目" };
 
   // 防重複送出：同一 form＋同 submitterHash，最近 30 秒內已送過 → 擋（避免連點重送）。
@@ -248,10 +256,23 @@ export async function confirmPublicRegistration(
     sponsorName: s(payload.sponsorName),
     donationAmount: Number(payload.donationAmount) > 0 ? Math.round(Number(payload.donationAmount)) : null,
     donationName: s(payload.donationName),
+    pocketQty: Number(payload.pocketQty) > 0 ? Math.floor(Number(payload.pocketQty)) : null,
     confirm: true,
   };
   const res = await quickRegister(input, operator);
   if (!res.ok) return { ok: false, status: res.status, error: res.error };
+
+  // V38 供師（不進財務）：若公開填了供師姓名，轉正式時一併登入供師名單。
+  const masterName = s(payload.masterName);
+  if (masterName) {
+    const ev = await eventInfo(rec.templeEventId);
+    if (ev.year != null) {
+      try {
+        const { addMasterOffering } = await import("@/lib/masterOffering");
+        await addMasterOffering({ year: ev.year, name: masterName, amount: Number(payload.masterAmount) || 0, operatorName: operator.name });
+      } catch { /* 供師另存失敗不影響主報名 */ }
+    }
+  }
 
   await prisma.$executeRawUnsafe(
     `UPDATE "public_registrations" SET "status"='CONFIRMED', "confirmedAt"=CURRENT_TIMESTAMP, "confirmedByName"=$1, "note"=$2, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$3`,

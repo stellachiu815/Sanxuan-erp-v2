@@ -31,6 +31,7 @@ function Inner() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
+      <DevoteeExport />
       <BatchConfirmUs />
       <SponsorAudit />
       <ClearAllRice />
@@ -45,6 +46,7 @@ function Inner() {
       <HouseholdAddress />
       <ArchiveHouseholds />
       <PublicRegInit />
+      <MasterOfferingInit />
     </main>
   );
 }
@@ -154,6 +156,47 @@ function PublicRegInit() {
         <p className="mt-2 text-sm">{report.ok
           ? <span className="text-emerald-700">✅ 完成：兩張表已就緒（public_reg_forms、public_registrations）。{report.created ? "（本次新建）" : "（原本就有，未重複建立）"}</span>
           : <span className="text-blossom-500">⚠️ 尚未完成：{report.error ?? "請再試一次或回報我"}</span>}</p>
+      )}
+    </section>
+  );
+}
+
+function DevoteeExport() {
+  const [year, setYear] = useState(new Date().getFullYear() - 1911);
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">信眾資料匯出（Excel）</h2>
+      <p className="mt-1 text-sm text-ink-soft">匯出<b>全部信眾</b>：以戶為單位、每位成員一列，含祭祀資料（<b>永久供奉牌位</b>與<b>當年度普渡報名</b>）。當年度普渡報名的年度用下面這個。</p>
+      <div className="mt-3 flex items-center gap-2">
+        <span className="text-sm text-ink-soft">普渡年度</span>
+        <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value) || year)}
+          className="w-24 rounded-full border border-mist-200 bg-white px-3 py-1.5 text-sm text-ink" />
+        <a href={`/api/devotee-export?year=${year}`}
+          className="rounded-full bg-ink px-5 py-2 text-sm font-semibold text-white">下載 Excel</a>
+      </div>
+    </section>
+  );
+}
+
+function MasterOfferingInit() {
+  const { report, committed, busy, error, run } = useTool("init-master-offering-table");
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">供師活動 · 建立資料表</h2>
+      <p className="mt-1 text-sm text-ink-soft">按一下建立「供師」名單要用的<b>全新資料表</b>（純新增、不影響現有資料、可重複按）。供師是普渡底下一份<b>不進財務</b>的名單（姓名＋金額＋繳費打勾）。建好後才能在報名頁與供師名單頁使用。</p>
+      <div className="mt-3">
+        <button type="button" disabled={busy}
+          onClick={() => { if (window.confirm("建立『供師』資料表？（只新增、不影響現有資料）")) run(true); }}
+          style={{ backgroundColor: "#2f7d5b", color: "#fff", opacity: busy ? 0.5 : 1 }}
+          className="rounded-full px-5 py-2 text-sm font-semibold">
+          {busy ? "建立中…" : "建立供師資料表"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && committed && (
+        <p className="mt-2 text-sm">{report.ok
+          ? <span className="text-emerald-700">✅ 完成：供師資料表已就緒。{report.created ? "（本次新建）" : "（原本就有）"}</span>
+          : <span className="text-blossom-500">⚠️ 尚未完成：{report.error ?? "請再試一次"}</span>}</p>
       )}
     </section>
   );

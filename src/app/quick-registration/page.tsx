@@ -59,6 +59,8 @@ function Inner() {
   const [unborn, setUnborn] = useState<UnbornRow[]>([]);
   const [riceKg, setRiceKg] = useState("");
   const [riceName, setRiceName] = useState("");
+  const [masterName, setMasterName] = useState("");
+  const [masterAmount, setMasterAmount] = useState("");
   const [sponsorQty, setSponsorQty] = useState("");
   const [sponsorName, setSponsorName] = useState("");
   const [donation, setDonation] = useState("");
@@ -168,6 +170,17 @@ function Inner() {
       const data = await res.json();
       if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
       setResult(data); setLastSig(sig);
+      // 供師（不進財務）：主報名成立後，若有填供師姓名就另存一筆到供師名單。
+      if (masterName.trim()) {
+        const yr = activities.find((a) => a.templeEventId === templeEventId)?.year;
+        try {
+          await fetchRegistration("/api/master-offering", {
+            method: "POST",
+            body: JSON.stringify({ year: yr, name: masterName.trim(), amount: Number(masterAmount) || 0, householdId: data?.householdId ?? null }),
+          });
+          setMasterName(""); setMasterAmount("");
+        } catch { /* 供師另存失敗不影響主報名；可到供師名單頁補登 */ }
+      }
     } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
   }
 
@@ -175,7 +188,7 @@ function Inner() {
     setName(""); setAddress(""); setExisting(null); setHits([]);
     setBirthdayType(""); setSolarDate(""); setLunarY(""); setLunarM(""); setLunarD(""); setLunarLeap(false);
     setAncestors([]); setSouls([]); setCreditor(false); setCreditorYang(""); setUnborn([]);
-    setRiceKg(""); setRiceName(""); setSponsorQty(""); setSponsorName(""); setDonation(""); setDonationName(""); setResult(null); setError(null); setLastSig(null);
+    setRiceKg(""); setRiceName(""); setSponsorQty(""); setSponsorName(""); setDonation(""); setDonationName(""); setMasterName(""); setMasterAmount(""); setResult(null); setError(null); setLastSig(null);
   }
 
   return (
@@ -358,6 +371,14 @@ function Inner() {
             <input value={donation} onChange={(e) => setDonation(e.target.value)} inputMode="numeric" placeholder="0" className={inputCls} /></label>
           <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">大額贊普認購人（可填公司名，留空＝報名人）</span>
             <input value={donationName} onChange={(e) => setDonationName(e.target.value)} placeholder="留空＝報名人姓名" className={inputCls} /></label>
+        </div>
+
+        {/* 供師（不進財務；金額自填、繳費之後在供師名單頁勾） */}
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">供師姓名（不進財務，選填）</span>
+            <input value={masterName} onChange={(e) => setMasterName(e.target.value)} placeholder="留空＝不報供師" className={inputCls} /></label>
+          <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">供師金額（自填）</span>
+            <input value={masterAmount} onChange={(e) => setMasterAmount(e.target.value)} inputMode="numeric" placeholder="0" className={inputCls} /></label>
         </div>
       </section>
 

@@ -67,6 +67,7 @@ async function handlePost(body: Record<string, unknown>, operator: { id: string;
           tablet: num(pr.tablet, DEFAULT_PRICES.tablet),
           ricePerJin: num(pr.ricePerJin, DEFAULT_PRICES.ricePerJin),
           sponsorPerUnit: num(pr.sponsorPerUnit, DEFAULT_PRICES.sponsorPerUnit),
+          pocket: num(pr.pocket, DEFAULT_PRICES.pocket),
         },
       },
       headerNote: typeof body.headerNote === "string" ? body.headerNote : null,

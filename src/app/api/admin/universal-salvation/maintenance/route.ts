@@ -17,6 +17,7 @@ import { ensurePublicRegTables } from "@/lib/ensurePublicRegTables";
 import { archiveHouseholdsByCode } from "@/lib/archiveHouseholdsByCode";
 import { auditSponsorItems, restoreSponsorItem } from "@/lib/sponsorAudit";
 import { clearAllRice } from "@/lib/whiteRiceService";
+import { ensureMasterOfferingTable } from "@/lib/ensureMasterOfferingTable";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -112,6 +113,10 @@ export async function POST(request: NextRequest) {
     if (body?.action === "clear-all-rice") {
       const report = await clearAllRice(year, { commit, operatorName: check.operator.name });
       return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "init-master-offering-table") {
+      const report = await ensureMasterOfferingTable();
+      return NextResponse.json({ ok: report.ok, report });
     }
     return NextResponse.json({ error: "未知的整理動作" }, { status: 400 });
   } catch (e) {

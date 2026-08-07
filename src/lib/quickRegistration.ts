@@ -76,6 +76,8 @@ export type QuickRegInput = {
   riceKg?: number | null;
   /** 白米認購人名稱（可填公司名；留空＝用報名人姓名）。 */
   riceName?: string | null;
+  /** 整戶寶袋份數（公開頁「增加寶袋」；掛在最後一張牌位下）。 */
+  pocketQty?: number | null;
   /** 贊普數量（固定價）。 */
   sponsorQty?: number | null;
   /** 贊普認購人名稱（可填公司名；留空＝用報名人姓名）。 */
@@ -313,6 +315,25 @@ export async function quickRegister(
     }
   } catch (e) {
     return { ok: false, status: 500, error: `建立牌位時發生錯誤：${(e as Error).message}` };
+  }
+
+  // ── 4c. 整戶寶袋（公開頁「增加寶袋」用）：掛在剛建立的最後一張牌位下（份數沿用牌位名稱）。 ──
+  const topPocketQty = Math.floor(Number(input.pocketQty ?? 0));
+  if (topPocketQty > 0) {
+    const anyEntry = await prisma.universalSalvationEntry.findFirst({
+      where: { universalSalvation: { ritualRecordId }, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (anyEntry) {
+      const p = await createAdditionalPrintItem(
+        householdId, year, anyEntry.id,
+        { itemType: "POCKET", usesSourceName: true, quantity: topPocketQty, isExtra: true, isChargeable: true },
+        operator.name
+      );
+      if (!p.ok) return { ok: false, status: 500, error: `增加寶袋：${p.error}` };
+    }
+    // 沒有任何牌位時略過（寶袋需掛在牌位下）；公開頁會提示需先報一張牌位。
   }
 
   // ── 5. 白米 ──

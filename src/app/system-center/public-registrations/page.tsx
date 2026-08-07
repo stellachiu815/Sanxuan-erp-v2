@@ -10,7 +10,7 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  */
 
 type Activity = { templeEventId: string; year: number; name: string; canRegister: boolean };
-type FormView = { id: string; slug: string; templeEventId: string; year: number | null; activityName: string; isOpen: boolean; headerNote: string | null; config: { fields: string[]; prices: { tablet: number; ricePerJin: number; sponsorPerUnit: number } } };
+type FormView = { id: string; slug: string; templeEventId: string; year: number | null; activityName: string; isOpen: boolean; headerNote: string | null; config: { fields: string[]; prices: { tablet: number; ricePerJin: number; sponsorPerUnit: number; pocket: number } } };
 type RegRow = { id: string; status: string; createdAt: string; payload: any };
 
 export default function PublicRegAdminPage() {
@@ -32,7 +32,7 @@ function Inner() {
   const [templeEventId, setTempleEventId] = useState("");
   const [slug, setSlug] = useState("");
   const [fields, setFields] = useState<{ phone: boolean; address: boolean; birthday: boolean }>({ phone: true, address: true, birthday: false });
-  const [prices, setPrices] = useState({ tablet: "2500", ricePerJin: "32", sponsorPerUnit: "800" });
+  const [prices, setPrices] = useState({ tablet: "2500", ricePerJin: "32", sponsorPerUnit: "800", pocket: "300" });
   const [headerNote, setHeaderNote] = useState("");
   const [isOpen, setIsOpen] = useState(true);
   const [form, setForm] = useState<FormView | null>(null);
@@ -69,7 +69,7 @@ function Inner() {
         setForm(d.form);
         setSlug(d.form.slug);
         setFields({ phone: d.form.config.fields.includes("phone"), address: d.form.config.fields.includes("address"), birthday: d.form.config.fields.includes("birthday") });
-        setPrices({ tablet: String(d.form.config.prices.tablet), ricePerJin: String(d.form.config.prices.ricePerJin), sponsorPerUnit: String(d.form.config.prices.sponsorPerUnit) });
+        setPrices({ tablet: String(d.form.config.prices.tablet), ricePerJin: String(d.form.config.prices.ricePerJin), sponsorPerUnit: String(d.form.config.prices.sponsorPerUnit), pocket: String(d.form.config.prices.pocket ?? 300) });
         setHeaderNote(d.form.headerNote ?? "");
         setIsOpen(d.form.isOpen);
       } else {
@@ -109,7 +109,7 @@ function Inner() {
         body: JSON.stringify({
           action: "save-form", templeEventId, slug,
           fields: [fields.phone ? "phone" : null, fields.address ? "address" : null, fields.birthday ? "birthday" : null].filter(Boolean),
-          prices: { tablet: Number(prices.tablet), ricePerJin: Number(prices.ricePerJin), sponsorPerUnit: Number(prices.sponsorPerUnit) },
+          prices: { tablet: Number(prices.tablet), ricePerJin: Number(prices.ricePerJin), sponsorPerUnit: Number(prices.sponsorPerUnit), pocket: Number(prices.pocket) },
           headerNote: headerNote.trim() || null, isOpen,
         }),
       });
@@ -171,13 +171,15 @@ function Inner() {
               <label className="flex items-center gap-1"><input type="checkbox" checked={fields.birthday} onChange={(e) => setFields((f) => ({ ...f, birthday: e.target.checked }))} />生日</label>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">牌位每份 $</span>
               <input value={prices.tablet} onChange={(e) => setPrices((p) => ({ ...p, tablet: e.target.value }))} inputMode="numeric" className={inputCls} /></label>
             <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">白米每斤 $</span>
               <input value={prices.ricePerJin} onChange={(e) => setPrices((p) => ({ ...p, ricePerJin: e.target.value }))} inputMode="numeric" className={inputCls} /></label>
             <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">贊普每份 $</span>
               <input value={prices.sponsorPerUnit} onChange={(e) => setPrices((p) => ({ ...p, sponsorPerUnit: e.target.value }))} inputMode="numeric" className={inputCls} /></label>
+            <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">寶袋每份 $</span>
+              <input value={prices.pocket} onChange={(e) => setPrices((p) => ({ ...p, pocket: e.target.value }))} inputMode="numeric" className={inputCls} /></label>
           </div>
           <label className="flex flex-col gap-1"><span className="text-xs text-ink-soft">抬頭說明（選填，顯示給信眾）</span>
             <input value={headerNote} onChange={(e) => setHeaderNote(e.target.value)} placeholder="例：報名後請到宮裡繳費" className={inputCls} /></label>
