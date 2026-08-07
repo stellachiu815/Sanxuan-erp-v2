@@ -404,8 +404,10 @@ export default function NewActivityRegistrationDialog({ memberId, onClose, initi
                               <input
                                 type="number"
                                 min={1}
-                                value={s.quantity}
-                                onChange={(e) => patch(it.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                                inputMode="numeric"
+                                value={s.quantity === 0 ? "" : s.quantity}
+                                onChange={(e) => patch(it.id, { quantity: e.target.value === "" ? 0 : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
+                                onBlur={() => { if (!s.quantity || s.quantity < 1) patch(it.id, { quantity: 1 }); }}
                                 className="w-20 rounded-lg border border-cream-300 px-2 py-1 text-sm"
                               />
                               {it.contentKind === "RICE" && <span className="text-ink-faint">斤</span>}

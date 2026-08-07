@@ -168,6 +168,11 @@ export async function registerActivity(params: {
         },
         tx
       );
+    } else if (!record.templeEventId) {
+      // V38：既有報名（例：Excel 匯入以 createBlankUniversalSalvationRecord 建立的）可能未連結年度
+      //   活動（templeEventId 為 null）。白米認購等需要 templeEventId → 這裡開啟報名時一併補上，
+      //   讓匯入的報名也能加白米／贊普等年度連動項目。
+      record = await tx.ritualRecord.update({ where: { id: record.id }, data: { templeEventId: event.id } });
     }
 
     // ── 寫入報名成員（唯一寫入點） ──
