@@ -229,6 +229,18 @@ test("公開報名 raw INSERT 明確帶 updatedAt（避免 23502 NOT NULL）", (
   assert.ok(src.includes('"submitterHash","createdAt","updatedAt") VALUES ($1,$2,\'PENDING\',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'), "registration INSERT 帶 updatedAt");
 });
 
+test("現場快速報名防呆：與剛送出相同內容先確認", () => {
+  const src = read("src/app/quick-registration/page.tsx");
+  assert.ok(src.includes("sig === lastSig"), "相同內容比對");
+  assert.ok(src.includes("確定要再報一筆嗎"), "重複時跳確認");
+  assert.ok(src.includes("setLastSig(sig)"), "成功後記住這次的內容");
+});
+
+test("現場快速報名自動帶入當下活動（不用選）", () => {
+  const src = read("src/app/quick-registration/page.tsx");
+  assert.ok(src.includes("自動帶入目前辦理的活動"), "自動帶入當下活動、顯示唯讀");
+});
+
 test("乙位正魂一鍵轉歷代祖先（永久牌位＋本年度報名皆可）", () => {
   const src = read("src/lib/auditIndividualSoulNames.ts");
   assert.ok(src.includes("convertSoulToAncestor"), "有轉換函式");

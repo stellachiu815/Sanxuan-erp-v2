@@ -64,6 +64,7 @@ function Inner() {
   const [donationName, setDonationName] = useState("");
 
   const [confirm, setConfirm] = useState(true);
+  const [lastSig, setLastSig] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -130,7 +131,6 @@ function Inner() {
   async function submit() {
     const v = validate();
     if (v) { setError(v); return; }
-    setBusy(true); setError(null); setResult(null);
     const registrant: any = existing
       ? { existingMemberId: existing.memberId, address: address.trim() || null }
       : { name: name.trim(), address: address.trim() || null };
@@ -157,11 +157,15 @@ function Inner() {
       donationName: donationName.trim() || null,
       confirm,
     };
+    // 防呆：與「剛剛才成功送出的那一筆」內容一模一樣 → 先問，避免手滑按兩次建重複。
+    const sig = JSON.stringify({ ...body, confirm: undefined });
+    if (sig === lastSig && !window.confirm("剛剛已經送出過『一模一樣』的報名內容，確定要再報一筆嗎？")) return;
+    setBusy(true); setError(null); setResult(null);
     try {
       const res = await fetchRegistration("/api/quick-registration", { method: "POST", body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) { setError(toFriendlyError(res.status, data?.error)); return; }
-      setResult(data);
+      setResult(data); setLastSig(sig);
     } catch { setError("連線問題，請稍後再試。"); } finally { setBusy(false); }
   }
 
@@ -169,7 +173,7 @@ function Inner() {
     setName(""); setAddress(""); setExisting(null); setHits([]);
     setBirthdayType(""); setSolarDate(""); setLunarY(""); setLunarM(""); setLunarD(""); setLunarLeap(false);
     setAncestors([]); setSouls([]); setCreditor(false); setCreditorYang(""); setUnborn([]);
-    setRiceKg(""); setSponsorQty(""); setSponsorName(""); setDonation(""); setDonationName(""); setResult(null); setError(null);
+    setRiceKg(""); setSponsorQty(""); setSponsorName(""); setDonation(""); setDonationName(""); setResult(null); setError(null); setLastSig(null);
   }
 
   return (
@@ -179,17 +183,26 @@ function Inner() {
         <p className="mt-1 text-sm text-ink-soft">報名人 → 勾要報什麼 → 一鍵完成。陽上人直接打名字即可（不用先建成員）；報名成員會自動帶報名人。</p>
       </div>
 
-      {/* 活動 */}
+      {/* 活動：宮裡同時只辦一個活動，自動帶入目前辦理的那個，不用選。 */}
       <section className={card}>
-        <h2 className="text-base font-medium text-ink">活動年度</h2>
-        <select value={templeEventId} onChange={(e) => setTempleEventId(e.target.value)} className={`mt-2 w-full ${inputCls}`}>
-          <option value="">請選擇活動…</option>
-          {activities.map((a) => (
-            <option key={a.templeEventId} value={a.templeEventId}>
-              民國 {a.year} 年・{a.name}{a.canRegister ? "" : "（目前未開放報名）"}
-            </option>
-          ))}
-        </select>
+        <h2 className="text-base font-medium text-ink">活動</h2>
+        {(() => {
+          const cur = activities.find((a) => a.templeEventId === templeEventId);
+          if (cur) {
+            return <p className="mt-2 text-sm text-ink">民國 {cur.year} 年・{cur.name} <span className="text-ink-faint">（自動帶入目前辦理的活動）</span></p>;
+          }
+          if (activities.length === 0) {
+            return <p className="mt-2 text-sm text-blossom-500">目前沒有開放報名的活動，請先於「活動管理」建立／開放中元普渡活動。</p>;
+          }
+          return (
+            <select value={templeEventId} onChange={(e) => setTempleEventId(e.target.value)} className={`mt-2 w-full ${inputCls}`}>
+              <option value="">請選擇活動…</option>
+              {activities.map((a) => (
+                <option key={a.templeEventId} value={a.templeEventId}>民國 {a.year} 年・{a.name}{a.canRegister ? "" : "（未開放）"}</option>
+              ))}
+            </select>
+          );
+        })()}
       </section>
 
       {/* ① 報名人 */}
