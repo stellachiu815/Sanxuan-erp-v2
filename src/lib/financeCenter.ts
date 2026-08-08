@@ -289,6 +289,78 @@ export async function createExpense(input: CreateEntryInput): Promise<FinanceRec
   return insertFinanceRecord({ ...input, type: "EXPENSE", entryKind: "EXPENSE", direction: "OUT" });
 }
 
+/**
+ * V38 清空財務中心並重設期初（僅供初次設定／測試後重來，最高管理員）。
+ * 硬刪除**所有** FinanceRecord（含測試／系統範例），再建立乾淨的兩筆期初（銀行／現金）。
+ * ⚠️ 不影響 PaymentTransaction（活動收款）——那是另一套，不在此表。
+ */
+export async function resetFinanceCenter(input: {
+  bankOpening: number;
+  cashOpening: number;
+  openingDate?: string;
+  operator: Operator;
+}): Promise<{ deleted: number; bankId: string; cashId: string }> {
+  const date = input.openingDate ?? localTodayISO();
+  return prisma.$transaction(async (tx) => {
+    const del = financeRecordsTx(tx);
+    const txDelete = (tx as unknown as { financeRecord: { deleteMany: (args?: unknown) => Promise<{ count: number }> } }).financeRecord;
+    const { count } = await txDelete.deleteMany({});
+    const mkOpening = (account: FinanceAccountT, amount: number, label: string) =>
+      del.create({
+        data: {
+          type: "INCOME", category: label, amount: round2(Math.max(0, amount)),
+          occurredOn: parseISODate(date), description: null, status: "CONFIRMED",
+          account, entryKind: "OPENING", direction: "IN", year: rocYearOf(date),
+          isHistorical: false, createdById: input.operator.id, createdByName: input.operator.name,
+        },
+      });
+    const bank = await mkOpening("BANK", input.bankOpening, "期初餘額－銀行");
+    const cash = await mkOpening("CASH", input.cashOpening, "期初餘額－現金");
+    return { deleted: count, bankId: bank.id, cashId: cash.id };
+  });
+}
+
+/** V38 批次記帳：一次貼上多筆（現金為主）。account 預設 CASH。 */
+export type BatchFinanceRow = {
+  occurredOn: string; // YYYY-MM-DD
+  kind: "INCOME" | "EXPENSE";
+  account?: FinanceAccountT;
+  category: string;
+  amount: number;
+  description?: string | null;
+};
+
+export async function batchImportFinance(
+  rows: BatchFinanceRow[],
+  operator: Operator
+): Promise<{ created: number }> {
+  const valid = rows.filter((r) => r.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(r.occurredOn));
+  if (valid.length === 0) return { created: 0 };
+  await prisma.$transaction(async (tx) => {
+    const del = financeRecordsTx(tx);
+    for (const r of valid) {
+      await del.create({
+        data: {
+          type: r.kind,
+          category: (r.category || "其他").trim(),
+          amount: round2(r.amount),
+          occurredOn: parseISODate(r.occurredOn),
+          description: r.description?.trim() || null,
+          status: "CONFIRMED",
+          account: r.account ?? "CASH",
+          entryKind: r.kind === "INCOME" ? "INCOME" : "EXPENSE",
+          direction: r.kind === "INCOME" ? "IN" : "OUT",
+          year: rocYearOf(r.occurredOn),
+          isHistorical: false,
+          createdById: operator.id,
+          createdByName: operator.name,
+        },
+      });
+    }
+  });
+  return { created: valid.length };
+}
+
 /** 資金轉移：現金↔銀行。兩腳同一交易，不計收入/支出，只改帳戶餘額。 */
 export async function createTransfer(input: {
   fromAccount: FinanceAccountT;

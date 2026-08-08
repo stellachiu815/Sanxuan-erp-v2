@@ -80,6 +80,7 @@ function FinanceHomeInner() {
     { href: "/finance-center/reconcile", label: "✓ 盤點對帳", desc: "現金盤點／銀行對帳" },
     { href: "/finance-center/ledger", label: "☰ 流水帳", desc: "全部收支明細（不可刪除）" },
     { href: "/finance-center/reports", label: "▤ 財務報表", desc: "月／年／自訂＋PDF/Excel" },
+    { href: "/finance-center/batch", label: "⇪ 批次記帳／清空重設", desc: "整段貼上一次記多筆；初次可清空重設期初" },
   ];
 
   return (
