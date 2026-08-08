@@ -33,7 +33,10 @@ test("列印預檢在名冊 API 回傳、頁面提示並擋下列印", () => {
 
 test("列印中心首頁：各活動待列印／已列印／補印總覽", () => {
   const page = read("src/app/print-center/page.tsx");
-  assert.ok(page.includes("groupTotals"), "有各活動總覽彙總");
+  // V39：改用 /api/print-center/overview，每個活動群組各自帶對年度（普渡當年、年度燈隔年）。
+  assert.ok(page.includes("各活動列印狀態"), "有各活動總覽彙總");
+  assert.ok(page.includes("/api/print-center/overview"), "改用列印中心總覽 API（各活動各自帶對年度）");
+  assert.ok(/totals\.(pending|printed|reprinted)/.test(page), "顯示各活動待列印／已列印／補印計數");
   for (const w of ["待列印", "已列印", "補印"]) assert.ok(page.includes(w), `首頁應顯示 ${w}`);
   // 每個活動項目都可進入名冊／列印／補印（既有 roster 路由）。
   assert.ok(page.includes("/print-center/rosters/"), "可進入各項目名冊");
