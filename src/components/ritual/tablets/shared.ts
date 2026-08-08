@@ -117,12 +117,13 @@ export type TabletPageLayoutKey = "EIGHT" | "TWELVE" | "SIXTEEN" | "LAMP_5X25";
  */
 export const TABLET_PAGE_LAYOUTS: Record<
   TabletPageLayoutKey,
-  { label: string; perPage: number; cols: number; rows: number; cellWmm?: number; cellHmm?: number }
+  { label: string; perPage: number; cols: number; rows: number; cellWmm?: number; cellHmm?: number; landscape?: boolean }
 > = {
   EIGHT: { label: "A4／8 張", perPage: 8, cols: 2, rows: 4 },
   TWELVE: { label: "A4／12 張", perPage: 12, cols: 3, rows: 4 },
   SIXTEEN: { label: "A4／16 張", perPage: 16, cols: 4, rows: 4 },
-  LAMP_5X25: { label: "光明燈/太歲燈牌 5×2.5cm（密排省紙）", perPage: 33, cols: 3, rows: 11, cellWmm: 50, cellHmm: 25 },
+  // V38：光明燈／太歲燈牌＝橫式 A4、6 欄 × 7 列＝42 張／頁（沿用舊格式）、每格 5×2.5cm。
+  LAMP_5X25: { label: "光明燈/太歲燈牌 5×2.5cm（橫式 42 張/頁）", perPage: 42, cols: 6, rows: 7, cellWmm: 50, cellHmm: 25, landscape: true },
 };
 
 export const TABLET_PAGE_LAYOUT_ORDER: TabletPageLayoutKey[] = ["LAMP_5X25", "EIGHT", "TWELVE", "SIXTEEN"];

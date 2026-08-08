@@ -86,6 +86,8 @@ export type LanternPrintRow = {
     jishiText: string;
     /** 農曆生日「七月十八日」；無資料為空字串 */
     lunarBirthText: string;
+    /** V38 稱謂：「信士」（男）／「信女」（女），供疏文／全家燈牌用；未填性別預設信士 */
+    titleText: string;
   };
 
   /** 待處理事項。非空 → 這一筆不可列印，必須先由使用者處理 */
@@ -223,6 +225,7 @@ export async function buildLanternPrintBatch(
           m.lunarBirthMonth !== null && m.lunarBirthDay !== null
             ? printLunarMonthDay(m.lunarBirthMonth, m.lunarBirthDay, m.lunarIsLeapMonth)
             : "",
+        titleText: m.gender === "女" ? "信女" : "信士", // 未填/男 → 信士
       },
       issues: profile.issues,
       // 指令十一：資料不完整者不得列印，必須先在預檢處理
@@ -260,9 +263,13 @@ export type PetitionData = {
   lunarDateText: string;
   /** 參與信眾（已國字化） */
   entries: {
+    /** 稱謂：信士／信女 */
+    titleText: string;
     name: string;
     addressText: string;
     nominalAgeText: string;
+    /** 農曆生日「七月十八日」 */
+    birthText: string;
     zodiacText: string;
     jishiText: string;
     taisuiText: string;
@@ -296,9 +303,11 @@ export async function buildPetitionData(
     entries: batch.rows
       .filter((r) => r.canPrint)
       .map((r) => ({
+        titleText: r.text.titleText,
         name: r.name,
         addressText: r.addressText,
         nominalAgeText: r.text.nominalAgeText,
+        birthText: r.text.lunarBirthText,
         zodiacText: r.text.zodiacText,
         jishiText: r.text.jishiText,
         taisuiText: r.text.taisuiText,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { LanternTablet, PetitionSheet, TABLET_PAGE_LAYOUTS, TABLET_PAGE_LAYOUT_ORDER, DEFAULT_TABLET_PAGE_LAYOUT, type TabletPageLayoutKey } from "@/components/ritual/tablets";
+import FamilyLanternCard, { type FamilyMember } from "@/components/ritual/tablets/FamilyLanternCard";
 import type { LanternPrintBatch, PetitionData } from "@/lib/lanternPrint";
 
 /**
@@ -95,6 +96,25 @@ export default function LanternPrintCenter({
   for (let i = 0; i < readyRows.length; i += perPage) {
     pages.push(readyRows.slice(i, i + perPage));
   }
+
+  // V38 全家燈牌：一戶一張，把 readyRows 依家戶分組（每戶＝一張卡）。
+  const isFamily = activityType === "FAMILY_LANTERN";
+  const familyCards = (() => {
+    if (!isFamily) return [];
+    const map = new Map<string, { householdId: string; householdName: string; members: FamilyMember[] }>();
+    for (const r of readyRows) {
+      const g = map.get(r.householdId) ?? { householdId: r.householdId, householdName: r.householdName, members: [] };
+      g.members.push({
+        titleText: r.text.titleText,
+        name: r.name,
+        nominalAgeText: r.text.nominalAgeText,
+        birthText: r.text.lunarBirthText,
+        addressText: r.addressText,
+      });
+      map.set(r.householdId, g);
+    }
+    return [...map.values()];
+  })();
 
   return (
     <div className="space-y-6">
@@ -246,17 +266,34 @@ export default function LanternPrintCenter({
             </button>
           </div>
 
-          {pages.map((page, pi) => {
+          {/* V38 全家燈牌：一戶一張紙（每戶各自一張 A4，不密排）。 */}
+          {isFamily && (
+            <>
+              {familyCards.map((h) => (
+                <div
+                  key={h.householdId}
+                  className="print-sheet mx-auto flex items-center justify-center bg-white"
+                  style={{ width: "210mm", minHeight: "297mm", breakAfter: "page" }}
+                >
+                  <FamilyLanternCard members={h.members} />
+                </div>
+              ))}
+              {familyCards.length === 0 && <p className="text-sm text-ink-soft">目前沒有可列印的全家燈。</p>}
+            </>
+          )}
+
+          {!isFamily && pages.map((page, pi) => {
             const L = TABLET_PAGE_LAYOUTS[layout];
-            const fixed = !!(L.cellWmm && L.cellHmm); // 固定實體尺寸（如燈牌 5×2.5cm 密排省紙）
+            const fixed = !!(L.cellWmm && L.cellHmm); // 固定實體尺寸（如燈牌 5×2.5cm）
+            const land = !!L.landscape; // 橫式 A4（燈牌 6 欄 × 7 列）
             return (
             <div
               key={pi}
               className="print-sheet mx-auto grid bg-white"
               style={{
-                width: "210mm",
-                minHeight: "297mm",
-                padding: fixed ? "10mm" : "12mm",
+                width: land ? "297mm" : "210mm",
+                minHeight: land ? "210mm" : "297mm",
+                padding: fixed ? "2mm" : "12mm",
                 gridTemplateColumns: fixed ? `repeat(${L.cols}, ${L.cellWmm}mm)` : `repeat(${L.cols}, 1fr)`,
                 gridTemplateRows: fixed ? `repeat(${L.rows}, ${L.cellHmm}mm)` : `repeat(${L.rows}, 1fr)`,
                 gap: fixed ? "0" : "4mm",

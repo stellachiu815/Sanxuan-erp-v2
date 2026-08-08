@@ -153,10 +153,7 @@ function PrintCenterInner() {
           <Link href={`/print-center/activity-participants?year=${year}`} className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink hover:bg-sage-200">活動參加名單（每筆項目・只讀）</Link>
           {/* V36.2：列印物件查詢／補印準備（只讀）——每一份實體列印物件一列。 */}
           <Link href={`/print-center/print-objects?year=${year}`} className="rounded-full bg-sage-100 px-4 py-1.5 text-sm text-ink hover:bg-sage-200">列印物件查詢／補印準備（只讀）</Link>
-          {/* V34（平行開發）橫式列印版型：與現行版並存、不取代；一鍵預覽該批次未列印且完整者。 */}
-          <Link href={`/universal-salvation/${year}/print-center/print-v34?batch=ancestor-soul&density=standard`} className="rounded-full bg-blossom-100 px-4 py-1.5 text-sm text-ink hover:bg-blossom-200">V34 橫式列印・祖先／乙位（實驗）</Link>
-          <Link href={`/universal-salvation/${year}/print-center/print-v34?batch=creditor&density=standard`} className="rounded-full bg-blossom-100 px-4 py-1.5 text-sm text-ink hover:bg-blossom-200">V34 橫式列印・冤親（實驗）</Link>
-          <Link href={`/universal-salvation/${year}/print-center/print-v34?batch=pocket&density=standard`} className="rounded-full bg-blossom-100 px-4 py-1.5 text-sm text-ink hover:bg-blossom-200">V34 橫式列印・寶袋（實驗）</Link>
+          {/* V38：移除已被「牌位正式列印（mm 版型）」取代的 V34 橫式列印實驗入口，避免混淆。 */}
         </div>
       </section>
 
