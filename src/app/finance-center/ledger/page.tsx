@@ -46,9 +46,22 @@ function LedgerInner() {
   const [to, setTo] = useState("");
   const [account, setAccount] = useState("");
   const [entryKind, setEntryKind] = useState("");
+  const [templeEventId, setTempleEventId] = useState(""); // 活動帳本篩選
+  const [events, setEvents] = useState<{ id: string; name: string; year: number }[]>([]);
   const [includeVoid, setIncludeVoid] = useState(false);
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetchRegistration("/api/temple-events");
+        const d = await res.json();
+        const list = Array.isArray(d) ? d : Array.isArray(d?.events) ? d.events : [];
+        setEvents(list.map((e: { id: string; name: string; year: number }) => ({ id: e.id, name: e.name, year: e.year })));
+      } catch { /* 活動清單非必要 */ }
+    })();
+  }, []);
   const [balance, setBalance] = useState<number | null>(null); // 目前結餘（全部，不受篩選影響）
 
   useEffect(() => {
@@ -69,6 +82,7 @@ function LedgerInner() {
       if (to) p.set("to", to);
       if (account) p.set("account", account);
       if (entryKind) p.set("entryKind", entryKind);
+      if (templeEventId) p.set("templeEventId", templeEventId);
       if (includeVoid) p.set("includeVoid", "1");
       const res = await fetchRegistration(`/api/finance-center/ledger?${p.toString()}`);
       const data = await res.json();
@@ -81,7 +95,7 @@ function LedgerInner() {
     } catch {
       setError("讀取流水帳時發生連線問題。");
     }
-  }, [from, to, account, entryKind, includeVoid]);
+  }, [from, to, account, entryKind, templeEventId, includeVoid]);
 
   useEffect(() => {
     void load();
@@ -139,6 +153,12 @@ function LedgerInner() {
           <select value={entryKind} onChange={(e) => setEntryKind(e.target.value)} className="ml-1 rounded-lg border border-cream-300 px-2 py-1">
             <option value="">全部</option>
             {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </label>
+        <label>活動帳本
+          <select value={templeEventId} onChange={(e) => setTempleEventId(e.target.value)} className="ml-1 rounded-lg border border-cream-300 px-2 py-1">
+            <option value="">全部</option>
+            {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.year}）</option>)}
           </select>
         </label>
         <label className="flex items-center gap-1"><input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />含作廢</label>

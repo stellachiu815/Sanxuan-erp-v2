@@ -79,7 +79,7 @@ export default async function HomePage() {
         收款中心／列印中心／活動中心／供品中心／系統管理（依權限）。全部沿用既有
         路由，列印中心＝既有 /print-center（不建第二套）。
       */}
-      <HomeQuickNav showSystemCenter={showSystemCenter} />
+      <HomeQuickNav showSystemCenter={showSystemCenter} showFinance={showFinance} financeReadOnly={financeReadOnly} />
 
       {/* V38 現場快速報名：中元普渡現場報名的最高頻入口，放在首頁顯眼處。 */}
       <div className="flex flex-wrap items-center justify-center gap-3">
@@ -97,17 +97,6 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      {/* V38：財務中心顯眼入口——只給最高管理員（SUPER_ADMIN）看得到。 */}
-      {showFinance && (
-        <div className="flex justify-center">
-          <Link
-            href="/finance-center"
-            className="rounded-full bg-yolk-200 px-6 py-2.5 text-sm font-semibold text-ink shadow-card hover:bg-yolk-300"
-          >
-            📒 財務中心{financeReadOnly ? "（唯讀）" : ""} →
-          </Link>
-        </div>
-      )}
 
       {/*
         V15 指令三「首頁資料載入 lazy loading」：資訊卡（系統總覽）用 Suspense

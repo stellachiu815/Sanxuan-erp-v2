@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     category,
     occurredOn,
     description,
-    templeEventId: kind === "EXPENSE" ? templeEventId : null,
+    templeEventId, // V38：收入、支出都可指定活動（活動收支兩邊都能標）
     operator: { id: op.id, name: op.name },
     status: status as "DRAFT" | "CONFIRMED",
   };

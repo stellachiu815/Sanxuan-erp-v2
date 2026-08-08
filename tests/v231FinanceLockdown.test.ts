@@ -41,7 +41,8 @@ test("7. 財務導覽給可查看財務者顯示（V38：SUPER_ADMIN 完整＋AD
   assert.ok(home.includes("canFinance") && /showFinance/.test(home), "首頁以 canFinance 決定財務入口");
   // V38：ADMIN 也看得到（唯讀），入口以 canFinance('view') 收斂。
   assert.ok(/showFinance\s*=\s*role\s*\?\s*canFinance\(role,\s*["']view["']\)/.test(home), "財務入口以 canFinance('view') 判斷");
-  assert.ok(/\{showFinance && \(/.test(home), "財務連結被 showFinance 包住");
+  // V38：財務入口放進快捷入口（HomeQuickNav），以 showFinance 控制顯示。
+  assert.ok(/showFinance=\{showFinance\}/.test(home), "財務入口由 showFinance 傳給快捷入口控制");
 });
 
 test("8. 直接輸入財務網址：伺服器端 layout 以 session 角色阻擋 STAFF/READONLY（非只前端隱藏）", () => {

@@ -52,7 +52,6 @@ function NewEntryInner() {
   const [ok, setOk] = useState<string | null>(null);
 
   const loadEvents = useCallback(async () => {
-    if (!isExpense) return;
     try {
       const res = await fetchRegistration("/api/temple-events");
       const data = await res.json();
@@ -61,7 +60,7 @@ function NewEntryInner() {
     } catch {
       /* 活動清單非必要 */
     }
-  }, [isExpense]);
+  }, []);
 
   useEffect(() => {
     void loadEvents();
@@ -84,7 +83,7 @@ function NewEntryInner() {
           category: category.trim(),
           occurredOn,
           description: description.trim() || null,
-          templeEventId: isExpense && templeEventId ? templeEventId : null,
+          templeEventId: templeEventId || null,
         }),
       });
       const data = await res.json();
@@ -144,17 +143,15 @@ function NewEntryInner() {
           <input type="date" className={`mt-1 ${inputCls}`} value={occurredOn} onChange={(e) => setOccurredOn(e.target.value)} />
         </label>
 
-        {isExpense && (
-          <label className="text-sm text-ink-soft">
-            指定活動（選填）
-            <select className={`mt-1 ${inputCls}`} value={templeEventId} onChange={(e) => setTempleEventId(e.target.value)}>
-              <option value="">－ 不指定（一般支出）－</option>
-              {events.map((ev) => (
-                <option key={ev.id} value={ev.id}>{ev.name}（{ev.year}）</option>
-              ))}
-            </select>
-          </label>
-        )}
+        <label className="text-sm text-ink-soft">
+          指定活動（選填）
+          <select className={`mt-1 ${inputCls}`} value={templeEventId} onChange={(e) => setTempleEventId(e.target.value)}>
+            <option value="">－ 不指定（{isExpense ? "一般支出" : "一般收入"}）－</option>
+            {events.map((ev) => (
+              <option key={ev.id} value={ev.id}>{ev.name}（{ev.year}）</option>
+            ))}
+          </select>
+        </label>
 
         <label className="text-sm text-ink-soft">
           說明（選填）

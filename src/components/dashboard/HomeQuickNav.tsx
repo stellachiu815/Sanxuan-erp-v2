@@ -22,10 +22,19 @@ const ENTRIES: Entry[] = [
   { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-50 hover:bg-sage-100" },
 ];
 
-export default function HomeQuickNav({ showSystemCenter }: { showSystemCenter: boolean }) {
-  const entries = showSystemCenter
-    ? [...ENTRIES, { href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" }]
-    : ENTRIES;
+export default function HomeQuickNav({
+  showSystemCenter,
+  showFinance = false,
+  financeReadOnly = false,
+}: {
+  showSystemCenter: boolean;
+  showFinance?: boolean;
+  financeReadOnly?: boolean;
+}) {
+  const entries: Entry[] = [...ENTRIES];
+  // V38：財務中心放進快捷入口（僅可查看財務者：最高管理員完整／管理員唯讀）。
+  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-yolk-100 hover:bg-yolk-200" });
+  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" });
 
   return (
     <section className="w-full max-w-5xl">
