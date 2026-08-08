@@ -12,9 +12,9 @@ import Link from "next/link";
 
 type Entry = { href: string; icon: string; label: string; tone: string };
 
+// V38：移除快捷入口裡重複的「新增信眾」（搜尋框下方已有大按鈕），不重複佔位。
 const ENTRIES: Entry[] = [
   { href: "/devotee-center", icon: "🔍", label: "信眾管理", tone: "bg-sage-50 hover:bg-sage-100" },
-  { href: "/devotee-center/list", icon: "➕", label: "新增信眾", tone: "bg-yolk-50 hover:bg-yolk-100" },
   { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-50 hover:bg-blossom-100" },
   { href: "/print-center", icon: "🖨️", label: "列印管理", tone: "bg-mist-50 hover:bg-mist-100" },
   { href: "/registration", icon: "📝", label: "活動報名", tone: "bg-yolk-50 hover:bg-yolk-100" },
@@ -32,8 +32,9 @@ export default function HomeQuickNav({
   financeReadOnly?: boolean;
 }) {
   const entries: Entry[] = [...ENTRIES];
-  // V38：財務中心放進快捷入口（僅可查看財務者：最高管理員完整／管理員唯讀）。
-  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-yolk-100 hover:bg-yolk-200" });
+  // V38：財務中心放在「信眾管理」之後、「收款管理」之前（第 2 格；原本「新增信眾」的位置）。
+  //   僅可查看財務者顯示：最高管理員完整／管理員唯讀。
+  if (showFinance) entries.splice(1, 0, { href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-yolk-100 hover:bg-yolk-200" });
   if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" });
 
   return (

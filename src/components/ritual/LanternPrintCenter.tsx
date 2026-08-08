@@ -246,17 +246,22 @@ export default function LanternPrintCenter({
             </button>
           </div>
 
-          {pages.map((page, pi) => (
+          {pages.map((page, pi) => {
+            const L = TABLET_PAGE_LAYOUTS[layout];
+            const fixed = !!(L.cellWmm && L.cellHmm); // 固定實體尺寸（如燈牌 5×2.5cm 密排省紙）
+            return (
             <div
               key={pi}
               className="print-sheet mx-auto grid bg-white"
               style={{
                 width: "210mm",
                 minHeight: "297mm",
-                padding: "12mm",
-                gridTemplateColumns: `repeat(${TABLET_PAGE_LAYOUTS[layout].cols}, 1fr)`,
-                gridTemplateRows: `repeat(${TABLET_PAGE_LAYOUTS[layout].rows}, 1fr)`,
-                gap: "4mm",
+                padding: fixed ? "10mm" : "12mm",
+                gridTemplateColumns: fixed ? `repeat(${L.cols}, ${L.cellWmm}mm)` : `repeat(${L.cols}, 1fr)`,
+                gridTemplateRows: fixed ? `repeat(${L.rows}, ${L.cellHmm}mm)` : `repeat(${L.rows}, 1fr)`,
+                gap: fixed ? "0" : "4mm",
+                justifyContent: fixed ? "center" : undefined,
+                alignContent: fixed ? "start" : undefined,
                 breakAfter: "page",
               }}
             >
@@ -277,7 +282,8 @@ export default function LanternPrintCenter({
                 />
               ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

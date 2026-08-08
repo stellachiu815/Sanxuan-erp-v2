@@ -105,21 +105,26 @@ export const A4_PAGE = {
   marginMm: 12,
 } as const;
 
-export type TabletPageLayoutKey = "EIGHT" | "TWELVE" | "SIXTEEN";
+export type TabletPageLayoutKey = "EIGHT" | "TWELVE" | "SIXTEEN" | "LAMP_5X25";
 
 /**
  * 每頁 A4 要排幾張牌位（8／12／16 張），以及排成幾欄幾列。
  * 之後如果三玄宮要新增其他張數版型，只需要在這裡新增一筆設定。
+ *
+ * V38：新增 LAMP_5X25＝光明燈／太歲燈牌固定 5×2.5cm 密排（省紙）。cellWmm/cellHmm 有值時，
+ *   格子改用「固定實體尺寸」而非撐滿（列印下去每格就是 5cm×2.5cm，方便對卡套）。
+ *   直向 A4 可用區（約 190×277mm，含 10mm 邊界）：3 欄 × 11 列＝33 張／頁。實際尺寸以列印量測校正。
  */
 export const TABLET_PAGE_LAYOUTS: Record<
   TabletPageLayoutKey,
-  { label: string; perPage: number; cols: number; rows: number }
+  { label: string; perPage: number; cols: number; rows: number; cellWmm?: number; cellHmm?: number }
 > = {
   EIGHT: { label: "A4／8 張", perPage: 8, cols: 2, rows: 4 },
   TWELVE: { label: "A4／12 張", perPage: 12, cols: 3, rows: 4 },
   SIXTEEN: { label: "A4／16 張", perPage: 16, cols: 4, rows: 4 },
+  LAMP_5X25: { label: "光明燈/太歲燈牌 5×2.5cm（密排省紙）", perPage: 33, cols: 3, rows: 11, cellWmm: 50, cellHmm: 25 },
 };
 
-export const TABLET_PAGE_LAYOUT_ORDER: TabletPageLayoutKey[] = ["EIGHT", "TWELVE", "SIXTEEN"];
+export const TABLET_PAGE_LAYOUT_ORDER: TabletPageLayoutKey[] = ["LAMP_5X25", "EIGHT", "TWELVE", "SIXTEEN"];
 
-export const DEFAULT_TABLET_PAGE_LAYOUT: TabletPageLayoutKey = "EIGHT";
+export const DEFAULT_TABLET_PAGE_LAYOUT: TabletPageLayoutKey = "LAMP_5X25";
