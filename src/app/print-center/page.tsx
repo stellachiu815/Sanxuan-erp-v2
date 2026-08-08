@@ -177,7 +177,17 @@ function PrintCenterInner() {
           ) : (
             <p className="text-sm text-ink-faint">此年度尚無已確認的報名。</p>
           )}
-          <p className="mt-2 text-xs text-ink-faint">＊年度燈的燈牌／疏文 mm 正式版型（含虛歲自動＋1、生肖、太歲）第二批接入；目前先從總名單列印／補印。</p>
+          {a.activityGroup === "ANNUAL_LANTERN" && (
+            <>
+              <p className="mt-3 mb-2 text-xs text-ink-soft">燈牌／疏文正式列印（mm 版型，含虛歲自動＋1、生肖、太歲）：</p>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/lantern/GUANGMING_LANTERN/print?year=${a.year}`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">光明燈牌列印（橫式 42 張）</Link>
+                <Link href={`/lantern/TAISUI_LANTERN/print?year=${a.year}`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">太歲燈牌列印</Link>
+                <Link href={`/lantern/FAMILY_LANTERN/print?year=${a.year}`} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink hover:bg-mist-300">全家燈牌列印（一戶一張）</Link>
+              </div>
+              <p className="mt-2 text-xs text-ink-faint">＊疏文（直書＋封面干支）在各燈牌列印頁內以「列印內容」切換。全家燈、疏文版面續調校。</p>
+            </>
+          )}
         </section>
       ))}
 
