@@ -35,9 +35,11 @@ test("6. STAFF 仍可依原權限進行活動收款與收據操作（不誤傷�
   assert.ok(canReceipt("STAFF", "issue") && canReceipt("STAFF", "print"), "STAFF 仍可開立/列印收據");
 });
 
-test("7. 財務導覽只對可查看財務者顯示（首頁以 canFinance('view') 收斂入口）", () => {
+test("7. 財務導覽只給最高管理員顯示（V38：首頁 showFinance＝SUPER_ADMIN 收斂入口）", () => {
   const home = read("src/app/page.tsx");
-  assert.ok(home.includes("canFinance") && /showFinance/.test(home), "首頁以 canFinance 決定財務入口");
+  assert.ok(/showFinance/.test(home), "首頁以 showFinance 決定財務入口");
+  // V38（Stella 定案）：財務入口只給最高管理員（SUPER_ADMIN），管理員也看不到。
+  assert.ok(/showFinance\s*=\s*role\s*===\s*["']SUPER_ADMIN["']/.test(home), "財務入口僅最高管理員（SUPER_ADMIN）可見");
   assert.ok(/\{showFinance && \(/.test(home), "財務連結被 showFinance 包住");
 });
 

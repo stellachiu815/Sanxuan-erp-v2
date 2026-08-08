@@ -7,9 +7,12 @@ import OperatorBar from "@/components/system/OperatorBar";
 import BackButton from "@/components/navigation/BackButton";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 
-/** V22 新增收入／支出。支出提供快捷鍵：花／果／金紙／犒將（自動帶入名稱，金額使用者輸入）。 */
+/** V22 新增收入／支出。V38：類別改成三玄宮固定下拉（支出 7 類＋其他；收入 感謝狀／油箱）。 */
 
-const QUICK_EXPENSES = ["花", "果", "金紙", "犒將"];
+// V38（Stella 定案）支出類別固定下拉；「其他」當catch-all避免卡住。
+const EXPENSE_CATEGORIES = ["雜支", "犒將", "水電瓦斯", "友宮回禮", "金紙", "清潔費", "花果", "其他"];
+// V38 收入類別：感謝狀（月底結算）、油箱（幾個月開一次）。
+const INCOME_CATEGORIES = ["感謝狀", "油箱", "其他"];
 
 function todayISO(): string {
   const d = new Date();
@@ -110,24 +113,6 @@ function NewEntryInner() {
       </div>
 
       <div className="flex flex-col gap-4 rounded-3xl bg-white/70 p-5 shadow-card">
-        {isExpense && (
-          <div>
-            <p className="mb-1 text-xs text-ink-soft">快捷支出（帶入名稱，金額自行輸入）</p>
-            <div className="flex flex-wrap gap-2">
-              {QUICK_EXPENSES.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => setCategory(q)}
-                  className={`min-h-9 rounded-full px-4 py-1.5 text-sm ${category === q ? "bg-yolk-300 text-ink" : "bg-yolk-100 text-ink-soft hover:bg-yolk-200"}`}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <label className="text-sm text-ink-soft">
           帳戶
           <div className="mt-1 flex gap-2">
@@ -140,8 +125,13 @@ function NewEntryInner() {
         </label>
 
         <label className="text-sm text-ink-soft">
-          項目名稱
-          <input className={`mt-1 ${inputCls}`} value={category} onChange={(e) => setCategory(e.target.value)} placeholder={isExpense ? "例如：花、水費、海報" : "例如：香油錢、捐款"} />
+          類別
+          <select className={`mt-1 ${inputCls}`} value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">－ 請選擇類別 －</option>
+            {(isExpense ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </label>
 
         <label className="text-sm text-ink-soft">

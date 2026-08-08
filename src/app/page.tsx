@@ -12,7 +12,7 @@ import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
 import SystemCenterHomeCard from "@/components/system-center/SystemCenterHomeCard";
 import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
 import { getSessionUser } from "@/lib/auth";
-import { canSystem, canFinance } from "@/lib/permissions";
+import { canSystem } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -46,8 +46,8 @@ export default async function HomePage() {
   // 「回收區」屬管理層級，用共用 canSystem 判斷，不散落 role 字面值。
   const me = await getSessionUser();
   const role = me?.role ?? null;
-  // V23.1：財務中心入口只對可查看財務者（SUPER_ADMIN／ADMIN）顯示。
-  const showFinance = role ? canFinance(role, "view") : false;
+  // V38（Stella 定案）：財務中心入口**只給最高管理員（SUPER_ADMIN）**，管理員也看不到。
+  const showFinance = role === "SUPER_ADMIN";
   const showImport = role ? canSystem(role, "manageDataImport") : false;
   const showRecycleBin = role ? canSystem(role, "manageRecycleBin") : false;
   const showSystemCenter = role
@@ -95,6 +95,18 @@ export default async function HomePage() {
           ➕ 新增活動報名（可建新信眾）→
         </Link>
       </div>
+
+      {/* V38：財務中心顯眼入口——只給最高管理員（SUPER_ADMIN）看得到。 */}
+      {showFinance && (
+        <div className="flex justify-center">
+          <Link
+            href="/finance-center"
+            className="rounded-full bg-yolk-200 px-6 py-2.5 text-sm font-semibold text-ink shadow-card hover:bg-yolk-300"
+          >
+            📒 財務中心（僅最高管理員）→
+          </Link>
+        </div>
+      )}
 
       {/*
         V15 指令三「首頁資料載入 lazy loading」：資訊卡（系統總覽）用 Suspense
@@ -185,11 +197,6 @@ export default async function HomePage() {
         <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
           🧾 全宮共用收據中心 →
         </Link>
-        {showFinance && (
-          <Link href="/finance-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-            📒 財務中心 →
-          </Link>
-        )}
         {showSystemCenter && (
           <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
             🛠️ 系統管理 →

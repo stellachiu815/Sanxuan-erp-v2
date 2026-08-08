@@ -103,8 +103,8 @@ function FinanceHomeInner() {
             <Card label="今日淨額" value={money(summary.todayNet)} tone="cream" sub={`收 ${money(summary.todayIncome)}／支 ${money(summary.todayExpense)}`} />
             <Card label="今日收入" value={money(summary.todayIncome)} tone="sage" />
             <Card label="今日支出" value={money(summary.todayExpense)} tone="blossom" />
-            <Card label="應收總額" value={money(summary.totalReceivable)} tone="blossom" />
-            <Card label="已收總額（本年度活動）" value={money(summary.totalReceived)} tone="mist" />
+            {/* V38：Stella 目前純手動流水帳、感謝狀手寫，先隱藏「活動應收／已收」卡片。
+                （未來目標：感謝狀改由系統列印後，可再打開活動勾稽，帳更清楚。） */}
           </section>
 
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
