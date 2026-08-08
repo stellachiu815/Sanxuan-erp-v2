@@ -15,10 +15,11 @@ test("1. SUPER_ADMIN 可使用所有財務 action", () => {
   for (const a of FIN_ACTIONS) assert.ok(canFinance("SUPER_ADMIN", a), `SUPER_ADMIN 應可 ${a}`);
 });
 
-test("2/3. ADMIN 可用所有日常財務 action，但不可設定期初餘額", () => {
+test("2/3. ADMIN 財務唯讀（V38）：只可 view/viewFullReport/export，寫入類一律不可", () => {
+  const READONLY = new Set(["view", "viewFullReport", "export"]);
   for (const a of FIN_ACTIONS) {
-    if (a === "manageOpening") continue;
-    assert.ok(canFinance("ADMIN", a), `ADMIN 應可 ${a}`);
+    if (READONLY.has(a)) assert.ok(canFinance("ADMIN", a), `ADMIN 應可（唯讀）${a}`);
+    else assert.ok(!canFinance("ADMIN", a), `ADMIN 不可（唯讀）${a}`);
   }
   assert.ok(!canFinance("ADMIN", "manageOpening"), "ADMIN 不可期初餘額");
 });
@@ -35,11 +36,11 @@ test("6. STAFF 仍可依原權限進行活動收款與收據操作（不誤傷�
   assert.ok(canReceipt("STAFF", "issue") && canReceipt("STAFF", "print"), "STAFF 仍可開立/列印收據");
 });
 
-test("7. 財務導覽只給最高管理員顯示（V38：首頁 showFinance＝SUPER_ADMIN 收斂入口）", () => {
+test("7. 財務導覽給可查看財務者顯示（V38：SUPER_ADMIN 完整＋ADMIN 唯讀；首頁 showFinance＝canFinance('view')）", () => {
   const home = read("src/app/page.tsx");
-  assert.ok(/showFinance/.test(home), "首頁以 showFinance 決定財務入口");
-  // V38（Stella 定案）：財務入口只給最高管理員（SUPER_ADMIN），管理員也看不到。
-  assert.ok(/showFinance\s*=\s*role\s*===\s*["']SUPER_ADMIN["']/.test(home), "財務入口僅最高管理員（SUPER_ADMIN）可見");
+  assert.ok(home.includes("canFinance") && /showFinance/.test(home), "首頁以 canFinance 決定財務入口");
+  // V38：ADMIN 也看得到（唯讀），入口以 canFinance('view') 收斂。
+  assert.ok(/showFinance\s*=\s*role\s*\?\s*canFinance\(role,\s*["']view["']\)/.test(home), "財務入口以 canFinance('view') 判斷");
   assert.ok(/\{showFinance && \(/.test(home), "財務連結被 showFinance 包住");
 });
 

@@ -72,13 +72,24 @@ export async function POST(request: NextRequest) {
     where: { type: backupType, isAutomatic: true, status: "SUCCESS" },
     orderBy: { finishedAt: "desc" },
   });
-  if (lastSuccess?.finishedAt && taipeiDateKey(lastSuccess.finishedAt) === taipeiDateKey(now)) {
-    return NextResponse.json({
-      ok: true,
-      skipped: true,
-      reason: `今日（Asia/Taipei）已經成功執行過一次 ${backupType} 自動備份，略過本次重複觸發`,
-      previousBackupLogId: lastSuccess.id,
-    });
+  // V38：DAILY 改為「一天兩次」保險——只擋 6 小時內的重複觸發（避免排程誤設連點），
+  //   讓早、午後兩班都能各備一份；WEEKLY／MONTHLY 維持「同一天只做一次」。
+  if (lastSuccess?.finishedAt) {
+    const dup =
+      backupType === "DAILY"
+        ? (now.getTime() - lastSuccess.finishedAt.getTime()) / (1000 * 60 * 60) < 6
+        : taipeiDateKey(lastSuccess.finishedAt) === taipeiDateKey(now);
+    if (dup) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason:
+          backupType === "DAILY"
+            ? `6 小時內已成功執行過 DAILY 自動備份，略過本次重複觸發`
+            : `今日（Asia/Taipei）已經成功執行過一次 ${backupType} 自動備份，略過本次重複觸發`,
+        previousBackupLogId: lastSuccess.id,
+      });
+    }
   }
 
   const result = await createBackup({

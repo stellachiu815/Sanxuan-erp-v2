@@ -55,8 +55,9 @@ const FINANCE_PERMISSIONS: Record<Role, FinanceAction[]> = {
   // V23.1 財務權限收斂：財務中心（查看/報表/匯出/收支/轉移/盤點/作廢/更正/期初）
   // 一律只開放給前兩種正式角色。期初餘額（manageOpening）僅 SUPER_ADMIN。
   SUPER_ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct", "manageOpening"],
-  // ADMIN 保留全部日常財務權限，但不得設定/修改期初餘額（manageOpening）。
-  ADMIN: ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct"],
+  // V38（Stella 定案）：ADMIN 財務改「唯讀」——看得到財務中心、能看報表/流水帳、能匯出，
+  //   但不得新增/修改/作廢/轉帳/盤點/更正/設期初（寫入類一律只給 SUPER_ADMIN）。
+  ADMIN: ["view", "viewFullReport", "export"],
   // V23.1：STAFF 完全不可查看/操作/匯出財務中心（收款中心的收款權限不受影響，見 COLLECTION_PERMISSIONS）。
   STAFF: [],
   // V23.1：READONLY 完全不可查看/匯出財務中心。

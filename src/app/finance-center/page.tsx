@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { OperatorProvider } from "@/lib/operatorClient";
+import { OperatorProvider, useOperator } from "@/lib/operatorClient";
 import OperatorBar from "@/components/system/OperatorBar";
 import BackButton from "@/components/navigation/BackButton";
 import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
+import { canFinance } from "@/lib/permissions";
 
 /** V22 財務中心首頁：總結餘/銀行/現金/今日收入/支出/淨額/應收/已收 + 功能入口。 */
 
@@ -51,6 +52,8 @@ function Card({ label, value, tone = "cream", sub }: { label: string; value: str
 }
 
 function FinanceHomeInner() {
+  const { operatorUser } = useOperator();
+  const canWrite = operatorUser ? canFinance(operatorUser.role, "createEntry") : false;
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,22 +76,24 @@ function FinanceHomeInner() {
     void load();
   }, [load]);
 
-  const entries: { href: string; label: string; desc: string }[] = [
-    { href: "/finance-center/new?kind=INCOME", label: "＋ 新增收入", desc: "一般收入手動入帳" },
-    { href: "/finance-center/new?kind=EXPENSE", label: "－ 新增支出", desc: "一般／指定活動，含快捷鍵" },
-    { href: "/finance-center/transfer", label: "⇄ 資金轉移", desc: "現金↔銀行，不計收支" },
-    { href: "/finance-center/reconcile", label: "✓ 盤點對帳", desc: "現金盤點／銀行對帳" },
+  const allEntries: { href: string; label: string; desc: string; write?: boolean }[] = [
+    { href: "/finance-center/new?kind=INCOME", label: "＋ 新增收入", desc: "一般收入手動入帳", write: true },
+    { href: "/finance-center/new?kind=EXPENSE", label: "－ 新增支出", desc: "一般／指定活動，含快捷鍵", write: true },
+    { href: "/finance-center/transfer", label: "⇄ 資金轉移", desc: "現金↔銀行，不計收支", write: true },
+    { href: "/finance-center/reconcile", label: "✓ 盤點對帳", desc: "現金盤點／銀行對帳", write: true },
     { href: "/finance-center/ledger", label: "☰ 流水帳", desc: "全部收支明細（不可刪除）" },
     { href: "/finance-center/reports", label: "▤ 財務報表", desc: "月／年／自訂＋PDF/Excel" },
-    { href: "/finance-center/batch", label: "⇪ 批次記帳／清空重設", desc: "整段貼上一次記多筆；初次可清空重設期初" },
+    { href: "/finance-center/batch", label: "⇪ 批次記帳／清空重設", desc: "整段貼上一次記多筆；初次可清空重設期初", write: true },
   ];
+  // V38：管理員唯讀——只顯示「看」的入口（流水帳／報表），隱藏所有寫入功能。
+  const entries = allEntries.filter((e) => canWrite || !e.write);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BackButton fallbackHref="/" />
-          <h1 className="text-lg text-ink">財務中心</h1>
+          <h1 className="text-lg text-ink">財務中心{!canWrite && <span className="ml-2 rounded-full bg-mist-200 px-2 py-0.5 text-xs text-ink-soft">唯讀</span>}</h1>
         </div>
       </div>
 

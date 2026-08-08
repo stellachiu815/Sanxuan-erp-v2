@@ -54,10 +54,12 @@ test("收款方式→帳戶映射：現金進現金，其餘進銀行", () => {
   assert.equal(accountForPaymentMethod("CHECK"), "BANK");
 });
 
-test("權限矩陣（V23.1 收斂）：財務僅 SUPER_ADMIN/ADMIN；期初僅 SUPER_ADMIN；STAFF/READONLY/FINANCE_CLERK 全部 false", () => {
+test("權限矩陣（V38 收斂）：SUPER_ADMIN 完整；ADMIN 唯讀；STAFF/READONLY/FINANCE_CLERK 全部 false", () => {
   assert.ok(canFinance("SUPER_ADMIN", "manageOpening"));
   assert.ok(!canFinance("ADMIN", "manageOpening"));
-  assert.ok(canFinance("ADMIN", "void") && canFinance("ADMIN", "correct") && canFinance("ADMIN", "createEntry") && canFinance("ADMIN", "transfer"));
+  // V38：ADMIN 唯讀——可 view/viewFullReport/export，不可寫入。
+  assert.ok(canFinance("ADMIN", "view") && canFinance("ADMIN", "viewFullReport") && canFinance("ADMIN", "export"));
+  assert.ok(!canFinance("ADMIN", "void") && !canFinance("ADMIN", "correct") && !canFinance("ADMIN", "createEntry") && !canFinance("ADMIN", "transfer"));
   // V23.1：STAFF/READONLY/FINANCE_CLERK 對財務一律無權限（含 view/export）。
   for (const r of ["STAFF", "READONLY", "FINANCE_CLERK"] as const) {
     for (const a of ["view", "export", "createEntry", "transfer", "reconcile", "void", "correct", "manageOpening"] as const) {

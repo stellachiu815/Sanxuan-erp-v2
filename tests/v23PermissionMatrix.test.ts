@@ -62,12 +62,14 @@ test("收款管理：STAFF 可收款/臨時應收；沖銷/退款/對帳 僅 ADM
   for (const a of COLLECTION_ALL) if (a !== "view") assert.ok(!canCollection("READONLY", a), `READONLY 不可 ${a}`);
 });
 
-test("財務中心（V23.1 收斂）：僅 SUPER_ADMIN/ADMIN；期初僅 SUPER_ADMIN；STAFF/READONLY 全部 false（含 view/export）", () => {
+test("財務中心（V38 收斂）：SUPER_ADMIN 完整；ADMIN 唯讀（view/報表/匯出）；STAFF/READONLY 全部 false", () => {
   const FIN = ["view", "viewFullReport", "create", "update", "void", "export", "createEntry", "transfer", "reconcile", "correct", "manageOpening"] as const;
+  const ADMIN_READONLY = new Set(["view", "viewFullReport", "export"]);
   for (const a of FIN) assert.ok(canFinance("SUPER_ADMIN", a), `SUPER_ADMIN 可 ${a}`);
   for (const a of FIN) {
-    if (a === "manageOpening") assert.ok(!canFinance("ADMIN", a), "ADMIN 不可設定期初餘額");
-    else assert.ok(canFinance("ADMIN", a), `ADMIN 可 ${a}`);
+    // V38：ADMIN 只保留唯讀（查看/完整報表/匯出），寫入類（新增/修改/作廢/轉帳/盤點/更正/期初）一律 false。
+    if (ADMIN_READONLY.has(a)) assert.ok(canFinance("ADMIN", a), `ADMIN 可（唯讀）${a}`);
+    else assert.ok(!canFinance("ADMIN", a), `ADMIN 不可（唯讀）${a}`);
   }
   for (const a of FIN) {
     assert.ok(!canFinance("STAFF", a), `STAFF 不可 ${a}`);

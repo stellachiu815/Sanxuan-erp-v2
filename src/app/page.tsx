@@ -12,7 +12,7 @@ import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
 import SystemCenterHomeCard from "@/components/system-center/SystemCenterHomeCard";
 import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
 import { getSessionUser } from "@/lib/auth";
-import { canSystem } from "@/lib/permissions";
+import { canSystem, canFinance } from "@/lib/permissions";
 
 /**
  * 這一頁在「每次請求」時即時查詢資料庫，不做建置期預渲染。
@@ -46,8 +46,9 @@ export default async function HomePage() {
   // 「回收區」屬管理層級，用共用 canSystem 判斷，不散落 role 字面值。
   const me = await getSessionUser();
   const role = me?.role ?? null;
-  // V38（Stella 定案）：財務中心入口**只給最高管理員（SUPER_ADMIN）**，管理員也看不到。
-  const showFinance = role === "SUPER_ADMIN";
+  // V38（Stella 定案）：財務中心入口給「可查看財務者」＝最高管理員（完整）＋管理員（唯讀）。
+  const showFinance = role ? canFinance(role, "view") : false;
+  const financeReadOnly = role ? !canFinance(role, "createEntry") : true; // ADMIN 唯讀
   const showImport = role ? canSystem(role, "manageDataImport") : false;
   const showRecycleBin = role ? canSystem(role, "manageRecycleBin") : false;
   const showSystemCenter = role
@@ -103,7 +104,7 @@ export default async function HomePage() {
             href="/finance-center"
             className="rounded-full bg-yolk-200 px-6 py-2.5 text-sm font-semibold text-ink shadow-card hover:bg-yolk-300"
           >
-            📒 財務中心（僅最高管理員）→
+            📒 財務中心{financeReadOnly ? "（唯讀）" : ""} →
           </Link>
         </div>
       )}

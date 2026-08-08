@@ -7,7 +7,7 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
 
 /** V22 財務報表 PDF 正式列印頁（print CSS，可直接列印給委員會）。與報表/Excel 共用同一查詢來源。 */
 
-type Entry = { id: string; source: string; date: string; entryKind: string; account: "BANK" | "CASH"; direction: "IN" | "OUT"; amount: number; category: string; activityLabel: string | null; operator: string | null; status: string; isHistorical: boolean };
+type Entry = { id: string; source: string; date: string; entryKind: string; account: "BANK" | "CASH"; direction: "IN" | "OUT"; amount: number; category: string; description: string | null; activityLabel: string | null; operator: string | null; status: string; isHistorical: boolean };
 type Movement = { inflow: number; outflow: number; net: number };
 type Balances = { bank: number; cash: number; total: number };
 type Report = {
@@ -53,6 +53,16 @@ function PrintInner() {
   if (error) return <p className="p-6 text-sm text-blossom-500">{error}</p>;
   if (!report) return <p className="p-6 text-sm text-ink-faint">讀取中…</p>;
 
+  // 分類小計：只算一般收入/支出（排除期初/轉帳/調整/歷史）。
+  const flow = report.ledger.filter((e) => (e.entryKind === "INCOME" || e.entryKind === "EXPENSE") && !e.isHistorical);
+  const catMap = new Map<string, { income: number; expense: number }>();
+  for (const e of flow) {
+    const c = catMap.get(e.category) ?? { income: 0, expense: 0 };
+    if (e.direction === "IN") c.income += e.amount; else c.expense += e.amount;
+    catMap.set(e.category, c);
+  }
+  const catRows = [...catMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([c, v]) => [c, m(v.income), m(v.expense)]);
+
   return (
     <main className="mx-auto max-w-4xl px-6 py-8 text-ink">
       <style>{`@page { size: A4; margin: 14mm; } @media print { .no-print { display:none !important; } }`}</style>
@@ -81,23 +91,19 @@ function PrintInner() {
         </Section>
       )}
 
-      <Section title="收入明細">
-        <SimpleTable head={["日期", "帳戶", "項目", "金額", "操作人"]} rows={report.incomeEntries.map((e) => [e.date, e.account === "BANK" ? "銀行" : "現金", e.category, m(e.amount), e.operator ?? ""])} rightFrom={3} rightTo={3} />
+      <Section title="分類小計（收入／支出）">
+        <SimpleTable head={["類別", "收入", "支出"]} rows={catRows} rightFrom={1} />
       </Section>
 
-      <Section title="支出明細">
-        <SimpleTable head={["日期", "帳戶", "項目", "指定活動", "金額", "操作人"]} rows={report.expenseEntries.map((e) => [e.date, e.account === "BANK" ? "銀行" : "現金", e.category, e.activityLabel ?? "", m(e.amount), e.operator ?? ""])} rightFrom={4} rightTo={4} />
-      </Section>
-
-      <Section title="銀行 / 現金異動">
-        <SimpleTable head={["帳戶", "流入", "流出", "淨額"]} rows={[["銀行", m(report.bankMovement.inflow), m(report.bankMovement.outflow), m(report.bankMovement.net)], ["現金", m(report.cashMovement.inflow), m(report.cashMovement.outflow), m(report.cashMovement.net)]]} rightFrom={1} />
-      </Section>
-
-      <Section title="流水帳明細">
+      <Section title="收支明細（可對帳）">
         <SimpleTable
-          head={["日期", "類別", "帳戶", "方向", "金額", "項目", "操作人"]}
-          rows={report.ledger.map((e) => [e.date, (KIND[e.entryKind] ?? e.entryKind) + (e.isHistorical ? "・歷史" : ""), e.account === "BANK" ? "銀行" : "現金", e.direction === "IN" ? "進" : "出", m(e.amount), e.category, e.operator ?? ""])}
-          rightFrom={4} rightTo={4}
+          head={["日期", "類別", "品項／說明", "收入", "支出", "帳戶"]}
+          rows={report.ledger.map((e) => {
+            const kindLabel = KIND[e.entryKind] ?? e.entryKind;
+            const cat = e.entryKind === "INCOME" || e.entryKind === "EXPENSE" ? e.category : kindLabel;
+            return [e.date, cat + (e.isHistorical ? "・歷史" : ""), e.description ?? "", e.direction === "IN" ? m(e.amount) : "", e.direction === "OUT" ? m(e.amount) : "", e.account === "BANK" ? "銀行" : "現金"];
+          })}
+          rightFrom={3} rightTo={4}
         />
       </Section>
     </main>
