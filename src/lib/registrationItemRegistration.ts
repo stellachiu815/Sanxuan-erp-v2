@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { autoConfirmRegistrations } from "@/lib/autoConfirmRegistration";
 import type { Prisma, ActivityType, RitualRecordStatus, UniversalSalvationEntryCategory } from "@prisma/client";
 import { upsertParticipantsInTransaction } from "@/lib/ritualParticipants";
 import { upsertLanternRegistrationInTransaction } from "@/lib/lanternRegistration";
@@ -629,7 +630,7 @@ export async function registerItemsBatch(
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const outcomes: BatchItemOutcome[] = [];
       const recordIds = new Set<string>();
       // 同一戶同年同活動只解析一次 RitualRecord。
@@ -1046,6 +1047,11 @@ export async function registerItemsBatch(
     // 預設 5000ms 對多筆祭改/全戶報名可能不足而 rollback（資料未建立）。已把年度單價與
     // 祭改事件預取到交易外、降低查詢數；此處再給合理上限（20s），不是無限拉長。
     { timeout: 20000, maxWait: 15000 });
+    // V38（Stella 定案）：登記完自動轉正式（交易提交後、best-effort；不補成員，確認不了留草稿供更正）。
+    if (result.ok && result.ritualRecordIds.length > 0) {
+      await autoConfirmRegistrations(result.ritualRecordIds, operatorName ?? null);
+    }
+    return result;
   } catch (e) {
     // 全家燈資格驗證失敗（交易內 throw → 已 rollback）：回傳其原始狀態碼與訊息。
     if (e instanceof FamilyLanternError) return { ok: false, status: e.status, error: e.message };
