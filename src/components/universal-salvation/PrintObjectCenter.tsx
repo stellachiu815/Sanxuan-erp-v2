@@ -304,6 +304,33 @@ export default function PrintObjectCenter({ year }: { year: number }) {
     );
   }
 
+  // 「重設為未列印」：把勾選的物件退回未列印（取消列印登記），用於手滑標錯時。
+  // 只動列印狀態、不動收款/內容。
+  async function resetSelected() {
+    if (!canPrint || pendingCount === 0 || submitting) return;
+    if (!window.confirm(`確定把勾選的 ${pendingCount} 個「重設為未列印」嗎？\n\n它們會退回未列印、重新進入批次列印。只會取消列印登記，不影響收款與內容。`)) return;
+    setSubmitting(true);
+    setConfirmError(null);
+    setOkMsg(null);
+    try {
+      const res = await fetch(`/api/universal-salvation/${year}/print-items/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "重設失敗");
+      setOkMsg(`已重設為未列印：${data?.reset ?? 0} 個。`);
+      setSelected(new Set());
+      setPreviewReady(false);
+      refresh();
+    } catch (e) {
+      setConfirmError(e instanceof Error ? e.message : "重設失敗");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (error) return <div className="rounded-3xl bg-blossom-100 p-6 text-sm text-ink">{error}</div>;
   if (!groups || roleLoading) return <p className="p-6 text-sm text-ink-faint">載入中…</p>;
 
@@ -420,6 +447,11 @@ export default function PrintObjectCenter({ year }: { year: number }) {
             className={`${btn} bg-butter-100 text-ink-soft`}
             title="今天已經印過、但當時沒按確認的，勾選後用這顆補登記為已列印，之後批次列印會自動跳過">
             {submitting ? "處理中…" : "標記為已列印（不重印）"}
+          </button>
+          <button onClick={resetSelected} disabled={pendingCount === 0 || submitting}
+            className={`${btn} bg-cream-200 text-ink-soft`}
+            title="手滑標錯時用這顆：把勾選的退回未列印、重新進入批次列印（不影響收款與內容）">
+            {submitting ? "處理中…" : "重設為未列印"}
           </button>
           {!previewReady && pendingCount > 0 && <span className="text-xs text-ink-faint">要實際列印請先「產生列印頁 / 預覽」；已印過的可直接按「標記為已列印」</span>}
           {okMsg && <span className="text-xs text-sage-500">{okMsg}</span>}
