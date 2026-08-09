@@ -19,7 +19,6 @@ import { GENDER_OPTIONS } from "@/lib/genderNormalize";
 import DeceasedFollowUpDialog from "@/components/devotee/DeceasedFollowUpDialog";
 import NewActivityRegistrationDialog from "@/components/devotee/NewActivityRegistrationDialog";
 import RegistrationDetailPanel from "@/components/devotee/RegistrationDetailPanel";
-import MemberActivityRegistrationCenter from "@/components/devotee/MemberActivityRegistrationCenter";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 // V13.4 驗收：國曆生日一律以民國長格式顯示，唯一來源在 minguoDate。
 import { formatIsoDateToMinguoLong, formatLunarDateToMinguoLong } from "@/lib/minguoDate";
@@ -91,7 +90,7 @@ type Overview = {
   interactions: { id: string; interactionType: string; occurredAt: string; content: string; followUp: string | null; nextContactDate: string | null; createdByName: string | null }[];
 };
 
-const TABS = ["總覽", "時間軸", "活動", "活動報名中心", "收款", "收據", "供品", "祭祀與祭改", "家戶成員", "互動紀錄"] as const;
+const TABS = ["總覽", "時間軸", "活動", "收款", "收據", "供品", "祭祀與祭改", "家戶成員", "互動紀錄"] as const;
 
 function DevoteeDetailInner({ memberId }: { memberId: string }) {
   const { operatorUserId, operatorUser } = useOperator();
@@ -316,12 +315,6 @@ function DevoteeDetailInner({ memberId }: { memberId: string }) {
             memberId={memberId}
             canEdit={operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false}
             onChanged={() => setReloadTick((t) => t + 1)}
-          />
-        )}
-        {tab === "活動報名中心" && (
-          <MemberActivityRegistrationCenter
-            memberName={overview.basic.name}
-            registered={overview.rituals.map((r) => ({ activityName: r.activityName, year: r.year, amount: r.amount, paymentStatus: r.paymentStatus }))}
           />
         )}
         {tab === "收款" && <PaymentsTab payments={overview.payments} />}
