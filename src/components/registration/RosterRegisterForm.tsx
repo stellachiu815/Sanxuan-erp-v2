@@ -23,7 +23,7 @@ type SearchResult = { memberId: string; name: string; householdName: string; add
 
 const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", solarBirthDate: "", quantity: "1" });
 
-export default function RosterRegisterForm(props: { templeEventId: string; activityName: string }) {
+export default function RosterRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
     <OperatorProvider>
       <Inner {...props} />
@@ -31,7 +31,7 @@ export default function RosterRegisterForm(props: { templeEventId: string; activ
   );
 }
 
-function Inner({ templeEventId, activityName }: { templeEventId: string; activityName: string }) {
+function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: string; activityName: string; publicSlug?: string }) {
   const { operatorUser } = useOperator();
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [results, setResults] = useState<Record<number, SearchResult[]>>({});
@@ -51,6 +51,8 @@ function Inner({ templeEventId, activityName }: { templeEventId: string; activit
 
   async function search(i: number, q: string) {
     update(i, { name: q, existingMemberId: "", existingLabel: "" });
+    // 公開報名(信眾自己填)不查既有信眾資料庫——一律當新資料填,廟方確認時再比對/建檔。
+    if (publicSlug) return;
     if (q.trim().length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
     try {
       const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
@@ -84,14 +86,20 @@ function Inner({ templeEventId, activityName }: { templeEventId: string; activit
 
     setBusy(true);
     try {
-      const res = await fetch(`/api/roster-registration`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operatorUserId: operatorUser?.id ?? null, templeEventId, people, confirm: true }),
-      });
+      const res = publicSlug
+        ? await fetch(`/api/public-reg/${encodeURIComponent(publicSlug)}/submit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: "ROSTER", people: people.map((p) => ({ name: p.name, phone: p.phone, address: p.address, solarBirthDate: p.solarBirthDate, quantity: p.quantity })) }),
+          })
+        : await fetch(`/api/roster-registration`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ operatorUserId: operatorUser?.id ?? null, templeEventId, people, confirm: true }),
+          });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "報名失敗，請稍後再試一次。"); return; }
-      setOkMsg(data.message ?? "已完成報名。");
+      setOkMsg(publicSlug ? "已送出報名！廟方核對後就會正式成立，感謝您。" : (data.message ?? "已完成報名。"));
       setRows([emptyRow()]);
       setResults({});
     } catch {
@@ -104,8 +112,12 @@ function Inner({ templeEventId, activityName }: { templeEventId: string; activit
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-3xl bg-white/70 p-6 shadow-card">
-        <h1 className="text-lg text-ink">{activityName}・現場快速報名</h1>
-        <p className="mt-1 text-sm text-ink-soft">一人一份、固定單價。可幫家人朋友一起報（多列）；每位可「搜既有信眾帶入」或直接填新信眾（系統自動建檔）。</p>
+        <h1 className="text-lg text-ink">{activityName}・{publicSlug ? "線上報名" : "現場快速報名"}</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          {publicSlug
+            ? "一人一份。可幫家人朋友一起報（多列），每位填一組資料。送出後由廟方核對成立。"
+            : "一人一份、固定單價。可幫家人朋友一起報（多列）；每位可「搜既有信眾帶入」或直接填新信眾（系統自動建檔）。"}
+        </p>
 
         <div className="mt-4 flex flex-col gap-3">
           {rows.map((r, i) => (
@@ -165,13 +177,15 @@ function Inner({ templeEventId, activityName }: { templeEventId: string; activit
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button type="button" onClick={addRow} className={secondaryButtonClass}>＋ 再加一位</button>
           <button type="button" onClick={() => void submit()} disabled={busy} className={primaryButtonClass}>
-            {busy ? "報名中…" : "完成報名"}
+            {busy ? (publicSlug ? "送出中…" : "報名中…") : (publicSlug ? "送出報名" : "完成報名")}
           </button>
           {okMsg && <span className="text-sm text-sage-500">{okMsg}</span>}
         </div>
         {error && <p className={`mt-2 ${errorTextClass}`}>{error}</p>}
         <p className="mt-3 rounded-2xl bg-cream-100 px-4 py-3 text-xs leading-relaxed text-ink-soft">
-          送出即建立正式報名（金額＝固定單價 × 份數）。新信眾會自動建成信眾資料;之後可到信眾頁補齊其他欄位。
+          {publicSlug
+            ? "送出後會進入廟方的「待確認清單」，由廟方核對後才正式成立、不會馬上收款。感謝您的報名。"
+            : "送出即建立正式報名（金額＝固定單價 × 份數）。新信眾會自動建成信眾資料;之後可到信眾頁補齊其他欄位。"}
         </p>
       </section>
     </div>

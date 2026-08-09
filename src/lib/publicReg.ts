@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { quickRegister, type QuickRegInput } from "@/lib/quickRegistration";
+import { rosterRegister } from "@/lib/rosterRegister";
 import type { Role } from "@/lib/permissions";
 
 /**
@@ -195,6 +196,50 @@ export async function submitPublicRegistration(
   return { ok: true, id };
 }
 
+// ── 名單型（贊普型）公開報名：補庫／宮燈等。信眾自己填名單 → PENDING → 廟方一鍵建檔+確認。 ──
+export type PublicRosterPerson = { name: string; phone?: string | null; address?: string | null; solarBirthDate?: string | null; quantity?: number | null };
+export type PublicRosterPayload = { kind: "ROSTER"; people: PublicRosterPerson[] };
+
+/** 名單型公開報名送出（免登入）：驗證＋防重複＋寫入 PENDING（payload.kind = "ROSTER"）。 */
+export async function submitPublicRosterRegistration(
+  slug: string,
+  payload: PublicRosterPayload,
+  submitterHash: string | null
+): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> {
+  const form = await getPublicFormBySlug(slug);
+  if (!form) return { ok: false, status: 404, error: "找不到這個報名網址" };
+  if (!form.isOpen) return { ok: false, status: 409, error: "這個活動目前未開放線上報名" };
+
+  const people = (payload?.people ?? []).filter((p) => s(p.name));
+  if (people.length === 0) return { ok: false, status: 400, error: "請至少填一位報名者姓名" };
+  if (people.length > 20) return { ok: false, status: 400, error: "一次最多 20 位，請分批報名" };
+
+  if (submitterHash) {
+    const dup = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(*)::bigint AS n FROM "public_registrations"
+      WHERE "formId" = ${form.id} AND "submitterHash" = ${submitterHash}
+        AND "createdAt" > (CURRENT_TIMESTAMP - INTERVAL '30 seconds')`;
+    if (Number(dup[0]?.n ?? 0) > 0) return { ok: false, status: 429, error: "剛剛已送出過，請稍候再試（避免重複報名）" };
+  }
+
+  const stored: PublicRosterPayload = {
+    kind: "ROSTER",
+    people: people.map((p) => ({
+      name: s(p.name) as string,
+      phone: s(p.phone),
+      address: s(p.address),
+      solarBirthDate: s(p.solarBirthDate),
+      quantity: Number(p.quantity) > 0 ? Math.floor(Number(p.quantity)) : 1,
+    })),
+  };
+  const id = `prg_${randomUUID()}`;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "public_registrations" ("id","formId","status","payload","submitterHash","createdAt","updatedAt") VALUES ($1,$2,'PENDING',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+    id, form.id, JSON.stringify(stored), submitterHash
+  );
+  return { ok: true, id };
+}
+
 export type PublicRegRow = {
   id: string;
   status: string;
@@ -242,7 +287,35 @@ export async function confirmPublicRegistration(
   const rec = rows[0];
   if (!rec) return { ok: false, status: 404, error: "找不到這筆報名" };
   if (rec.status === "CONFIRMED") return { ok: false, status: 409, error: "這筆已經確認過了" };
-  const payload = (rec.payload && typeof rec.payload === "object" ? rec.payload : {}) as PublicPayload;
+  const payloadObj = (rec.payload && typeof rec.payload === "object" ? rec.payload : {}) as Record<string, unknown>;
+
+  // 名單型（補庫／宮燈）：走 rosterRegister（選人一人一份固定價、新信眾建檔、直接確認）。
+  if (payloadObj.kind === "ROSTER") {
+    const rp = payloadObj as unknown as PublicRosterPayload;
+    const res = await rosterRegister(
+      {
+        templeEventId: rec.templeEventId,
+        people: (rp.people ?? []).map((p) => ({
+          name: p.name,
+          phone: p.phone ?? null,
+          address: p.address ?? null,
+          birthdayType: p.solarBirthDate ? ("SOLAR" as const) : null,
+          solarBirthDate: p.solarBirthDate ?? null,
+          quantity: p.quantity ?? 1,
+        })),
+        confirm: true,
+      },
+      operator
+    );
+    if (!res.ok) return { ok: false, status: res.status, error: res.error };
+    await prisma.$executeRawUnsafe(
+      `UPDATE "public_registrations" SET "status"='CONFIRMED', "confirmedAt"=CURRENT_TIMESTAMP, "confirmedByName"=$1, "note"=$2, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$3`,
+      operator.name, `已轉正式報名（${res.ritualRecordIds.length} 戶）`, id
+    );
+    return { ok: true, ritualRecordId: res.ritualRecordIds[0] ?? "" };
+  }
+
+  const payload = payloadObj as unknown as PublicPayload;
 
   const input: QuickRegInput = {
     templeEventId: rec.templeEventId,

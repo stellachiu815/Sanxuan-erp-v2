@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
 import HomeQuickNav from "@/components/dashboard/HomeQuickNav";
+import HomeInSeasonRosterRegister from "@/components/dashboard/HomeInSeasonRosterRegister";
 import PrintPendingCard from "@/components/dashboard/PrintPendingCard";
 import DataCompletenessCard from "@/components/dashboard/DataCompletenessCard";
 import DashboardErrorBoundary from "@/components/dashboard/DashboardErrorBoundary";
@@ -96,6 +97,11 @@ export default async function HomePage() {
           ➕ 新增活動報名（可建新信眾）→
         </Link>
       </div>
+
+      {/* 當季名單型活動（補庫／宮燈）的現場快速報名——當季自動出現,直接一鍵進報名。 */}
+      <Suspense fallback={null}>
+        <HomeInSeasonRosterRegister />
+      </Suspense>
 
 
       {/*

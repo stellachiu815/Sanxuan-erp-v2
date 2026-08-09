@@ -10,6 +10,7 @@ import TabletPriceCard from "@/components/activities/TabletPriceCard";
 import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import FixedItemPriceCard from "@/components/activities/FixedItemPriceCard";
 import ActivitySettingsCard from "@/components/activities/ActivitySettingsCard";
+import RosterPublicRegManager from "@/components/activities/RosterPublicRegManager";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { REGISTRATION_ITEM_SEED } from "@/lib/registrationItems";
 import { prisma } from "@/lib/prisma";
