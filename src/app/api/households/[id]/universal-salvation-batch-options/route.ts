@@ -79,12 +79,17 @@ export async function GET(
   openYears.sort((a, b) => b - a);
 
   const currentRocYear = now.getFullYear() - 1911;
-  const requestedYear = Number(request.nextUrl.searchParams.get("year"));
-  const year = Number.isInteger(requestedYear)
-    ? requestedYear
-    : openYears.length > 0
-      ? openYears[0]
-      : currentRocYear;
+  // ⚠️ 修正「民國 0 年」bug：沒帶 year 參數時 searchParams.get("year") 為 null，
+  //    Number(null)=0，而 Number.isInteger(0)=true，過去會誤採年度 0，導致整戶普渡
+  //    報名建成「民國 0 年」孤兒資料。必須排除 0／負數／空值，才落回開放年度／本年度。
+  const requestedYearRaw = request.nextUrl.searchParams.get("year");
+  const requestedYear = requestedYearRaw != null && requestedYearRaw !== "" ? Number(requestedYearRaw) : NaN;
+  const year =
+    Number.isInteger(requestedYear) && requestedYear > 0
+      ? requestedYear
+      : openYears.length > 0
+        ? openYears[0]
+        : currentRocYear;
 
   // 該年度、本戶已存在（未取消未刪除）的普渡項目 → 標示「已報名」，避免重複建立。
   const existingItems = await prisma.ritualRegistrationItem.findMany({

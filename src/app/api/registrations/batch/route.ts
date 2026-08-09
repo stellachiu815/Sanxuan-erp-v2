@@ -40,6 +40,10 @@ export async function POST(request: NextRequest) {
     if (typeof e.memberId !== "string" || typeof e.registrationItemTypeId !== "string" || typeof e.year !== "number") {
       return NextResponse.json({ error: "報名項目缺少必要欄位（memberId／registrationItemTypeId／year）" }, { status: 400 });
     }
+    // 防呆：年度必須是正整數。過去「民國 0 年」孤兒報名即因 year=0 溜進來，這裡一律擋下。
+    if (!Number.isInteger(e.year) || (e.year as number) <= 0) {
+      return NextResponse.json({ error: "報名年度不正確（必須是有效的民國年）。請重新選擇年度後再送出。" }, { status: 400 });
+    }
     entries.push({
       memberId: e.memberId,
       registrationItemTypeId: e.registrationItemTypeId,
