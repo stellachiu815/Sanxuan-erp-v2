@@ -317,9 +317,10 @@ export default function PurificationPrintCenter({ purificationYearId, yearName, 
 
       {zoomCell && (
         <Modal title={`小人頭放大預覽（編號 ${zoomCell.view.number ?? "—"}）`} onClose={() => setZoomCell(null)}>
+          {/* 放大預覽＝直立（貼上後的樣子，2.7×7cm，放大 2 倍顯示） */}
           <div className="flex justify-center">
-            <div style={{ width: "70mm", height: "90mm" }}>
-              <StickerCell fields={zoomCell} />
+            <div style={{ width: "54mm", height: "140mm", border: "1px solid #333" }}>
+              <StickerCell fields={zoomCell} orientation="preview" />
             </div>
           </div>
           {!zoomCell.readiness.canPrint && (
