@@ -14,7 +14,9 @@ const CELL_W_MM = STICKER_A4_PAGE.widthMm / STICKER_A4_PAGE.cols;
 const CELL_H_MM = (STICKER_A4_PAGE.heightMm - STICKER_A4_PAGE.marginMm * 2 - 4) / STICKER_A4_PAGE.rows;
 
 // 直立內容框＝ 寬 CELL_H_MM（~26.6mm）× 高 CELL_W_MM（70mm）。三欄，姓名欄較寬（字最大）。
-const PAD_MM = 0.8;
+// PAD_MM＝貼紙四邊安全邊：留白讓字不貼到裁切線、四周不被切掉（Stella 實印回饋）。
+// 加大安全邊會讓字略縮，若實印仍被切可再往上調；字太小則往下調。
+const PAD_MM = 2.0;
 const BOX_W = CELL_H_MM - PAD_MM * 2; // 三欄可用寬
 const BOX_H = CELL_W_MM - PAD_MM * 2; // 欄高（~68mm）
 // 三欄等寬（編號+姓名併一欄後，三欄平均分配整個寬度）。

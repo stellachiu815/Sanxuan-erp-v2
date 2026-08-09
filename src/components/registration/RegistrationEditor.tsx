@@ -137,6 +137,68 @@ function RegistrationEditorInner({ overview }: Props) {
     }
   }
 
+  // ── 重新對齊地址（依祭祀資料）：預覽差異 → 逐筆勾選 → 套用 ──
+  const [addrPreview, setAddrPreview] = useState<
+    | null
+    | { changes: { entryId: string; displayName: string; category: string; oldAddress: string | null; newAddress: string }[]; noWorshipMatch: number }
+  >(null);
+  const [addrChecked, setAddrChecked] = useState<Set<string>>(new Set());
+  const [addrBusy, setAddrBusy] = useState(false);
+
+  async function previewAddressRealign() {
+    setAddrBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetchRegistration(`/api/registrations/${overview.ritualRecordId}/address-realign`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(toFriendlyError(res.status, data?.error));
+        return;
+      }
+      setAddrPreview({ changes: data.changes ?? [], noWorshipMatch: data.noWorshipMatch ?? 0 });
+      setAddrChecked(new Set((data.changes ?? []).map((c: { entryId: string }) => c.entryId)));
+    } catch {
+      setError("網路連線問題，請稍後再試一次。");
+    } finally {
+      setAddrBusy(false);
+    }
+  }
+
+  async function applyAddressRealign() {
+    setAddrBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetchRegistration(`/api/registrations/${overview.ritualRecordId}/address-realign`, {
+        method: "POST",
+        body: JSON.stringify({ entryIds: [...addrChecked] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(toFriendlyError(res.status, data?.error));
+        return;
+      }
+      setMessage(data.message);
+      setAddrPreview(null);
+      setAddrChecked(new Set());
+      setRegisteredItemsRefreshKey((k) => k + 1);
+    } catch {
+      setError("網路連線問題，請稍後再試一次。");
+    } finally {
+      setAddrBusy(false);
+    }
+  }
+
+  function toggleAddr(entryId: string) {
+    setAddrChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  }
+
   const isConfirmed = status === "CONFIRMED";
   const isCancelled = status === "CANCELLED";
 
@@ -307,6 +369,16 @@ function RegistrationEditorInner({ overview }: Props) {
                     重新產生列印資料
                   </button>
                 )}
+                {overview.activityType === "UNIVERSAL_SALVATION" && (
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => void previewAddressRealign()}
+                    disabled={addrBusy}
+                  >
+                    {addrBusy && !addrPreview ? "檢查地址中…" : "重新對齊地址（依祭祀資料）"}
+                  </button>
+                )}
                 {overview.returnMemberId && (
                   <Link
                     href={`/devotee-center/${overview.returnMemberId}`}
@@ -319,6 +391,64 @@ function RegistrationEditorInner({ overview }: Props) {
                   返回家戶
                 </Link>
               </div>
+
+              {addrPreview && (
+                <div className="mt-4 rounded-2xl bg-cream-100 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-ink">重新對齊地址（牌位地址以祭祀資料為準）</p>
+                    <button type="button" onClick={() => setAddrPreview(null)} className="text-xs text-ink-faint hover:underline">
+                      關閉
+                    </button>
+                  </div>
+                  {addrPreview.changes.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink-soft">
+                      這筆報名的牌位地址都已跟祭祀資料一致，沒有需要對齊的項目。
+                      {addrPreview.noWorshipMatch > 0 &&
+                        `（另有 ${addrPreview.noWorshipMatch} 個牌位在祭祀資料找不到對應安奉地，未列入。）`}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-xs text-ink-soft">
+                        勾選要更新的牌位，按「套用」才會改。你手動填過、不想動的請取消勾選。
+                      </p>
+                      <ul className="mt-3 flex flex-col gap-2">
+                        {addrPreview.changes.map((c) => (
+                          <li key={c.entryId} className="rounded-xl bg-white/80 px-4 py-3">
+                            <label className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={addrChecked.has(c.entryId)}
+                                onChange={() => toggleAddr(c.entryId)}
+                                className="mt-1"
+                              />
+                              <span className="flex-1 text-sm">
+                                <span className="text-ink">{c.displayName}</span>
+                                <span className="mt-1 block text-ink-faint">目前：{c.oldAddress || "（空白）"}</span>
+                                <span className="mt-0.5 block text-sage-300">祭祀資料：{c.newAddress}</span>
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                      {addrPreview.noWorshipMatch > 0 && (
+                        <p className="mt-2 text-xs text-ink-faint">
+                          另有 {addrPreview.noWorshipMatch} 個牌位在祭祀資料找不到對應安奉地，未列入（不影響）。
+                        </p>
+                      )}
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          className={primaryButtonClass}
+                          onClick={() => void applyAddressRealign()}
+                          disabled={addrBusy || addrChecked.size === 0}
+                        >
+                          {addrBusy ? "套用中…" : `套用勾選（${addrChecked.size}）`}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {isConfirmed && (
                 <p className="mt-3 text-xs leading-relaxed text-ink-faint">
