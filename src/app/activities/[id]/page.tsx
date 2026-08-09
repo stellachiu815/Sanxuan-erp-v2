@@ -8,6 +8,7 @@ import PocketPriceCard from "@/components/activities/PocketPriceCard";
 import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
 import TabletPriceCard from "@/components/activities/TabletPriceCard";
 import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
+import FixedItemPriceCard from "@/components/activities/FixedItemPriceCard";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { REGISTRATION_ITEM_SEED } from "@/lib/registrationItems";
 import { prisma } from "@/lib/prisma";
@@ -118,6 +119,15 @@ export default async function ActivityHomePage({
             {/* V14.4：白米年度配額設定＋即時摘要（沿用同一年度活動設定頁，不另建設定中心）。 */}
             <WhiteRicePanel templeEventId={id} year={eventPricing.year} />
           </>
+        )}
+
+        {/* 補庫：固定單價設定（贊普型，一人一份 × 單價；單價存項目本身，不動資料庫）。 */}
+        {eventPricing?.activityType === "STORAGE_REPAYMENT" && (
+          <FixedItemPriceCard
+            itemKey="STORAGE_TROUSERS"
+            title="補庫單價"
+            note={`民國 ${eventPricing.year} 年度補庫。報名時以此單價 × 份數（一人一份）計算應收。`}
+          />
         )}
 
         <ActivityHomeScreen
