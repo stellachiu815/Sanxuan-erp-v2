@@ -241,12 +241,13 @@ export default function PrintObjectCenter({ year }: { year: number }) {
     if (!win) window.location.assign(url);
   }
 
-  async function confirmPrinted() {
-    if (!canPrint || pendingCount === 0 || submitting) return;
+  // 共用：呼叫「確認完成列印」後端（printCount+1）。confirmPrinted 與
+  // markAsPrinted 都走這個同一支已驗證的後端，不改任何列印核心邏輯。
+  async function doConfirm(successMsg?: (data: { deduplicated?: boolean; printedCount?: number; reprintedCount?: number } | null) => string) {
     setSubmitting(true);
     setConfirmError(null);
     setOkMsg(null);
-    // 每次「確認完成列印」動作用一組穩定 idempotencyKey（重送/連點不重複累加）。
+    // 每次動作用一組穩定 idempotencyKey（重送/連點不重複累加）。
     const idempotencyKey =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -265,22 +266,42 @@ export default function PrintObjectCenter({ year }: { year: number }) {
         setConfirmError(`${data?.message ?? "資料尚未完整"}：${fields.map((f) => `缺${f}`).join("、")}`);
         return;
       }
-      if (!res.ok) throw new Error(data?.error ?? "確認完成列印失敗");
+      if (!res.ok) throw new Error(data?.error ?? "更新列印狀態失敗");
       setIncompleteMissing([]);
       setOkMsg(
-        data?.deduplicated
-          ? "此次列印先前已確認過（重送已忽略，未重複累加）。"
-          : `已確認完成列印：首次列印 ${data?.printedCount ?? 0} 筆、補印 ${data?.reprintedCount ?? 0} 筆。`
+        successMsg
+          ? successMsg(data)
+          : data?.deduplicated
+            ? "此次列印先前已確認過（重送已忽略，未重複累加）。"
+            : `已確認完成列印：首次列印 ${data?.printedCount ?? 0} 筆、補印 ${data?.reprintedCount ?? 0} 筆。`
       );
       setSelected(new Set());
       setPreviewReady(false);
       refresh();
     } catch (e) {
       // 失敗不可假裝成功，也不清空選取。
-      setConfirmError(e instanceof Error ? e.message : "確認完成列印失敗");
+      setConfirmError(e instanceof Error ? e.message : "更新列印狀態失敗");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function confirmPrinted() {
+    if (!canPrint || pendingCount === 0 || submitting) return;
+    await doConfirm();
+  }
+
+  // 「標記為已列印（不重印）」：把勾選的物件直接記為已列印（printCount+1），
+  // 用於「今天已經印過、但當時沒按確認」的補登記——之後批次列印會自動跳過它們。
+  // 走的是同一支確認後端，不會實際列印、也不改核心邏輯。
+  async function markAsPrinted() {
+    if (!canPrint || pendingCount === 0 || submitting) return;
+    if (!window.confirm(`確定把勾選的 ${pendingCount} 個標記為「已列印」嗎？\n\n這不會實際列印，只是把它們登記為已印，之後的批次列印（一鍵列印全部未列印）會自動跳過它們。`)) return;
+    await doConfirm((data) =>
+      data?.deduplicated
+        ? "先前已登記過（重送已忽略）。"
+        : `已標記為已列印：${(data?.printedCount ?? 0) + (data?.reprintedCount ?? 0)} 個（未實際重印）。`
+    );
   }
 
   if (error) return <div className="rounded-3xl bg-blossom-100 p-6 text-sm text-ink">{error}</div>;
@@ -395,7 +416,12 @@ export default function PrintObjectCenter({ year }: { year: number }) {
             className={`${btn} ${previewReady ? "bg-blossom-200 text-ink" : "bg-cream-200 text-ink-faint"}`}>
             {submitting ? "確認中…" : "確認完成列印"}
           </button>
-          {!previewReady && pendingCount > 0 && <span className="text-xs text-ink-faint">請先「產生列印頁 / 預覽」，成功後才能確認</span>}
+          <button onClick={markAsPrinted} disabled={pendingCount === 0 || submitting}
+            className={`${btn} bg-butter-100 text-ink-soft`}
+            title="今天已經印過、但當時沒按確認的，勾選後用這顆補登記為已列印，之後批次列印會自動跳過">
+            {submitting ? "處理中…" : "標記為已列印（不重印）"}
+          </button>
+          {!previewReady && pendingCount > 0 && <span className="text-xs text-ink-faint">要實際列印請先「產生列印頁 / 預覽」；已印過的可直接按「標記為已列印」</span>}
           {okMsg && <span className="text-xs text-sage-500">{okMsg}</span>}
           {confirmError && <span className="text-xs text-blossom-500">⚠️ {confirmError}</span>}
           {incompleteMissing.length > 0 && (

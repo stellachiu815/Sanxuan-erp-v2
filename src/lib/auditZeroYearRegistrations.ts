@@ -83,6 +83,13 @@ export async function deleteZeroYearRegistration(
         data: { deletedAt: new Date(), deletedByName: stamp },
       });
     }
+    // ⚠️ 關鍵：列印中心是讀「列印物件(AdditionalPrintItem)」，牌位／寶袋要一併軟刪，
+    // 否則刪了報名、牌位卻還留在列印清單裡（范姓 64 應為 63、兩筆地址的成因）。
+    // 民國 0 年皆 0 元、未收款，直接軟刪安全；可回收桶還原。
+    await tx.additionalPrintItem.updateMany({
+      where: { ritualRecordId, deletedAt: null },
+      data: { deletedAt: new Date(), deletedByName: stamp },
+    });
     await recordVersion(
       {
         entityType: "RitualRecord",
