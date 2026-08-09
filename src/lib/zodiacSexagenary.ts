@@ -295,6 +295,15 @@ export type ActivityYearProfileInput = {
 };
 
 /**
+ * 「活動日期未設定 → 算不出實歲」這個 issue 的固定訊息。
+ *
+ * ⚠️ 這是**非阻擋性**提醒：燈牌上根本不印實歲（只印虛歲／生肖／太歲／建生瑞生），
+ * 所以缺實歲不該擋下燈牌列印。呼叫端（見 lanternPrint.ts）以這個常數把它從
+ * 「可否列印」的判斷中排除，但仍保留在 issues 供核對表顯示為柔性提醒。
+ */
+export const ACTUAL_AGE_MISSING_ISSUE = "活動日期未設定，無法計算實歲";
+
+/**
  * 組出一筆信眾在指定活動年度的列印屬性。
  *
  * **所有計算都以 activityMinguoYear 為準，完全不讀今天日期。**
@@ -315,7 +324,7 @@ export function buildActivityYearPrintProfile(
     if (actual.ok) actualAge = actual.age;
     else issues.push(actual.reason);
   } else {
-    issues.push("活動日期未設定，無法計算實歲");
+    issues.push(ACTUAL_AGE_MISSING_ISSUE);
   }
 
   const hasBirthYear =

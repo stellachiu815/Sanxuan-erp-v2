@@ -22,6 +22,7 @@ import { prisma } from "@/lib/prisma";
 import type { ActivityType } from "@prisma/client";
 import {
   buildActivityYearPrintProfile,
+  ACTUAL_AGE_MISSING_ISSUE,
   type ActivityYearPrintProfile,
 } from "@/lib/zodiacSexagenary";
 import {
@@ -228,8 +229,10 @@ export async function buildLanternPrintBatch(
         titleText: m.gender === "女" ? "信女" : "信士", // 未填/男 → 信士
       },
       issues: profile.issues,
-      // 指令十一：資料不完整者不得列印，必須先在預檢處理
-      canPrint: profile.issues.length === 0,
+      // 指令十一：資料不完整者不得列印。但「缺實歲（活動日期未設定）」屬**非阻擋性**——
+      // 燈牌不印實歲（只印虛歲／生肖／太歲／建生瑞生），不該被它擋下；仍保留在 issues
+      // 供核對表柔性提醒。缺姓名／生日／生肖／太歲等會真正影響列印的，才擋。
+      canPrint: profile.issues.filter((i) => i !== ACTUAL_AGE_MISSING_ISSUE).length === 0,
     });
   }
 
