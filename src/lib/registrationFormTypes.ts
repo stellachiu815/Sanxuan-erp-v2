@@ -57,6 +57,9 @@ const SUGGESTED_FORM_TYPE: Partial<Record<ActivityType, RegistrationFormType>> =
   XUANTIAN_BIRTHDAY: "GENERIC",
   YAOCHI_BIRTHDAY: "GENERIC",
   ZHONGTAN_BIRTHDAY: "GENERIC",
+  // 名單型（贊普型）活動：補庫用通用參加型（選人、一人一份 × 固定單價;GENERIC 確認只需有成員）。
+  // 金額由 STORAGE_TROUSERS 項目自身固定價計算,不需牌位等專屬子表。宮燈日後新增活動類型時同樣設 GENERIC。
+  STORAGE_REPAYMENT: "GENERIC",
 };
 
 /** 建立活動時的預設表單型態建議。未涵蓋的類型回 null（需人工設定）。 */
