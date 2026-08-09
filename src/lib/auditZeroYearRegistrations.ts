@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { recordVersion } from "@/lib/recordVersion";
 
 /**
  * 找出所有「民國 0 年（或年度 ≤ 0）」的報名——這些是修正 batch-options 年度 bug
@@ -48,4 +49,67 @@ export async function auditZeroYearRegistrations(): Promise<ZeroYearAuditReport>
   }));
 
   return { ok: true, total: records.length, records };
+}
+
+/**
+ * 軟刪除一筆「民國 0 年」孤兒報名（整筆記錄＋其項目＋普渡牌位 entry 一併軟刪）。
+ * 可從回收桶還原。**安全鎖：只允許刪除 year ≤ 0 的報名,永不誤刪正常年度。**
+ */
+export async function deleteZeroYearRegistration(
+  ritualRecordId: string,
+  operatorName?: string | null
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const record = await prisma.ritualRecord.findUnique({ where: { id: ritualRecordId } });
+  if (!record) return { ok: false, status: 404, error: "找不到這筆報名" };
+  if (record.year > 0) return { ok: false, status: 400, error: "這不是民國 0 年報名，為安全起見不予刪除。" };
+  if (record.deletedAt) return { ok: true };
+
+  const stamp = operatorName ?? "系統：清除民國0年孤兒報名";
+  await prisma.$transaction(async (tx) => {
+    const after = await tx.ritualRecord.update({
+      where: { id: ritualRecordId },
+      data: { status: "CANCELLED", deletedAt: new Date(), deletedByName: stamp },
+    });
+    // 旗下報名項目一併取消＋軟刪（不再進待收款/列印/清單）。
+    await tx.ritualRegistrationItem.updateMany({
+      where: { ritualRecordId, deletedAt: null },
+      data: { status: "CANCELLED", deletedAt: new Date(), deletedByName: stamp },
+    });
+    // 普渡牌位 entry 一併軟刪（若為普渡報名）。
+    const detail = await tx.universalSalvationDetail.findUnique({ where: { ritualRecordId }, select: { id: true } });
+    if (detail) {
+      await tx.universalSalvationEntry.updateMany({
+        where: { universalSalvationId: detail.id, deletedAt: null },
+        data: { deletedAt: new Date(), deletedByName: stamp },
+      });
+    }
+    await recordVersion(
+      {
+        entityType: "RitualRecord",
+        entityId: ritualRecordId,
+        action: "UPDATE",
+        beforeData: record,
+        afterData: after,
+        operatorName,
+        changeNote: "清除民國0年孤兒報名（軟刪除，可回收桶還原）",
+      },
+      tx
+    );
+  });
+  return { ok: true };
+}
+
+/** 一次軟刪除所有「民國 0 年」孤兒報名。回實際刪除/失敗筆數。 */
+export async function deleteAllZeroYearRegistrations(
+  operatorName?: string | null
+): Promise<{ ok: true; deleted: number; failed: number }> {
+  const rows = await prisma.ritualRecord.findMany({ where: { year: { lte: 0 }, deletedAt: null }, select: { id: true } });
+  let deleted = 0;
+  let failed = 0;
+  for (const r of rows) {
+    const res = await deleteZeroYearRegistration(r.id, operatorName);
+    if (res.ok) deleted++;
+    else failed++;
+  }
+  return { ok: true, deleted, failed };
 }

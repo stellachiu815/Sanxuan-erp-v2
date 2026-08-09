@@ -209,19 +209,49 @@ function ZeroYearAudit() {
     ritualRecordId: string; householdId: string; householdName: string;
     activityType: string; year: number; status: string; createdAt: string;
   }[] = report?.records ?? [];
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [delErr, setDelErr] = useState<string | null>(null);
+
+  async function postAction(body: Record<string, unknown>) {
+    const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, { method: "POST", body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "刪除失敗");
+    return data;
+  }
+  async function delOne(id: string, name: string) {
+    if (!window.confirm(`確定刪除「${name}」這筆民國 0 年報名嗎？\n（軟刪除，可從回收桶還原）`)) return;
+    setBusyId(id); setDelErr(null);
+    try { await postAction({ action: "delete-zero-year", id, confirm: true }); await run(false); }
+    catch (e) { setDelErr(e instanceof Error ? e.message : "刪除失敗"); }
+    finally { setBusyId(null); }
+  }
+  async function delAll() {
+    if (!window.confirm(`確定要一次刪除全部 ${report?.total ?? 0} 筆民國 0 年報名嗎？\n（軟刪除，可從回收桶還原）`)) return;
+    setBusyId("__all__"); setDelErr(null);
+    try { const d = await postAction({ action: "delete-all-zero-year", confirm: true }); await run(false); window.alert(`已刪除 ${d?.report?.deleted ?? 0} 筆。`); }
+    catch (e) { setDelErr(e instanceof Error ? e.message : "刪除失敗"); }
+    finally { setBusyId(null); }
+  }
+
   return (
     <section className="rounded-2xl bg-white/70 p-5 shadow-card">
-      <h2 className="text-base font-medium text-ink">民國 0 年報名清單（唯讀）</h2>
+      <h2 className="text-base font-medium text-ink">民國 0 年報名清單（可刪除）</h2>
       <p className="mt-1 text-sm text-ink-soft">
         列出所有「<b>民國 0 年</b>」的孤兒報名——這是修正年度 bug 之前，整戶普渡報名沒選年度就送出所造成。
-        <b>只看不改</b>：點「進報名頁」把該筆的項目取消／移除，再到該戶重新報名成正確年度即可。
+        可**逐筆刪除**或**一次全部刪除**（軟刪除、可從回收桶還原）；刪除只限民國 0 年，永不影響正常年度。
       </p>
-      <div className="mt-3">
-        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="button" disabled={busy || busyId !== null} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
           {busy ? "查詢中…" : "查詢民國 0 年報名"}
         </button>
+        {report && report.total > 0 && (
+          <button type="button" disabled={busyId !== null} onClick={() => void delAll()} className="rounded-full bg-blossom-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+            {busyId === "__all__" ? "刪除中…" : `一次刪除全部（${report.total} 筆）`}
+          </button>
+        )}
       </div>
       {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {delErr && <p className="mt-2 text-sm text-blossom-500">⚠️ {delErr}</p>}
       {report && (
         <div className="mt-3 text-sm">
           <p className="text-ink">
@@ -233,7 +263,7 @@ function ZeroYearAudit() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-cream-100 text-ink-soft">
                   <tr>
-                    {["家戶", "活動類型", "年度", "狀態", "建立時間", ""].map((h) => (
+                    {["家戶", "活動類型", "年度", "狀態", "建立時間", "報名頁", "刪除"].map((h) => (
                       <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -250,6 +280,11 @@ function ZeroYearAudit() {
                       <td className="px-2 py-1.5 whitespace-nowrap">{new Date(r.createdAt).toLocaleString("zh-TW")}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap">
                         <a href={`/registration/${r.ritualRecordId}`} className="text-blossom-500 hover:underline">進報名頁 →</a>
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        <button type="button" disabled={busyId !== null} onClick={() => void delOne(r.ritualRecordId, r.householdName)} className="rounded-full bg-blossom-100 px-3 py-1 text-blossom-500 disabled:opacity-40 hover:bg-blossom-200">
+                          {busyId === r.ritualRecordId ? "刪除中…" : "刪除"}
+                        </button>
                       </td>
                     </tr>
                   ))}

@@ -18,7 +18,7 @@ import { archiveHouseholdsByCode } from "@/lib/archiveHouseholdsByCode";
 import { auditSponsorItems, restoreSponsorItem } from "@/lib/sponsorAudit";
 import { clearAllRice } from "@/lib/whiteRiceService";
 import { ensureMasterOfferingTable } from "@/lib/ensureMasterOfferingTable";
-import { auditZeroYearRegistrations } from "@/lib/auditZeroYearRegistrations";
+import { auditZeroYearRegistrations, deleteZeroYearRegistration, deleteAllZeroYearRegistrations } from "@/lib/auditZeroYearRegistrations";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -74,6 +74,19 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "zero-year-audit") {
       const report = await auditZeroYearRegistrations();
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "delete-zero-year") {
+      if (body?.confirm !== true) return NextResponse.json({ error: "請先確認，才會刪除。" }, { status: 400 });
+      const id = typeof body?.id === "string" ? body.id : "";
+      if (!id) return NextResponse.json({ error: "缺少報名 id" }, { status: 400 });
+      const res = await deleteZeroYearRegistration(id, check.operator.name);
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
+      return NextResponse.json({ ok: true });
+    }
+    if (body?.action === "delete-all-zero-year") {
+      if (body?.confirm !== true) return NextResponse.json({ error: "請先確認，才會刪除。" }, { status: 400 });
+      const report = await deleteAllZeroYearRegistrations(check.operator.name);
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "batch-confirm-us") {
