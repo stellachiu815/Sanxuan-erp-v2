@@ -266,6 +266,10 @@ export default function LanternPrintCenter({
             </button>
           </div>
 
+          {/* ⚠️ 程式強制鎖定紙張方向＋去掉瀏覽器邊界：全家燈牌＝直向、光明/太歲燈牌＝橫向。
+              不管使用者列印視窗選什麼「配置」，方向都會被這裡強制正確，不再橫印直式而爆頁。 */}
+          <style>{`@media print { @page { size: A4 ${isFamily ? "portrait" : (TABLET_PAGE_LAYOUTS[layout].landscape ? "landscape" : "portrait")}; margin: 0; } html, body { margin: 0 !important; } }`}</style>
+
           {/* V38 全家燈牌：一戶一張紙。⚠️ 不強制整頁高度（那會＋瀏覽器邊界爆出前後空白頁）；
               改用「卡片本身高度＋只在戶與戶之間分頁、最後一戶不分頁」，一戶就是一張、不多印空白。 */}
           {isFamily && (
@@ -338,6 +342,8 @@ export default function LanternPrintCenter({
               列印疏文
             </button>
           </div>
+          {/* ⚠️ 疏文一律直向、去瀏覽器邊界，不管視窗選什麼配置。 */}
+          <style>{`@media print { @page { size: A4 portrait; margin: 0; } html, body { margin: 0 !important; } }`}</style>
           <PetitionSheet data={petition} />
         </div>
       )}
