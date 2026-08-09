@@ -25,6 +25,7 @@ import {
   ACTUAL_AGE_MISSING_ISSUE,
   type ActivityYearPrintProfile,
 } from "@/lib/zodiacSexagenary";
+import { displayPersonalAddress } from "@/lib/personalAddress";
 import {
   printAge,
   printAddress,
@@ -61,10 +62,12 @@ export type LanternPrintRow = {
 
   /** 原始姓名（不轉換） */
   name: string;
-  /** 原始地址 */
+  /** 原始地址（個人優先、空退家戶） */
   address: string | null;
-  /** 已國字化的地址（燈牌／疏文用） */
+  /** 已國字化的**個人**地址（疏文用；Member.address 優先、空退家戶） */
   addressText: string;
+  /** 已國字化的**家戶（主要聯絡人）**地址（全家燈牌用；全家共用一個） */
+  householdAddressText: string;
 
   /** 依活動年度算出的完整屬性 */
   profile: ActivityYearPrintProfile;
@@ -236,15 +239,20 @@ export async function buildLanternPrintBatch(
       referenceDate: event.solarDate,
     });
 
-    const address = household.address;
+    // 地址準確性（Stella 交代）：
+    //  - 疏文＝**個人**地址（Member.address 最高權威；空白才退回家戶地址，見 personalAddress.ts），
+    //    因為同一戶不同成員可能各自不同址。
+    //  - 全家燈牌＝**家戶（主要聯絡人）**地址（householdAddressText），全家共用一個。
+    const personalAddr = displayPersonalAddress(m.address, household.address);
 
     rows.push({
       memberId: m.id,
       householdId: household.id,
       householdName: household.name,
       name: m.name,
-      address,
-      addressText: printAddress(address),
+      address: personalAddr,
+      addressText: printAddress(personalAddr),
+      householdAddressText: printAddress(household.address),
       profile,
       text: {
         activityYearText: `民國${printMinguoYear(year)}年`,

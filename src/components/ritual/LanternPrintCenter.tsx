@@ -109,7 +109,8 @@ export default function LanternPrintCenter({
         name: r.name,
         nominalAgeText: r.text.nominalAgeText,
         birthText: r.text.lunarBirthText,
-        addressText: r.addressText,
+        // 全家燈牌地址＝家戶（主要聯絡人）地址，全家共用一個（疏文才用個人地址 r.addressText）。
+        addressText: r.householdAddressText,
       });
       map.set(r.householdId, g);
     }

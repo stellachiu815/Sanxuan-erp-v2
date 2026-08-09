@@ -19,9 +19,11 @@ import type { PetitionData } from "@/lib/lanternPrint";
  * ⚠️ 只排版、不轉換；數字已在 lanternPrint.ts 轉成國字。
  */
 
-const PER_PAGE = 13; // 每頁 13 人（欄）＋封面欄，排滿 A4 直式寬（欄較寬、字更大）
 const COL_W_MM = 13; // 每欄寬（加寬 → 姓名/稱謂可更大）
-const COVER_W_MM = 20; // 封面欄較寬（醒目）
+const COVER_W_MM = 70; // 封面欄＝A4 寬的 1/3（約 7cm，對應折扇一個摺面），台北三玄宮可放很大
+const PRINTABLE_W_MM = A4_PAGE.widthMm - 12; // 扣掉紙張左右 padding（6mm×2）
+const FIRST_COUNT = Math.max(1, Math.floor((PRINTABLE_W_MM - COVER_W_MM) / COL_W_MM)); // 第一頁（含封面欄）
+const REST_COUNT = Math.max(1, Math.floor(PRINTABLE_W_MM / COL_W_MM)); // 其餘頁（滿排）
 const PAD_MM = 1.5; // 文字與格線之間留白
 
 // 各橫帶固定框（高度 mm）＋字級上下限（框固定、字依字數縮放）。
@@ -55,16 +57,21 @@ const cellBase: React.CSSProperties = {
 
 export default function PetitionSheet({ data }: { data: PetitionData }) {
   const entries = data.entries;
+  // 第一頁人數少（最右留給封面欄），其餘頁滿排。
   const pages: (typeof entries)[] = [];
-  for (let i = 0; i < entries.length; i += PER_PAGE) pages.push(entries.slice(i, i + PER_PAGE));
-  if (pages.length === 0) pages.push([]);
+  if (entries.length === 0) {
+    pages.push([]);
+  } else {
+    pages.push(entries.slice(0, FIRST_COUNT));
+    for (let i = FIRST_COUNT; i < entries.length; i += REST_COUNT) pages.push(entries.slice(i, i + REST_COUNT));
+  }
 
-  // 封面（整份最右一欄）：台北三玄宮（大）＋事由（歲次◯年安◯燈善信芳名）。
+  // 封面（整份最右一欄，寬約 7cm）：台北三玄宮（大字）＋事由（歲次◯年安◯燈善信芳名）。
   const coverTitle = "台北三玄宮";
   const coverDesc = `${data.sexagenaryText}年安${data.activityTypeLabel}善信芳名`;
-  // 封面欄字級：填滿整份表格高度（台北三玄宮約佔上 1/3、事由佔下 2/3）。
-  const coverTitleFont = Math.max(28, Math.min(56, Math.floor((TABLE_H_MM * 0.34 * 3.78) / (coverTitle.length * 1.12))));
-  const coverDescFont = Math.max(18, Math.min(36, Math.floor((TABLE_H_MM * 0.62 * 3.78) / (coverDesc.length * 1.12))));
+  // 封面字級：欄寬 7cm 可放很大；台北三玄宮佔上約 40% 高、事由佔下約 55%，都塞在整份表格高度內。
+  const coverTitleFont = Math.max(40, Math.min(88, Math.floor((TABLE_H_MM * 0.4 * 3.78) / (coverTitle.length * 1.1))));
+  const coverDescFont = Math.max(22, Math.min(42, Math.floor((TABLE_H_MM * 0.55 * 3.78) / (coverDesc.length * 1.12))));
 
   return (
     <div style={{ fontFamily: TABLET_FONT_FAMILY }}>
