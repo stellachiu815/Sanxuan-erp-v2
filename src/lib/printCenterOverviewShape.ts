@@ -39,6 +39,8 @@ export type PrintCenterActivity = {
   activityType: ActivityType | null;
   /** 解析出的活動使用年度（民國）。沒有已建立的活動時為 null。 */
   year: number | null;
+  /** 承載此活動年度的 TempleEvent id（供祭改小人頭等既有列印頁連結）。 */
+  templeEventId: string | null;
   /** 選中／排除的理由，供畫面顯示。 */
   reason: string;
   /** 是否已建立該活動年度。 */

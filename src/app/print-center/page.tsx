@@ -184,6 +184,9 @@ function PrintCenterInner() {
                 <Link href={`/lantern/GUANGMING_LANTERN/print?year=${a.year}`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">光明燈牌列印（橫式 42 張）</Link>
                 <Link href={`/lantern/TAISUI_LANTERN/print?year=${a.year}`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">太歲燈牌列印</Link>
                 <Link href={`/lantern/FAMILY_LANTERN/print?year=${a.year}`} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink hover:bg-mist-300">全家燈牌列印（一戶一張）</Link>
+                {a.templeEventId && (
+                  <Link href={`/purification/${a.templeEventId}/print`} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink hover:bg-mist-300">祭改小人頭列印（貼紙 3×11）</Link>
+                )}
               </div>
               <p className="mt-2 text-xs text-ink-faint">＊疏文（直書＋封面干支）在各燈牌列印頁內以「列印內容」切換。全家燈、疏文版面續調校。</p>
             </>

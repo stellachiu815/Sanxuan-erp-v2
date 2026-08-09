@@ -76,6 +76,7 @@ export async function resolvePrintCenterActivities(
     const activityType = RESOLVABLE_ACTIVITY_TYPES.has(group) ? (group as ActivityType) : null;
 
     let year: number | null = null;
+    let templeEventId: string | null = null;
     let reason = "";
     let hasEvent = false;
     let isInSeason = false;
@@ -85,6 +86,7 @@ export async function resolvePrintCenterActivities(
       const decision = await resolveDefaultActivityYear(activityType, now);
       if (decision.ok) {
         year = decision.candidate.year;
+        templeEventId = decision.candidate.templeEventId;
         reason = decision.reason;
         hasEvent = true;
         isPrintOpen = canPrint(decision.candidate).ok;
@@ -102,6 +104,7 @@ export async function resolvePrintCenterActivities(
       activityGroupName: groupName,
       activityType,
       year,
+      templeEventId,
       reason,
       hasEvent,
       isInSeason,

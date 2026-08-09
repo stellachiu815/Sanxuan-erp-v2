@@ -11,6 +11,7 @@ function mk(partial: Partial<PrintCenterActivity> & { activityGroup: string; act
   return {
     activityType: null,
     year: 115,
+    templeEventId: null,
     reason: "",
     hasEvent: true,
     isInSeason: false,

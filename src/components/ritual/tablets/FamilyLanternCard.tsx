@@ -21,12 +21,12 @@ export type FamilyMember = {
 
 const CARD_W_MM = 120;
 const CARD_H_MM = 100;
-const HEADER_MM = 12;
+const HEADER_MM = 16; // 標題「闔家平安　家運昌隆」放大用
 const PAD_MM = 3;
 const ADDR_W_MM = 13; // 地址欄寬（最右）
 
-// 四橫帶固定高度（mm），總高 = 卡高 - 標題 - 上下 padding。
-const BAND = { title: 10, name: 20, age: 18, birth: 34 } as const;
+// 四橫帶固定高度（mm），總高 = 卡高 - 標題 - 上下 padding = 78mm。
+const BAND = { title: 10, name: 18, age: 16, birth: 34 } as const;
 
 const V: React.CSSProperties = { writingMode: "vertical-rl", textOrientation: "upright", whiteSpace: "nowrap" };
 
@@ -72,7 +72,7 @@ export default function FamilyLanternCard({ members }: { members: FamilyMember[]
     >
       <div
         className="text-center"
-        style={{ height: `${HEADER_MM}mm`, fontSize: 24, fontWeight: 700, letterSpacing: "0.2em", lineHeight: `${HEADER_MM}mm` }}
+        style={{ height: `${HEADER_MM}mm`, fontSize: 42, fontWeight: 700, letterSpacing: "0.12em", lineHeight: `${HEADER_MM}mm`, whiteSpace: "nowrap" }}
       >
         闔家平安　家運昌隆
       </div>
