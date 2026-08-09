@@ -306,15 +306,10 @@ export default function LanternPrintCenter({
                 <LanternTablet
                   key={r.memberId}
                   entry={{
-                    lanternTypeText: batch.activityTypeLabel,
-                    activityYearText: r.text.activityYearText,
-                    sexagenaryText: r.text.sexagenaryText,
                     name: r.name,
-                    addressText: r.addressText,
                     nominalAgeText: r.text.nominalAgeText,
-                    zodiacText: r.text.zodiacText,
+                    lunarBirthText: r.text.lunarBirthText,
                     jishiText: r.text.jishiText,
-                    taisuiText: r.text.taisuiText,
                   }}
                 />
               ))}

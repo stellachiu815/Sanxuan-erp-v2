@@ -1,76 +1,59 @@
 import { TABLET_FONT_FAMILY } from "./shared";
 
 /**
- * V13.1 指令十一／十二：年度燈燈牌模板（光明燈／太歲燈／全家燈共用）。
+ * 年度燈燈牌模板（光明燈／太歲燈／全家燈共用）。
  *
- * ⚠️ 這支元件**只負責排版，不做任何轉換**。
- * 所有文字（年度、歲數、生肖、太歲、建生瑞生、地址）都已經在
- * src/lib/lanternPrint.ts 由共用的 printChinese 轉成國字後才傳進來——
- * 這是指令十二「不得在每個模板各寫一套轉換邏輯」的實作方式。
+ * ── V39 版面（依 Stella 定案）─────────────────────────────
+ * **橫式、文字由左到右，就三行**：
+ *   第一行：姓名
+ *   第二行：幾歲幾月幾日（虛歲 + 農曆生月生日）
+ *   第三行：吉時建生（男）／吉時瑞生（女）
  *
- * 套版約定（與四種牌位模板一致）：
- * - 外層容器維持 h-full w-full，尺寸由外面的 A4 版型格線決定
- * - 字體透過 TABLET_FONT_FAMILY 套用，要換標楷體只改 shared.ts
- * - 之後三玄宮提供正式燈牌設計時，只需替換這支檔案的 JSX／CSS
+ * 不再是直書、不放年度／歲次／生肖／太歲／地址（那些是核對用，不上燈牌）。
+ * 這支只負責排版，文字都已在 lanternPrint.ts 由共用 printChinese 轉成國字後傳入。
  */
 
 export type LanternTabletProps = {
-  /** 「光明燈」／「太歲燈」／「全家燈」 */
-  lanternTypeText: string;
-  /** 「民國一百一十六年」——**活動使用年度**，不是今年 */
-  activityYearText: string;
-  /** 「歲次丁未」 */
-  sexagenaryText: string;
   /** 信眾姓名（不轉換） */
   name: string;
-  /** 已國字化的地址 */
-  addressText: string;
-  /** 「三十八歲」 */
+  /** 「五十六歲」——依活動年度的虛歲 */
   nominalAgeText: string;
-  /** 生肖「馬」 */
-  zodiacText: string;
-  /** 「建生」／「瑞生」 */
+  /** 農曆生月生日「七月十八日」（不含年） */
+  lunarBirthText: string;
+  /** 「建生」（男）／「瑞生」（女） */
   jishiText: string;
-  /** 「沖太歲」等；不犯太歲為空字串 */
-  taisuiText: string;
+
+  // ↓ 舊欄位保留為可選，維持既有呼叫相容；橫式三行版面不使用。
+  lanternTypeText?: string;
+  activityYearText?: string;
+  sexagenaryText?: string;
+  addressText?: string;
+  zodiacText?: string;
+  taisuiText?: string;
 };
 
 export default function LanternTablet({ entry }: { entry: LanternTabletProps }) {
+  // 第二行：幾歲幾月幾日（虛歲 + 農曆生月生日）。
+  const line2 = `${entry.nominalAgeText}${entry.lunarBirthText}`;
+  // 第三行：吉時 + 建生／瑞生（依性別，男建生女瑞生；jishiText 已依性別帶好）。
+  const line3 = entry.jishiText ? `吉時${entry.jishiText}` : "";
+
   return (
     <div
-      className="tablet-card flex h-full w-full items-stretch justify-center gap-3 border-2 border-double border-ink bg-white px-4 py-6"
-      style={{ breakInside: "avoid", fontFamily: TABLET_FONT_FAMILY }}
+      className="tablet-card flex h-full w-full flex-col items-center justify-center border border-ink bg-white"
+      style={{
+        breakInside: "avoid",
+        fontFamily: TABLET_FONT_FAMILY,
+        padding: "1mm",
+        gap: "0.6mm",
+        textAlign: "center",
+        lineHeight: 1.12,
+        color: "#1a1a1a",
+      }}
     >
-      {/* 右側：年度與活動別 */}
-      <div
-        className="flex flex-col items-center justify-start text-xs leading-relaxed text-ink-soft"
-        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-      >
-        <span>{entry.activityYearText}</span>
-        <span>{entry.sexagenaryText}</span>
-        <span>{entry.lanternTypeText}</span>
-      </div>
-
-      {/* 中央：信眾姓名（主體） */}
-      <div
-        className="flex items-center justify-center text-center text-2xl leading-relaxed text-ink"
-        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-      >
-        {entry.name}
-      </div>
-
-      {/* 左側：歲數、生肖、建生瑞生、太歲、地址 */}
-      <div
-        className="flex flex-col items-center justify-start text-xs leading-relaxed text-ink-soft"
-        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-      >
-        {entry.nominalAgeText && <span>{entry.nominalAgeText}</span>}
-        {entry.zodiacText && <span>{`${entry.zodiacText}相`}</span>}
-        {entry.jishiText && <span>{entry.jishiText}</span>}
-        {/* 不犯太歲時整個欄位不顯示，不印「無」 */}
-        {entry.taisuiText && <span>{entry.taisuiText}</span>}
-        {entry.addressText && <span>{entry.addressText}</span>}
-      </div>
+      <span style={{ fontSize: 20, fontWeight: 600 }}>{entry.name}</span>
+      {line2 && <span style={{ fontSize: 13 }}>{line2}</span>}
+      {line3 && <span style={{ fontSize: 13 }}>{line3}</span>}
     </div>
   );
 }
