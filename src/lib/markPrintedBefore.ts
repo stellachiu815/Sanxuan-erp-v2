@@ -79,9 +79,21 @@ export async function applyMarkPrintedBefore(
   if (cands.length === 0) return { ok: true, marked: 0 };
 
   const ids = cands.map((c) => c.id);
-  // 決定性冪等鍵：同一組（年度＋時間＋類別）重跑不重複累加（confirmPrintObjects 會 dedup）。
-  const idempotencyKey = `mark-before:${year}:${before.toISOString()}:${[...wanted].sort().join(",")}`;
-  const res = await confirmPrintObjects(ids, { userId: actor.userId, operatorName: actor.operatorName ?? null, idempotencyKey });
-  if (!res.ok) return { ok: false, status: res.status, error: res.error };
-  return { ok: true, marked: (res.printedCount ?? 0) + (res.reprintedCount ?? 0) };
+  // ⚠️ 分批：confirmPrintObjects 用單一互動式交易，一次上百筆會超過交易逾時
+  //（Prisma「Transaction not found」）。每批 25 筆、各自一個決定性冪等鍵，
+  // 重跑同一批會 dedup、不重複累加；某批失敗前面已成功的仍保留。
+  const baseKey = `mark-before:${year}:${before.toISOString()}:${[...wanted].sort().join(",")}`;
+  const CHUNK = 25;
+  let marked = 0;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const res = await confirmPrintObjects(chunk, {
+      userId: actor.userId,
+      operatorName: actor.operatorName ?? null,
+      idempotencyKey: `${baseKey}:chunk${Math.floor(i / CHUNK)}`,
+    });
+    if (!res.ok) return { ok: false, status: res.status, error: `已標記 ${marked} 筆後發生錯誤：${res.error}（可再按一次繼續，已標記的不會重複）` };
+    marked += (res.printedCount ?? 0) + (res.reprintedCount ?? 0);
+  }
+  return { ok: true, marked };
 }
