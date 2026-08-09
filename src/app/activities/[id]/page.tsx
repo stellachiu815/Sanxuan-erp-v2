@@ -9,6 +9,7 @@ import SponsorPriceCard from "@/components/activities/SponsorPriceCard";
 import TabletPriceCard from "@/components/activities/TabletPriceCard";
 import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import FixedItemPriceCard from "@/components/activities/FixedItemPriceCard";
+import ActivitySettingsCard from "@/components/activities/ActivitySettingsCard";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { REGISTRATION_ITEM_SEED } from "@/lib/registrationItems";
 import { prisma } from "@/lib/prisma";
@@ -97,6 +98,9 @@ export default async function ActivityHomePage({
             items={flowItems}
           />
         )}
+
+        {/* 活動設定（受理日期／開放）——所有活動通用,建立後可隨時改,不動報名資料。 */}
+        {eventPricing && <ActivitySettingsCard templeEventId={id} />}
 
         {eventPricing?.activityType === "UNIVERSAL_SALVATION" && (
           <>
