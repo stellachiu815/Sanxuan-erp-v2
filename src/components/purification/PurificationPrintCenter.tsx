@@ -264,7 +264,7 @@ export default function PurificationPrintCenter({ purificationYearId, yearName, 
               onClick={handleDownloadPdf}
               disabled={!canDownload || pdfGenerating}
             >
-              {pdfGenerating ? "PDF 產生中…" : committed ? "下載 PDF" : "重新產生 PDF（預覽版）"}
+              {pdfGenerating ? "開啟列印中…" : committed ? "列印 / 另存 PDF" : "列印預覽 / 另存 PDF"}
             </button>
           </div>
         )}
