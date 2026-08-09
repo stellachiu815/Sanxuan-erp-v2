@@ -317,10 +317,20 @@ export default function PurificationPrintCenter({ purificationYearId, yearName, 
 
       {zoomCell && (
         <Modal title={`小人頭放大預覽（編號 ${zoomCell.view.number ?? "—"}）`} onClose={() => setZoomCell(null)}>
-          {/* 放大預覽＝直立（貼上後的樣子，2.7×7cm，放大 2 倍顯示） */}
+          {/* 放大預覽＝把「真實貼紙尺寸（約 2.66×7cm）」整個 scale(2) 放大，
+              確保跟 A4 版面裡的貼紙格長得一模一樣、只是大一號（字級不會飄）。 */}
           <div className="flex justify-center">
-            <div style={{ width: "54mm", height: "140mm", border: "1px solid #333" }}>
-              <StickerCell fields={zoomCell} orientation="preview" />
+            <div style={{ width: "53.3mm", height: "140mm", border: "1px solid #333", overflow: "hidden" }}>
+              <div
+                style={{
+                  width: "26.64mm",
+                  height: "70mm",
+                  transform: "scale(2)",
+                  transformOrigin: "top left",
+                }}
+              >
+                <StickerCell fields={zoomCell} orientation="preview" />
+              </div>
             </div>
           </div>
           {!zoomCell.readiness.canPrint && (
