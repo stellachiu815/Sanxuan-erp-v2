@@ -127,11 +127,23 @@ export default async function ActivityHomePage({
 
         {/* 補庫：固定單價設定（贊普型，一人一份 × 單價；單價存項目本身，不動資料庫）。 */}
         {eventPricing?.activityType === "STORAGE_REPAYMENT" && (
-          <FixedItemPriceCard
-            itemKey="STORAGE_TROUSERS"
-            title="補庫單價"
-            note={`民國 ${eventPricing.year} 年度補庫。報名時以此單價 × 份數（一人一份）計算應收。`}
-          />
+          <>
+            <FixedItemPriceCard
+              itemKey="STORAGE_TROUSERS"
+              title="補庫單價"
+              note={`民國 ${eventPricing.year} 年度補庫。報名時以此單價 × 份數（一人一份）計算應收。`}
+            />
+            <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+              <h2 className="text-sm text-ink">補庫報名</h2>
+              <p className="mt-1 text-xs text-ink-faint">名單型報名：選人、一人一份 × 固定單價，可幫家人朋友一起報（含新信眾自動建檔）。</p>
+              <a
+                href={`/roster-register/${id}`}
+                className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full bg-sage-200 px-4 py-2 text-sm font-medium text-ink transition hover:bg-sage-300"
+              >
+                🕯️ 現場快速報名 →
+              </a>
+            </section>
+          </>
         )}
 
         <ActivityHomeScreen
