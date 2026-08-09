@@ -191,9 +191,7 @@ const ADDITIONAL_PRINT_ITEM_PERMISSIONS: Record<Role, AdditionalPrintItemAction[
     "print",
     "reprint",
   ],
-  // V11.1.1 新增角色：ADMIN 給 SUPER_ADMIN 的全部權限，除了
-  // permanentlyDelete——需求「十三」原文明確寫「僅 SUPER_ADMIN，且需雙重
-  // 確認」，所以 ADMIN 不能永久刪除。READONLY 只給查看類權限。
+  // V39（Stella 定案）：ADMIN 全開＝與 SUPER_ADMIN 相同（只有財務中心維持唯讀）。
   ADMIN: [
     "create",
     "createExtra",
@@ -201,6 +199,7 @@ const ADDITIONAL_PRINT_ITEM_PERMISSIONS: Record<Role, AdditionalPrintItemAction[
     "modifyAfterPrint",
     "cancel",
     "restore",
+    "permanentlyDelete",
     "viewAll",
     "print",
     "reprint",
@@ -376,6 +375,7 @@ const RECEIPT_PERMISSIONS: Record<Role, ReceiptAction[]> = {
     "void",
     "reissue",
     "manageSettings",
+    "manageNumbering",
     "exportData",
     "viewAuditLog",
   ],
@@ -475,10 +475,23 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   // 這兩個獨立入口（見 src/app/system-center/page.tsx 的
   // AdminToolsSection，放在 SystemCenterGate 之外，各自用這裡對應的
   // action 個別檢查）。
-  // V14.3 角色規則修正：ADMIN **不可**管理使用者／修改角色／系統設定／備份設定
-  // （移除既有 V12 誤給的 manageUsers——使用者本輪明確要求 ADMIN 不得管理帳號）。
-  // ADMIN 可用回收桶還原（manageRecycleBin）與資料匯入（manageDataImport，屬日常作業）。
-  ADMIN: ["manageDataImport", "manageRecycleBin", "runAcceptanceScan"],
+  // V39（Stella 於 AskUserQuestion 明確定案）：ADMIN 全開＝與 SUPER_ADMIN 相同，
+  // **含系統中心、備份/還原、使用者角色管理、永久清空回收桶**（只有財務中心維持唯讀）。
+  // ⚠️ 唯一保留的安全底線在別處：不得把「最後一位最高管理員」降級（見 users [id] route），
+  //    避免整個系統沒有任何最高管理員而鎖死——這是防呆不變式，不是權限限制。
+  ADMIN: [
+    "viewSystemCenter",
+    "runBackup",
+    "downloadBackup",
+    "restoreBackup",
+    "manageGoogleDriveConnection",
+    "manageBackupSchedule",
+    "manageDataImport",
+    "manageUsers",
+    "manageRecycleBin",
+    "purgeRecycleBin",
+    "runAcceptanceScan",
+  ],
   STAFF: [],
   READONLY: [],
   FINANCE_CLERK: [],
@@ -807,8 +820,8 @@ export type ActivityAction =
 
 const ACTIVITY_PERMISSIONS: Record<Role, ActivityAction[]> = {
   SUPER_ADMIN: ["view", "create", "update", "delete", "manageSettings", "manageParticipants", "manageExpenses", "import", "print"],
-  // ADMIN：建立/修改/設定/參與人/支出/匯入/列印；不可逆永久刪除留給 SUPER_ADMIN。
-  ADMIN: ["view", "create", "update", "manageSettings", "manageParticipants", "manageExpenses", "import", "print"],
+  // V39（Stella 定案）：ADMIN 全開＝與 SUPER_ADMIN 相同（含 delete）。
+  ADMIN: ["view", "create", "update", "delete", "manageSettings", "manageParticipants", "manageExpenses", "import", "print"],
   // STAFF：一般活動更新、參與人新增修改、列印；禁止核心設定/匯入/刪除/支出。
   STAFF: ["view", "update", "manageParticipants", "print"],
   READONLY: ["view"],
@@ -826,8 +839,8 @@ export type TemplateAction = "view" | "create" | "update" | "activate" | "seed" 
 
 const TEMPLATE_PERMISSIONS: Record<Role, TemplateAction[]> = {
   SUPER_ADMIN: ["view", "create", "update", "activate", "seed", "delete"],
-  // ADMIN：建立/修改/啟用；seed 與永久刪除留給 SUPER_ADMIN。
-  ADMIN: ["view", "create", "update", "activate"],
+  // V39（Stella 定案）：ADMIN 全開＝與 SUPER_ADMIN 相同（含 seed／delete）。
+  ADMIN: ["view", "create", "update", "activate", "seed", "delete"],
   STAFF: ["view"],
   READONLY: ["view"],
   FINANCE_CLERK: [],

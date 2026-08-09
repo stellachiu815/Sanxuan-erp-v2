@@ -40,20 +40,19 @@ test("SUPER_ADMIN：看得到全部管理入口", () => {
   assert.equal(canSystem(r, "purgeRecycleBin"), true); // 永久刪除
 });
 
-test("ADMIN：看不到使用者管理／備份還原／seed／僅 SUPER 的永久刪除", () => {
+test("ADMIN（V39 全開）：使用者管理／備份還原／seed／永久刪除全部看得到（只有財務唯讀）", () => {
   const r: Role = "ADMIN";
-  // 看得到：匯入、回收區（還原）、系統管理入口、日常模組管理
   assert.equal(homeShowImport(r), true);
   assert.equal(homeShowRecycleBin(r), true);
   assert.equal(homeShowSystemCenter(r), true);
   assert.equal(canTemplate(r, "create"), true);
   assert.equal(canCollection(r, "voidPayment"), true);
-  // 看不到：
-  assert.equal(canSystem(r, "manageUsers"), false); // 使用者管理
-  assert.equal(canSystem(r, "restoreBackup"), false); // 備份還原
-  assert.equal(canSystem(r, "viewSystemCenter"), false); // 備份/還原/GoogleDrive 主選單
-  assert.equal(canTemplate(r, "seed"), false); // 模板 seed
-  assert.equal(canSystem(r, "purgeRecycleBin"), false); // 永久刪除（僅 SUPER）
+  // V39 定案：全開
+  assert.equal(canSystem(r, "manageUsers"), true); // 使用者管理
+  assert.equal(canSystem(r, "restoreBackup"), true); // 備份還原
+  assert.equal(canSystem(r, "viewSystemCenter"), true); // 系統管理主選單
+  assert.equal(canTemplate(r, "seed"), true); // 模板 seed
+  assert.equal(canSystem(r, "purgeRecycleBin"), true); // 永久清空回收桶
 });
 
 test("STAFF：日常操作可；使用者管理／匯入／核心設定／永久刪除／備份還原／模板管理不可", () => {

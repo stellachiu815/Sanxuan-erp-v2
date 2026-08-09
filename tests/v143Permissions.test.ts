@@ -7,6 +7,7 @@ import {
   canTemplate,
   canPurification,
   canSystem,
+  canFinance,
   type Role,
 } from "../src/lib/permissions";
 
@@ -61,28 +62,32 @@ test("STAFF：日常允許；刪除/匯入/使用者管理/seed/備份還原/核
   assert.equal(canOffering(r, "permanentlyDelete"), false);
 });
 
-test("ADMIN：模組管理可；使用者管理/系統設定/備份還原/seed/永久刪除禁止", () => {
+test("ADMIN（V39 全開）：與 SUPER_ADMIN 相同，含使用者/系統/備份還原/seed/永久刪除（只有財務唯讀）", () => {
   const r: Role = "ADMIN";
-  // 允許
+  // V39 定案：ADMIN 全開
   assert.equal(canCollection(r, "recordPayment"), true);
   assert.equal(canCollection(r, "voidPayment"), true);
   assert.equal(canCollection(r, "refund"), true);
   assert.equal(canActivity(r, "create"), true);
   assert.equal(canActivity(r, "manageSettings"), true);
   assert.equal(canActivity(r, "import"), true);
+  assert.equal(canActivity(r, "delete"), true);
   assert.equal(canPurification(r, "manageYears"), true);
   assert.equal(canPurification(r, "manageBannedNumbers"), true);
   assert.equal(canTemplate(r, "create"), true);
   assert.equal(canTemplate(r, "activate"), true);
+  assert.equal(canTemplate(r, "seed"), true);
+  assert.equal(canTemplate(r, "delete"), true);
   assert.equal(canSystem(r, "manageRecycleBin"), true);
-  // 禁止
-  assert.equal(canSystem(r, "manageUsers"), false);
-  assert.equal(canSystem(r, "viewSystemCenter"), false);
-  assert.equal(canSystem(r, "restoreBackup"), false);
-  assert.equal(canSystem(r, "manageBackupSchedule"), false);
-  assert.equal(canTemplate(r, "seed"), false);
-  assert.equal(canTemplate(r, "delete"), false);
-  assert.equal(canActivity(r, "delete"), false);
+  assert.equal(canSystem(r, "manageUsers"), true);
+  assert.equal(canSystem(r, "viewSystemCenter"), true);
+  assert.equal(canSystem(r, "restoreBackup"), true);
+  assert.equal(canSystem(r, "manageBackupSchedule"), true);
+  assert.equal(canSystem(r, "purgeRecycleBin"), true);
+  assert.equal(canOffering(r, "permanentlyDelete"), true);
+  // 唯一例外：財務中心維持唯讀（寫入類 false）
+  assert.equal(canFinance(r, "createEntry"), false);
+  assert.equal(canFinance(r, "view"), true);
 });
 
 test("SUPER_ADMIN：全部合法管理動作允許", () => {

@@ -1827,9 +1827,9 @@ export async function removeRegisteredItem(
   if (Number(item.amountPaid) > 0) {
     return { ok: false, status: 409, error: "此項目已有收款／收據，請先於收款管理處理退款後再取消" };
   }
-  if (item.printCount > 0 || item.printedAt) {
-    return { ok: false, status: 409, error: "此項目已列印，不得直接取消；如需作廢請依既有補印／作廢流程處理" };
-  }
+  // V39（Stella 定案）：「已列印」不再擋刪除——資料錯就要能刪，不能因為印過就鎖死。
+  // 這是**軟刪除**（deletedAt，可從回收桶還原），且會留操作軌跡；列印歷史（printedAt/printCount）
+  // 仍保留在被軟刪的紀錄上，不影響稽核。仍保留「已收款」擋刪（有錢的先退款，保護財務）。
 
   // V27.5：牌位類（US_ANCESTOR／US_ZHENGHUN／US_YUANQIN／US_WUYUAN）項目與其
   // UniversalSalvationEntry 是 1:1。取消 item 時**在同一 transaction 內**同步軟刪對應 Entry，

@@ -18,16 +18,20 @@
  * StickerSheet.tsx 不會再有任何大小寫層級的衝突，兩個檔案在任何檔案
  * 系統上都能穩定共存。純粹改名＋修正 import，沒有改動任何數值或版型。
  */
+// Stella 定案：每格 7cm × 2.7cm（70×27mm）、3欄×11列＝33格、鋪滿整張 A4，故留白與格距皆 0。
 export const STICKER_A4_PAGE = {
   widthMm: 210,
   heightMm: 297,
-  /** 紙張四周留白（不列印區域，對應「裁切位置固定」的安全邊界）。 */
-  marginMm: 8,
-  /** 每格之間的間距，可調整項目之一（需求「八」：格距可調整）。 */
-  gapMm: 2,
+  /** 紙張四周留白（0：貼紙鋪滿整張 A4）。 */
+  marginMm: 0,
+  /** 每格之間的間距（0：貼紙相鄰無縫）。 */
+  gapMm: 0,
   cols: 3,
   rows: 11,
   perPage: 33,
+  /** 每格實體尺寸：7cm × 2.7cm（貼紙躺著印，內容轉 90 度直立、對應直式貼）。 */
+  cellWidthMm: 70,
+  cellHeightMm: 27,
 } as const;
 
 /** className「sticker-print-sheet」是 PDF 匯出尋找每一頁的依據，跟牌位列印同慣例，請勿更改。 */

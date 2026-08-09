@@ -48,7 +48,7 @@ test("家戶管理：合併/拆分/轉移/改編號/封存 僅 SUPER_ADMIN 與 A
 test("活動管理：STAFF 限一般更新/參與人/列印；建立/匯入/支出/設定/刪除禁止；刪除僅 SUPER_ADMIN", () => {
   assert.ok(canActivity("STAFF", "update") && canActivity("STAFF", "manageParticipants") && canActivity("STAFF", "print"));
   for (const a of ["create", "delete", "import", "manageExpenses", "manageSettings"] as const) assert.ok(!canActivity("STAFF", a), `STAFF 不可 ${a}`);
-  assert.ok(canActivity("SUPER_ADMIN", "delete") && !canActivity("ADMIN", "delete"), "永久刪除僅 SUPER_ADMIN");
+  assert.ok(canActivity("SUPER_ADMIN", "delete") && canActivity("ADMIN", "delete"), "V39：ADMIN 全開，含 delete");
   assert.ok(canRitualRegistration("STAFF", "register") && !canRitualRegistration("READONLY", "register"));
   for (const a of ACTIVITY_MUTATIONS) assert.ok(!canActivity("READONLY", a), `READONLY 不可 ${a}`);
 });
@@ -89,21 +89,16 @@ test("收據：STAFF 可開立/列印/補印/匯出，不可作廢/換開；作�
   assert.ok(!canReceipt("STAFF", "void") && !canReceipt("STAFF", "reissue"));
   assert.ok(canApproveReceiptVoidOrReissue("SUPER_ADMIN") && canApproveReceiptVoidOrReissue("ADMIN"));
   assert.ok(!canApproveReceiptVoidOrReissue("STAFF") && !canApproveReceiptVoidOrReissue("READONLY"));
-  assert.ok(canReceipt("SUPER_ADMIN", "manageNumbering") && !canReceipt("ADMIN", "manageNumbering"));
+  assert.ok(canReceipt("SUPER_ADMIN", "manageNumbering") && canReceipt("ADMIN", "manageNumbering"));
 });
 
-test("系統管理：使用者/備份/還原/雲端連線 僅 SUPER_ADMIN；ADMIN 限匯入/回收桶/驗收掃描；STAFF/READONLY 全無", () => {
-  for (const a of ["viewSystemCenter", "manageUsers", "restoreBackup", "runBackup", "downloadBackup", "manageGoogleDriveConnection", "manageBackupSchedule", "purgeRecycleBin"] as const) {
-    assert.ok(canSystem("SUPER_ADMIN", a) && !canSystem("ADMIN", a), `${a} 僅 SUPER_ADMIN`);
-  }
-  for (const a of ["manageDataImport", "manageRecycleBin", "runAcceptanceScan"] as const) assert.ok(canSystem("ADMIN", a), `ADMIN 可 ${a}`);
+test("系統管理（V39 ADMIN 全開）：ADMIN 與 SUPER_ADMIN 相同（含使用者/備份/還原/雲端/清空）；STAFF/READONLY 全無", () => {
+  for (const a of SYSTEM_ALL) assert.ok(canSystem("SUPER_ADMIN", a) && canSystem("ADMIN", a), `SUPER/ADMIN 皆可 ${a}`);
   for (const a of SYSTEM_ALL) assert.ok(!canSystem("STAFF", a) && !canSystem("READONLY", a), `STAFF/READONLY 不可 ${a}`);
 });
 
-test("模板：seed/永久刪除 僅 SUPER_ADMIN；ADMIN 可建立/修改/啟用；STAFF/READONLY 只讀", () => {
-  assert.ok(canTemplate("SUPER_ADMIN", "seed") && canTemplate("SUPER_ADMIN", "delete"));
-  assert.ok(!canTemplate("ADMIN", "seed") && !canTemplate("ADMIN", "delete"));
-  assert.ok(canTemplate("ADMIN", "create") && canTemplate("ADMIN", "activate"));
+test("模板（V39 ADMIN 全開）：ADMIN 與 SUPER_ADMIN 相同（含 seed／delete）；STAFF/READONLY 只讀", () => {
+  for (const a of ["seed", "delete", "create", "update", "activate"] as const) assert.ok(canTemplate("SUPER_ADMIN", a) && canTemplate("ADMIN", a), `SUPER/ADMIN 皆可 ${a}`);
   assert.ok(canTemplate("STAFF", "view") && !canTemplate("STAFF", "create"));
 });
 
