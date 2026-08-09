@@ -136,12 +136,20 @@ export default async function ActivityHomePage({
             <section className="rounded-3xl bg-white/70 p-6 shadow-card">
               <h2 className="text-sm text-ink">補庫報名</h2>
               <p className="mt-1 text-xs text-ink-faint">名單型報名：選人、一人一份 × 固定單價，可幫家人朋友一起報（含新信眾自動建檔）。</p>
-              <a
-                href={`/roster-register/${id}`}
-                className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full bg-sage-200 px-4 py-2 text-sm font-medium text-ink transition hover:bg-sage-300"
-              >
-                🕯️ 現場快速報名 →
-              </a>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={`/roster-register/${id}`}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-full bg-sage-200 px-4 py-2 text-sm font-medium text-ink transition hover:bg-sage-300"
+                >
+                  🕯️ 現場快速報名 →
+                </a>
+                <a
+                  href={`/print-center/rosters/STORAGE_TROUSERS/${eventPricing.year}`}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-full bg-cream-200 px-4 py-2 text-sm text-ink-soft transition hover:bg-cream-300"
+                >
+                  📋 報名總名單 →
+                </a>
+              </div>
             </section>
           </>
         )}

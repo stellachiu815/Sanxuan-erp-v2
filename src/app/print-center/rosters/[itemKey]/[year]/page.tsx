@@ -113,15 +113,20 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
   if (error) return <p className="p-6 text-sm text-blossom-500">{error}</p>;
   if (!roster) return <p className="p-6 text-sm text-ink-faint">讀取中…</p>;
 
-  // V16：白米列印只需「姓名＋斤數」（沿用 US_RICE_ROSTER + 同一列印中心，不建第二套列印）。
+  // 簡化版名單（只需「姓名＋數量」）：白米（斤數）、補庫（份數）——方便核對，不列金額/家戶。
   // V21：列印預檢未通過（有缺漏欄位）時，不得直接列印。
   const blocked = preflight.length > 0;
   const isRice = itemKey === "US_RICE";
-  if (isRice) {
+  const isStorage = itemKey === "STORAGE_TROUSERS";
+  if (isRice || isStorage) {
+    const title = isRice ? "白米認購名單" : "補庫報名名單";
+    const qtyLabel = isRice ? "斤數" : "份數";
+    const qtyUnit = isRice ? "斤" : "份";
+    const emptyText = isRice ? "目前沒有已確認的白米認購。" : "目前沒有已確認的補庫報名。";
     return (
       <main className="mx-auto max-w-2xl px-6 py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
-          <h1 className="text-lg text-ink">白米認購名單（民國 {roster.year} 年）</h1>
+          <h1 className="text-lg text-ink">{title}（民國 {roster.year} 年）</h1>
           <div className="flex items-center gap-2">
             {blocked && <span className="text-sm text-blossom-500">預檢未通過</span>}
             <RosterPrintButton itemKey={itemKey} year={year} disabled={blocked} count={roster.rows.length} onPrinted={load} />
@@ -131,13 +136,13 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
           <p className="mb-3 text-xs text-ink-faint print:hidden">使用模板：{roster.printDocumentKeys.join("、")}</p>
         )}
         <PreflightNotice issues={preflight} />
-        <h1 className="mb-2 hidden text-center text-lg print:block">白米認購名單（民國 {roster.year} 年）</h1>
+        <h1 className="mb-2 hidden text-center text-lg print:block">{title}（民國 {roster.year} 年）</h1>
         <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-ink/20 text-xs text-ink-faint">
               <th className="px-2 py-1.5">順序</th>
               <th className="px-2 py-1.5">姓名</th>
-              <th className="px-2 py-1.5">斤數</th>
+              <th className="px-2 py-1.5">{qtyLabel}</th>
             </tr>
           </thead>
           <tbody>
@@ -145,18 +150,18 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
               <tr key={r.registrationItemId} className="border-b border-ink/10">
                 <td className="px-2 py-1.5 tabular-nums text-ink-faint">{r.registrationOrder ?? "—"}</td>
                 <td className="px-2 py-1.5 text-ink">{r.memberName ?? r.householdName}</td>
-                <td className="px-2 py-1.5 text-ink-soft">{r.quantity} 斤</td>
+                <td className="px-2 py-1.5 text-ink-soft">{r.quantity} {qtyUnit}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-t border-ink/20 text-sm text-ink">
               <td className="px-2 py-1.5" colSpan={2}>合計</td>
-              <td className="px-2 py-1.5">{roster.totalQuantity} 斤</td>
+              <td className="px-2 py-1.5">{roster.totalQuantity} {qtyUnit}</td>
             </tr>
           </tfoot>
         </table>
-        {roster.rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">目前沒有已確認的白米認購。</p>}
+        {roster.rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">{emptyText}</p>}
       </main>
     );
   }
