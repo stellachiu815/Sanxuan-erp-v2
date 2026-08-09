@@ -8,6 +8,8 @@ import QuickActionsPanel from "@/components/household/QuickActionsPanel";
 import AnnualLanternPickerButton from "@/components/lantern/AnnualLanternPickerButton";
 import HouseholdUniversalSalvationButton from "@/components/ritual/HouseholdUniversalSalvationButton";
 import MemberRegisterButton from "@/components/devotee/MemberRegisterButton";
+import CurrentActivitySettlementCard from "@/components/household/CurrentActivitySettlementCard";
+import { getHouseholdCurrentActivitySettlements } from "@/lib/householdActivitySettlement";
 
 export default async function HouseholdPage({
   params,
@@ -34,6 +36,11 @@ export default async function HouseholdPage({
     return Number.isFinite(y) && y > 0 ? y : null;
   })();
   const household = await getHouseholdDetail(id);
+
+  // 本次活動結算（唯讀、撈真實報名、自動鎖定當季活動）。查詢失敗不擋整頁。
+  const settlements = household
+    ? await getHouseholdCurrentActivitySettlements(id).catch(() => [])
+    : [];
 
   if (!household) {
     // notFound() 本身在執行期一定會中止渲染；這裡多加一行 throw 只是為了讓
@@ -84,6 +91,9 @@ export default async function HouseholdPage({
             <InfoRow label="地址" value={household.address} className="sm:col-span-2" />
           </dl>
         </section>
+
+        {/* ①-b 本次活動結算——放在最顯眼處：信眾一問「我家多少錢」即時查看 */}
+        <CurrentActivitySettlementCard settlements={settlements} />
 
         {/* ② 家戶成員 */}
         <section className="rounded-3xl bg-white/70 p-8 shadow-card">
