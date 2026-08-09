@@ -51,9 +51,9 @@ export default function LanternTablet({ entry }: { entry: LanternTabletProps }) 
         color: "#1a1a1a",
       }}
     >
-      <span style={{ fontSize: 20, fontWeight: 600 }}>{entry.name}</span>
-      {line2 && <span style={{ fontSize: 13 }}>{line2}</span>}
-      {line3 && <span style={{ fontSize: 13 }}>{line3}</span>}
+      <span style={{ fontSize: 26, fontWeight: 700 }}>{entry.name}</span>
+      {line2 && <span style={{ fontSize: 16 }}>{line2}</span>}
+      {line3 && <span style={{ fontSize: 16 }}>{line3}</span>}
     </div>
   );
 }
