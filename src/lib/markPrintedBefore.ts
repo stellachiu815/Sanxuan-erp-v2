@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { confirmPrintObjects } from "@/lib/additionalPrintItems";
+import { batchOf } from "@/lib/TabletBatchService";
 
 /**
  * 「把某時間點之前建立的未列印物件，一次補登記為已列印」。
@@ -13,14 +14,15 @@ import { confirmPrintObjects } from "@/lib/additionalPrintItems";
  * 分桶依據：POCKET→寶袋(紅)；TABLET 再看來源牌位類別→祖先/乙位(黃) 或 冤親/無緣(粉紅)。
  */
 
-export type PaperBucket = "ancestor-soul" | "creditor-unborn" | "pocket";
-
-const YELLOW = new Set(["ANCESTOR_LINE", "INDIVIDUAL_SOUL"]);
-const PINK = new Set(["DEBT_CREDITOR", "UNBORN_CHILD"]);
+// 桶＝系統批次分類（與列印中心 batchOf 完全一致）：
+//   ancestor-soul＝祖先/乙位/**本宅地基主**（黃紙）；creditor＝冤親/無緣（粉紅）；pocket＝寶袋（紅）。
+// ⚠️ 一定要用 batchOf,不能只看原始類別——「本宅地基主」類別雖是 UNBORN_CHILD,
+//    但實際歸黃紙批次;過去照原始類別分粉紅,導致勾粉紅時誤標地基主(Stella 實測回報)。
+export type PaperBucket = "ancestor-soul" | "creditor" | "pocket";
 
 type Candidate = { id: string; bucket: PaperBucket };
 
-/** 撈出「year 年度、before 之前建立、仍未列印」的列印物件，並分桶。 */
+/** 撈出「year 年度、before 之前建立、仍未列印」的列印物件，並用 batchOf 分桶。 */
 async function collectCandidates(year: number, before: Date): Promise<Candidate[]> {
   const rows = await prisma.additionalPrintItem.findMany({
     where: {
@@ -30,23 +32,27 @@ async function collectCandidates(year: number, before: Date): Promise<Candidate[
       createdAt: { lt: before },
       ritualRecord: { year, activityType: "UNIVERSAL_SALVATION", deletedAt: null },
     },
-    select: { id: true, itemType: true, sourceEntryId: true },
+    select: { id: true, itemType: true, sourceEntryId: true, printName: true },
   });
 
-  // TABLET 需要來源牌位類別來分「黃 / 粉紅」；一次撈齊（非 N+1）。
+  // TABLET 需要來源牌位類別＋主文名（判「地基主」）；一次撈齊（非 N+1）。
   const tabletSourceIds = [...new Set(rows.filter((r) => r.itemType === "TABLET").map((r) => r.sourceEntryId))];
   const entries = tabletSourceIds.length
-    ? await prisma.universalSalvationEntry.findMany({ where: { id: { in: tabletSourceIds } }, select: { id: true, category: true } })
+    ? await prisma.universalSalvationEntry.findMany({ where: { id: { in: tabletSourceIds } }, select: { id: true, category: true, displayName: true } })
     : [];
-  const catById = new Map(entries.map((e) => [e.id, e.category]));
+  const entryById = new Map(entries.map((e) => [e.id, e]));
 
   const out: Candidate[] = [];
   for (const r of rows) {
-    if (r.itemType === "POCKET") { out.push({ id: r.id, bucket: "pocket" }); continue; }
-    const cat = catById.get(r.sourceEntryId) ?? "";
-    if (YELLOW.has(cat)) out.push({ id: r.id, bucket: "ancestor-soul" });
-    else if (PINK.has(cat)) out.push({ id: r.id, bucket: "creditor-unborn" });
-    // 其他（理論上不會有）不納入，避免誤標。
+    const entry = entryById.get(r.sourceEntryId);
+    // batchOf：POCKET→pocket；TABLET 依類別＋主文（地基主→黃）分流，與列印中心一致。
+    const bucket = batchOf({
+      itemType: r.itemType,
+      sourceCategory: entry?.category ?? "",
+      printMainText: r.printName ?? null,
+      sourceDisplayName: entry?.displayName ?? "",
+    });
+    if (bucket) out.push({ id: r.id, bucket });
   }
   return out;
 }
@@ -55,13 +61,13 @@ export type MarkPrintedPreview = {
   ok: true;
   year: number;
   before: string;
-  counts: { "ancestor-soul": number; "creditor-unborn": number; pocket: number; total: number };
+  counts: { "ancestor-soul": number; creditor: number; pocket: number; total: number };
 };
 
 /** 預覽：各桶有幾筆符合（純讀取，不寫入）。 */
 export async function previewMarkPrintedBefore(year: number, before: Date): Promise<MarkPrintedPreview> {
   const cands = await collectCandidates(year, before);
-  const counts = { "ancestor-soul": 0, "creditor-unborn": 0, pocket: 0, total: cands.length };
+  const counts = { "ancestor-soul": 0, creditor: 0, pocket: 0, total: cands.length };
   for (const c of cands) counts[c.bucket]++;
   return { ok: true, year, before: before.toISOString(), counts };
 }

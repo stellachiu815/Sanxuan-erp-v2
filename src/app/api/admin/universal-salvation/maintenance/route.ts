@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       }
       // apply：需 confirm=true
       if (body?.confirm !== true) return NextResponse.json({ error: "請先確認，才會標記。" }, { status: 400 });
-      const valid: PaperBucket[] = ["ancestor-soul", "creditor-unborn", "pocket"];
+      const valid: PaperBucket[] = ["ancestor-soul", "creditor", "pocket"];
       const buckets = (Array.isArray(body?.buckets) ? body.buckets : []).filter(
         (b): b is PaperBucket => typeof b === "string" && (valid as string[]).includes(b)
       );

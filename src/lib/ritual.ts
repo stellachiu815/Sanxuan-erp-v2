@@ -678,7 +678,32 @@ export async function createUniversalSalvationEntry(
 
   const universalSalvationId = existing.universalSalvation.id;
 
-  const yangshangFirst = input.yangshangNames && input.yangshangNames.length > 0 ? input.yangshangNames[0] : input.yangshangName ?? null;
+  // 陽上人自動帶入（Stella 交代）：歷代祖先／乙位正魂若沒填陽上人，預設帶入本戶「主要聯絡人」
+  // （Household.contactName，退而求其次取 isPrimaryContact 成員姓名），仍可在畫面修改。
+  // 目的：資料完整度通過、報名可確認成正式、不卡草稿。冤親／無緣不套用（規則本就不要求陽上人）。
+  const inputYangshangNames =
+    input.yangshangNames && input.yangshangNames.length > 0
+      ? input.yangshangNames
+      : input.yangshangName
+        ? [input.yangshangName]
+        : [];
+  let effectiveYangshangNames = inputYangshangNames;
+  if (
+    effectiveYangshangNames.length === 0 &&
+    (input.category === "ANCESTOR_LINE" || input.category === "INDIVIDUAL_SOUL")
+  ) {
+    const hh = await client.household.findUnique({ where: { id: householdId }, select: { contactName: true } });
+    let contact = (hh?.contactName ?? "").trim();
+    if (!contact) {
+      const pc = await client.member.findFirst({
+        where: { householdId, isPrimaryContact: true, deletedAt: null },
+        select: { name: true },
+      });
+      contact = (pc?.name ?? "").trim();
+    }
+    if (contact) effectiveYangshangNames = [contact];
+  }
+  const yangshangFirst = effectiveYangshangNames.length > 0 ? effectiveYangshangNames[0] : null;
 
   const run = async (tx: DbClient) => {
     // V27.5：重新報名恢復——若本 record 已有「軟刪」的同一牌位 Entry（同分類＋正規化姓名＋
@@ -709,7 +734,7 @@ export async function createUniversalSalvationEntry(
           deletedByName: null,
           // 更新為本次輸入內容（陽上人／地址／備註）；不動 sortOrder/建立時間。
           yangshangName: yangshangFirst,
-          yangshangNames: input.yangshangNames ?? [],
+          yangshangNames: effectiveYangshangNames,
           tabletAddress: resolvedTabletAddress,
           notes: input.notes ?? null,
         },
@@ -741,10 +766,8 @@ export async function createUniversalSalvationEntry(
         category: input.category,
         displayName: input.displayName,
         // 舊欄位保留：以首位陽上人同步 yangshangName，讓未升級的讀取路徑仍看得到名字。
-        yangshangName: input.yangshangNames && input.yangshangNames.length > 0
-          ? input.yangshangNames[0]
-          : input.yangshangName ?? null,
-        yangshangNames: input.yangshangNames ?? [],
+        yangshangName: yangshangFirst,
+        yangshangNames: effectiveYangshangNames,
         tabletAddress: resolvedTabletAddress,
         notes: input.notes ?? null,
         sortOrder: nextSortOrder,
@@ -772,7 +795,7 @@ export async function createUniversalSalvationEntry(
         category: input.category,
         displayName: input.displayName,
         tabletAddress: resolvedTabletAddress,
-        yangshangNames: input.yangshangNames ?? (input.yangshangName ? [input.yangshangName] : []),
+        yangshangNames: effectiveYangshangNames,
         operatorName,
       });
     }

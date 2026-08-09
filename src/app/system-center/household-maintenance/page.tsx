@@ -308,16 +308,16 @@ function MarkPrintedBefore() {
     const p = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   });
-  const [buckets, setBuckets] = useState<Record<string, boolean>>({ "creditor-unborn": true, pocket: true, "ancestor-soul": false });
+  const [buckets, setBuckets] = useState<Record<string, boolean>>({ creditor: true, pocket: true, "ancestor-soul": false });
   const [report, setReport] = useState<{ counts: Record<string, number> } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const BUCKET_LABEL: Record<string, string> = {
-    "creditor-unborn": "冤親債主／無緣（粉紅紙）",
+    creditor: "冤親債主／無緣（粉紅紙）",
     pocket: "寶袋（紅紙）",
-    "ancestor-soul": "祖先／乙位正魂（黃紙）",
+    "ancestor-soul": "祖先／乙位正魂（含本宅地基主，黃紙）",
   };
 
   async function post(action: string, extra: Record<string, unknown>) {
@@ -360,7 +360,7 @@ function MarkPrintedBefore() {
         </label>
       </div>
       <div className="mt-3 flex flex-wrap gap-4">
-        {(["creditor-unborn", "pocket", "ancestor-soul"] as const).map((b) => (
+        {(["creditor", "pocket", "ancestor-soul"] as const).map((b) => (
           <label key={b} className="flex items-center gap-2 text-sm text-ink-soft">
             <input type="checkbox" checked={!!buckets[b]} onChange={(e) => setBuckets((prev) => ({ ...prev, [b]: e.target.checked }))} />
             {BUCKET_LABEL[b]}
@@ -377,9 +377,9 @@ function MarkPrintedBefore() {
         <div className="mt-3 rounded-lg bg-cream-50 p-3 text-sm text-ink">
           <p className="text-ink-soft">此時間前建立、仍未列印的筆數：</p>
           <ul className="mt-1 flex flex-wrap gap-x-6 gap-y-1">
-            <li>冤親／無緣（粉紅）：<b className="text-blossom-500">{report.counts["creditor-unborn"] ?? 0}</b></li>
+            <li>冤親／無緣（粉紅）：<b className="text-blossom-500">{report.counts["creditor"] ?? 0}</b></li>
             <li>寶袋（紅）：<b className="text-blossom-500">{report.counts["pocket"] ?? 0}</b></li>
-            <li>祖先／乙位（黃）：<b>{report.counts["ancestor-soul"] ?? 0}</b>（黃紙預設不標記）</li>
+            <li>祖先／乙位／地基主（黃）：<b>{report.counts["ancestor-soul"] ?? 0}</b>（黃紙預設不標記）</li>
           </ul>
         </div>
       )}
