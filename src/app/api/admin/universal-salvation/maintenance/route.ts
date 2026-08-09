@@ -19,6 +19,7 @@ import { auditSponsorItems, restoreSponsorItem } from "@/lib/sponsorAudit";
 import { clearAllRice } from "@/lib/whiteRiceService";
 import { ensureMasterOfferingTable } from "@/lib/ensureMasterOfferingTable";
 import { auditZeroYearRegistrations, deleteZeroYearRegistration, deleteAllZeroYearRegistrations } from "@/lib/auditZeroYearRegistrations";
+import { previewMarkPrintedBefore, applyMarkPrintedBefore, type PaperBucket } from "@/lib/markPrintedBefore";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
   const check = await assertSystemPermissionForOperator(await readOperatorUserId(request), "purgeRecycleBin");
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
-  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[]; id?: string; source?: string; query?: string; itemId?: string };
+  let body: { action?: string; commit?: boolean; confirm?: boolean; year?: number; keepIds?: string[]; codes?: string[]; id?: string; source?: string; query?: string; itemId?: string; before?: string; buckets?: unknown[] };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 }); }
 
   const commit = body?.commit === true;
@@ -88,6 +89,25 @@ export async function POST(request: NextRequest) {
       if (body?.confirm !== true) return NextResponse.json({ error: "請先確認，才會刪除。" }, { status: 400 });
       const report = await deleteAllZeroYearRegistrations(check.operator.name);
       return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "mark-printed-before-preview" || body?.action === "mark-printed-before-apply") {
+      const before = typeof body?.before === "string" ? new Date(body.before) : null;
+      if (!before || Number.isNaN(before.getTime())) {
+        return NextResponse.json({ error: "請提供有效的時間切點" }, { status: 400 });
+      }
+      if (body.action === "mark-printed-before-preview") {
+        const report = await previewMarkPrintedBefore(year, before);
+        return NextResponse.json({ ok: true, report });
+      }
+      // apply：需 confirm=true
+      if (body?.confirm !== true) return NextResponse.json({ error: "請先確認，才會標記。" }, { status: 400 });
+      const valid: PaperBucket[] = ["ancestor-soul", "creditor-unborn", "pocket"];
+      const buckets = (Array.isArray(body?.buckets) ? body.buckets : []).filter(
+        (b): b is PaperBucket => typeof b === "string" && (valid as string[]).includes(b)
+      );
+      const res = await applyMarkPrintedBefore(year, before, buckets, { userId: check.operator.id, operatorName: check.operator.name });
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
+      return NextResponse.json({ ok: true, marked: res.marked });
     }
     if (body?.action === "batch-confirm-us") {
       const report = await batchConfirmUniversalSalvation(year, { commit, operatorName: check.operator.name });

@@ -32,6 +32,7 @@ function Inner() {
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
       <ZeroYearAudit />
+      <MarkPrintedBefore />
       <DevoteeExport />
       <BatchConfirmUs />
       <SponsorAudit />
@@ -292,6 +293,94 @@ function ZeroYearAudit() {
               </table>
             </div>
           )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MarkPrintedBefore() {
+  const currentYear = new Date().getFullYear() - 1911;
+  const [year, setYear] = useState(currentYear);
+  const [before, setBefore] = useState(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0); // 預設今天中午 12:00
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  });
+  const [buckets, setBuckets] = useState<Record<string, boolean>>({ "creditor-unborn": true, pocket: true, "ancestor-soul": false });
+  const [report, setReport] = useState<{ counts: Record<string, number> } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const BUCKET_LABEL: Record<string, string> = {
+    "creditor-unborn": "冤親債主／無緣（粉紅紙）",
+    pocket: "寶袋（紅紙）",
+    "ancestor-soul": "祖先／乙位正魂（黃紙）",
+  };
+
+  async function post(action: string, extra: Record<string, unknown>) {
+    const res = await fetchRegistration(`/api/admin/universal-salvation/maintenance`, {
+      method: "POST",
+      body: JSON.stringify({ action, year, before: new Date(before).toISOString(), ...extra }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(toFriendlyError(res.status, data?.error));
+    return data;
+  }
+  async function preview() {
+    setBusy(true); setError(null); setOkMsg(null); setReport(null);
+    try { const d = await post("mark-printed-before-preview", {}); setReport(d.report); }
+    catch (e) { setError(e instanceof Error ? e.message : "查詢失敗"); }
+    finally { setBusy(false); }
+  }
+  async function apply() {
+    const chosen = Object.entries(buckets).filter(([, v]) => v).map(([k]) => k);
+    if (chosen.length === 0) { setError("請至少勾一種紙張類別"); return; }
+    if (!window.confirm(`確定把「${chosen.map((c) => BUCKET_LABEL[c]).join("、")}」在 ${before.replace("T", " ")} 之前建立的未列印物件標記為「已列印」嗎？\n\n這不會實際列印，只是補登記為已印，之後的批次列印會自動跳過它們。`)) return;
+    setBusy(true); setError(null); setOkMsg(null);
+    try { const d = await post("mark-printed-before-apply", { buckets: chosen, confirm: true }); setOkMsg(`已標記 ${d?.marked ?? 0} 個為已列印。`); setReport(null); }
+    catch (e) { setError(e instanceof Error ? e.message : "標記失敗"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">按時間補登記「已列印」（系統外已印的補標記）</h2>
+      <p className="mt-1 text-sm text-ink-soft">
+        今天在系統外已經印了一大批、但沒按「確認完成列印」時用這個：以**建立時間**為準，把某時間點**之前**建立的未列印物件補標記為已列印，之後批次列印就會跳過它們（<b>不會實際重印</b>）。可依紙張類別選，<b>黃紙（祖先／乙位）預設不勾</b>。
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-4">
+        <label className="text-sm text-ink-soft">普渡年度
+          <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="ml-2 w-24 rounded-lg border border-cream-200 px-2 py-1 text-ink" />
+        </label>
+        <label className="text-sm text-ink-soft">時間切點（此時間之前建立＝已印）
+          <input type="datetime-local" value={before} onChange={(e) => setBefore(e.target.value)} className="ml-2 rounded-lg border border-cream-200 px-2 py-1 text-ink" />
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4">
+        {(["creditor-unborn", "pocket", "ancestor-soul"] as const).map((b) => (
+          <label key={b} className="flex items-center gap-2 text-sm text-ink-soft">
+            <input type="checkbox" checked={!!buckets[b]} onChange={(e) => setBuckets((prev) => ({ ...prev, [b]: e.target.checked }))} />
+            {BUCKET_LABEL[b]}
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="button" disabled={busy} onClick={() => void preview()} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">{busy ? "查詢中…" : "預覽符合筆數"}</button>
+        <button type="button" disabled={busy} onClick={() => void apply()} className="rounded-full bg-blossom-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">標記勾選類別為已列印</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {okMsg && <p className="mt-2 text-sm text-sage-500">{okMsg}</p>}
+      {report && (
+        <div className="mt-3 rounded-lg bg-cream-50 p-3 text-sm text-ink">
+          <p className="text-ink-soft">此時間前建立、仍未列印的筆數：</p>
+          <ul className="mt-1 flex flex-wrap gap-x-6 gap-y-1">
+            <li>冤親／無緣（粉紅）：<b className="text-blossom-500">{report.counts["creditor-unborn"] ?? 0}</b></li>
+            <li>寶袋（紅）：<b className="text-blossom-500">{report.counts["pocket"] ?? 0}</b></li>
+            <li>祖先／乙位（黃）：<b>{report.counts["ancestor-soul"] ?? 0}</b>（黃紙預設不標記）</li>
+          </ul>
         </div>
       )}
     </section>
