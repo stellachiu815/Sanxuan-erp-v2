@@ -23,11 +23,13 @@ const COL_W_MM = 12; // 每欄寬（15 欄剛好排滿 A4 寬）
 const PAD_MM = 1.5; // 文字與格線之間留白
 
 // 各橫帶固定框（高度 mm）＋字級上下限（跟普渡牌位一樣：框固定、字依字數縮放）。
+// ⚠️ 四帶＋標題整份表格**必須穩穩塞進一張 A4 的可印範圍**（A4 297mm 扣掉瀏覽器邊界後約
+//    ~255mm 可用）。四帶 194 ＋標題 ~14 ＋邊界 ＝ 約 230mm，留足餘裕、表格絕不跨頁。
 const BANDS = {
-  title: { hMm: 16, cfg: { maxPx: 30, minPx: 16, stepPx: 2 } as FontFitConfig },
-  name: { hMm: 28, cfg: { maxPx: 34, minPx: 18, stepPx: 2 } as FontFitConfig },
-  age: { hMm: 78, cfg: { maxPx: 28, minPx: 14, stepPx: 1 } as FontFitConfig },
-  addr: { hMm: 108, cfg: { maxPx: 26, minPx: 11, stepPx: 1 } as FontFitConfig },
+  title: { hMm: 14, cfg: { maxPx: 26, minPx: 14, stepPx: 2 } as FontFitConfig },
+  name: { hMm: 24, cfg: { maxPx: 30, minPx: 16, stepPx: 2 } as FontFitConfig },
+  age: { hMm: 64, cfg: { maxPx: 24, minPx: 12, stepPx: 1 } as FontFitConfig },
+  addr: { hMm: 92, cfg: { maxPx: 22, minPx: 10, stepPx: 1 } as FontFitConfig },
 };
 
 /** 某欄位在其固定框內的字級（依字數自動縮放，與普渡牌位同一支 fitVerticalFont）。 */
@@ -56,10 +58,10 @@ export default function PetitionSheet({ data }: { data: PetitionData }) {
 
   const coverText = `台北三玄宮${data.sexagenaryText}年安${data.activityTypeLabel}善信芳名`;
   const COVER_EVERY = 4;
-  // 封面字級：一整行直書、依字數自動塞進一張 A4 高度（留餘裕），絕不溢出到第二頁。
+  // 封面字級：一整行直書、粗體（項目名稱、醒目），依字數自動塞進一張 A4 可印高度（留餘裕），絕不溢出。
   const coverFont = Math.max(
-    18,
-    Math.min(36, Math.floor(((A4_PAGE.heightMm - A4_PAGE.marginMm * 2 - 16) * 3.78) / (coverText.length * 1.18)))
+    22,
+    Math.min(46, Math.floor(((A4_PAGE.heightMm - 40) * 3.78) / (coverText.length * 1.16)))
   );
 
   return (
@@ -71,20 +73,20 @@ export default function PetitionSheet({ data }: { data: PetitionData }) {
             {pi % COVER_EVERY === 0 && (
               <div
                 className="print-sheet mx-auto flex items-center justify-center bg-white text-ink"
-                style={{ width: `${A4_PAGE.widthMm}mm`, height: `${A4_PAGE.heightMm}mm`, padding: `${A4_PAGE.marginMm}mm`, boxSizing: "border-box", overflow: "hidden", breakAfter: "page" }}
+                style={{ width: `${A4_PAGE.widthMm}mm`, padding: "10mm 8mm", boxSizing: "border-box", overflow: "hidden", breakInside: "avoid", breakAfter: "page" }}
               >
-                <span style={{ ...V, fontSize: coverFont, lineHeight: 1.12, fontWeight: 700 }}>{coverText}</span>
+                <span style={{ ...V, fontSize: coverFont, lineHeight: 1.1, fontWeight: 700 }}>{coverText}</span>
               </div>
             )}
             <div
               className="print-sheet mx-auto bg-white text-ink"
               style={{
                 width: `${A4_PAGE.widthMm}mm`,
-                height: `${A4_PAGE.heightMm}mm`,
-                padding: `${A4_PAGE.marginMm}mm`,
+                padding: "8mm",
                 boxSizing: "border-box",
                 overflow: "hidden",
-                breakAfter: "page",
+                breakInside: "avoid",
+                breakAfter: pi === pages.length - 1 ? "auto" : "page",
               }}
             >
               <header className="mb-3 text-center">
@@ -95,7 +97,7 @@ export default function PetitionSheet({ data }: { data: PetitionData }) {
               </header>
 
               {/* 格線表格：4 橫帶 × N 欄（人），由右到左，等高對齊；各欄位字級依字數在固定框內自動縮放 */}
-              <table style={{ borderCollapse: "collapse", margin: "0 auto", tableLayout: "fixed" }}>
+              <table style={{ borderCollapse: "collapse", margin: "0 auto", tableLayout: "fixed", breakInside: "avoid" }}>
                 <tbody>
                   <tr>
                     {cols.map((e, i) => (

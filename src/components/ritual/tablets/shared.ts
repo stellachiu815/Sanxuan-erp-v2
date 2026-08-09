@@ -95,8 +95,11 @@ export function toPrintableTablet(entry: PrintTabletEntry): PrintableTabletEntry
  *
  *   export const TABLET_FONT_FAMILY = '"DFKai-SB", "BiauKai", "標楷體", serif';
  */
+// V39：公廟文書一律用**標楷體**（楷書、莊重、與宮方既有樣張一致）。
+// 優先序：Windows 內建 DFKai-SB → Mac BiauKai → 標楷體／KaiTi → 退回明體 serif（仍比黑體軟，不退回黑體）。
+// 列印用列印那台電腦上安裝的字體；Windows 內建標楷體，故正常印出即為標楷體。
 export const TABLET_FONT_FAMILY =
-  '"PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+  '"DFKai-SB", "BiauKai", "標楷體", "KaiTi", "Noto Serif TC", "PMingLiU", serif';
 
 /** A4 紙張尺寸與四周留白，列印跟 PDF 匯出都以此為準，維持所見即所印。 */
 export const A4_PAGE = {

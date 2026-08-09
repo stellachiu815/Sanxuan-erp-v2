@@ -69,21 +69,21 @@ export default function FamilyLanternCard({ members }: { members: FamilyMember[]
     >
       <div
         className="text-center"
-        style={{ height: `${HEADER_MM}mm`, fontSize: 18, fontWeight: 700, letterSpacing: "0.15em", lineHeight: `${HEADER_MM}mm` }}
+        style={{ height: `${HEADER_MM}mm`, fontSize: 18, fontWeight: 700, letterSpacing: "0.15em", lineHeight: `${HEADER_MM}mm`, borderBottom: "1px solid #333" }}
       >
         闔家平安　家運昌隆
       </div>
 
-      <div className="flex flex-row-reverse justify-center" style={{ flex: 1, alignItems: "flex-start", gap: 0, minHeight: 0, overflow: "hidden" }}>
+      <div className="flex flex-row-reverse justify-center" style={{ flex: 1, alignItems: "stretch", gap: 0, minHeight: 0, overflow: "hidden" }}>
         {/* 地址欄（最右、全家共用主要聯絡人地址） */}
         {addr && (
-          <div className="flex items-start justify-center" style={{ width: `${addrColWmm}mm`, borderRight: "1px solid #ccc", overflow: "hidden" }}>
+          <div className="flex items-start justify-center" style={{ width: `${addrColWmm}mm`, borderLeft: "1px solid #333", overflow: "hidden", paddingTop: "0.5mm" }}>
             <span style={{ ...V, fontSize: addrFont, lineHeight: 1.0 }}>{addr}</span>
           </div>
         )}
-        {/* 家人欄（由右到左，一人一欄） */}
+        {/* 家人欄（由右到左，一人一欄；欄與欄之間畫格線，較乾淨不擠） */}
         {members.map((m, i) => (
-          <div key={`${m.name}-${i}`} className="flex flex-col items-center" style={{ width: `${membersWmm / n}mm`, overflow: "hidden" }}>
+          <div key={`${m.name}-${i}`} className="flex flex-col items-center" style={{ width: `${membersWmm / n}mm`, overflow: "hidden", borderLeft: i < members.length ? "1px solid #ccc" : undefined, paddingTop: "0.5mm" }}>
             <span style={{ ...V, fontSize: colFont, lineHeight: 1.02 }}>{m.titleText}</span>
             <span style={{ ...V, fontSize: nameFont, lineHeight: 1.02, fontWeight: 600 }}>{m.name}</span>
             {m.nominalAgeText && <span style={{ ...V, fontSize: colFont, lineHeight: 1.02 }}>{m.nominalAgeText}</span>}

@@ -266,14 +266,21 @@ export default function LanternPrintCenter({
             </button>
           </div>
 
-          {/* V38 全家燈牌：一戶一張紙（每戶各自一張 A4，不密排）。 */}
+          {/* V38 全家燈牌：一戶一張紙。⚠️ 不強制整頁高度（那會＋瀏覽器邊界爆出前後空白頁）；
+              改用「卡片本身高度＋只在戶與戶之間分頁、最後一戶不分頁」，一戶就是一張、不多印空白。 */}
           {isFamily && (
             <>
-              {familyCards.map((h) => (
+              {familyCards.map((h, idx) => (
                 <div
                   key={h.householdId}
-                  className="print-sheet mx-auto flex items-center justify-center bg-white"
-                  style={{ width: "210mm", minHeight: "297mm", breakAfter: "page" }}
+                  className="print-sheet mx-auto flex items-start justify-center bg-white"
+                  style={{
+                    width: "210mm",
+                    padding: "10mm 0",
+                    boxSizing: "border-box",
+                    breakInside: "avoid",
+                    breakAfter: idx < familyCards.length - 1 ? "page" : "auto",
+                  }}
                 >
                   <FamilyLanternCard members={h.members} />
                 </div>
