@@ -18,6 +18,7 @@ import { archiveHouseholdsByCode } from "@/lib/archiveHouseholdsByCode";
 import { auditSponsorItems, restoreSponsorItem } from "@/lib/sponsorAudit";
 import { clearAllRice } from "@/lib/whiteRiceService";
 import { ensureMasterOfferingTable } from "@/lib/ensureMasterOfferingTable";
+import { auditZeroYearRegistrations } from "@/lib/auditZeroYearRegistrations";
 
 /**
  * V36.14 家戶資料整理 API（瀏覽器可觸發，權限 purgeRecycleBin）。
@@ -69,6 +70,10 @@ export async function POST(request: NextRequest) {
     }
     if (body?.action === "import-merge-check") {
       const report = await checkImportMerges(year);
+      return NextResponse.json({ ok: true, report });
+    }
+    if (body?.action === "zero-year-audit") {
+      const report = await auditZeroYearRegistrations();
       return NextResponse.json({ ok: true, report });
     }
     if (body?.action === "batch-confirm-us") {

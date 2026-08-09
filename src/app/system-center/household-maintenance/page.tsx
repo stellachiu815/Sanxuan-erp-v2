@@ -31,6 +31,7 @@ function Inner() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-8 flex flex-col gap-8">
       <h1 className="text-lg text-ink">家戶資料整理</h1>
+      <ZeroYearAudit />
       <DevoteeExport />
       <BatchConfirmUs />
       <SponsorAudit />
@@ -197,6 +198,66 @@ function MasterOfferingInit() {
         <p className="mt-2 text-sm">{report.ok
           ? <span className="text-emerald-700">✅ 完成：供師資料表已就緒。{report.created ? "（本次新建）" : "（原本就有）"}</span>
           : <span className="text-blossom-500">⚠️ 尚未完成：{report.error ?? "請再試一次"}</span>}</p>
+      )}
+    </section>
+  );
+}
+
+function ZeroYearAudit() {
+  const { report, busy, error, run } = useTool("zero-year-audit");
+  const records: {
+    ritualRecordId: string; householdId: string; householdName: string;
+    activityType: string; year: number; status: string; createdAt: string;
+  }[] = report?.records ?? [];
+  return (
+    <section className="rounded-2xl bg-white/70 p-5 shadow-card">
+      <h2 className="text-base font-medium text-ink">民國 0 年報名清單（唯讀）</h2>
+      <p className="mt-1 text-sm text-ink-soft">
+        列出所有「<b>民國 0 年</b>」的孤兒報名——這是修正年度 bug 之前，整戶普渡報名沒選年度就送出所造成。
+        <b>只看不改</b>：點「進報名頁」把該筆的項目取消／移除，再到該戶重新報名成正確年度即可。
+      </p>
+      <div className="mt-3">
+        <button type="button" disabled={busy} onClick={() => run(false)} className="rounded-full bg-mist-200 px-4 py-1.5 text-sm text-ink disabled:opacity-40">
+          {busy ? "查詢中…" : "查詢民國 0 年報名"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-blossom-500">⚠️ {error}</p>}
+      {report && (
+        <div className="mt-3 text-sm">
+          <p className="text-ink">
+            共找到 <b className={report.total > 0 ? "text-blossom-500" : "text-sage-300"}>{report.total}</b> 筆民國 0 年報名。
+            {report.total === 0 && "（很好，沒有孤兒資料。）"}
+          </p>
+          {records.length > 0 && (
+            <div className="mt-2 max-h-[36rem] overflow-auto rounded-lg border border-mist-200">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-cream-100 text-ink-soft">
+                  <tr>
+                    {["家戶", "活動類型", "年度", "狀態", "建立時間", ""].map((h) => (
+                      <th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((r) => (
+                    <tr key={r.ritualRecordId} className="odd:bg-white/40">
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        <a href={`/household/${r.householdId}`} className="text-blossom-500 hover:underline">{r.householdName}（{r.householdId}）</a>
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{r.activityType}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap text-blossom-500">民國 {r.year} 年</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{r.status}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{new Date(r.createdAt).toLocaleString("zh-TW")}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        <a href={`/registration/${r.ritualRecordId}`} className="text-blossom-500 hover:underline">進報名頁 →</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
