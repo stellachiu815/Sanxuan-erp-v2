@@ -43,6 +43,7 @@ export default function LanternTablet({ entry }: { entry: LanternTabletProps }) 
       className="tablet-card flex h-full w-full flex-col items-center justify-center border border-ink bg-white"
       style={{
         breakInside: "avoid",
+        overflow: "hidden", // 固定 5×2.5cm，內容一律塞在框內、不外溢（含長外文名）
         fontFamily: TABLET_FONT_FAMILY,
         padding: "1mm",
         gap: "0.6mm",
