@@ -185,6 +185,38 @@ export async function buildLanternPrintBatch(
     subjects.set(r.member.id, { member: r.member, household: r.household });
   }
 
+  // V39 全家燈：報名以「戶」為單位——燈牌與疏文一律印**當前整戶有效成員**
+  // （同一家戶＋未辭世 isDeceased=false＋未刪除 deletedAt=null，沿用 familyLantern 的既有資格條件，
+  // 不另發明），不只登記那一位。已辭世者不印、報名後新增的成員下次列印自動出現（＝「現在這一家人」）。
+  //
+  // ⚠️ 準確性與一致性：燈牌（FamilyLanternCard）與疏文（PetitionSheet）都由這份 subjects→rows 產生，
+  //    **單一資料來源**，因此「牌上幾人 = 疏文幾人」由架構保證，不會不一致。
+  //    全家燈為「一戶一個固定價」（非按人頭），撈幾位不影響收款／財務。
+  if (activityType === "FAMILY_LANTERN") {
+    const familyRecs = await prisma.ritualRegistrationItem.findMany({
+      where: {
+        registrationItemType: { key: "LANTERN_FAMILY" },
+        deletedAt: null,
+        status: { not: "CANCELLED" },
+        ritualRecord: { year, deletedAt: null },
+      },
+      select: { ritualRecord: { select: { householdId: true } } },
+    });
+    const householdIds = [...new Set(familyRecs.map((r) => r.ritualRecord.householdId))];
+    subjects.clear();
+    if (householdIds.length > 0) {
+      const familyMembers = await prisma.member.findMany({
+        where: { householdId: { in: householdIds }, isDeceased: false, deletedAt: null },
+        include: { household: { select: { id: true, name: true, address: true } } },
+        orderBy: [{ householdId: "asc" }, { createdAt: "asc" }],
+      });
+      for (const m of familyMembers) {
+        if (!m.household) continue;
+        subjects.set(m.id, { member: m, household: m.household });
+      }
+    }
+  }
+
   const rows: LanternPrintRow[] = [];
 
   for (const { member: m, household } of subjects.values()) {

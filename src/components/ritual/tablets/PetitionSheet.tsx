@@ -19,28 +19,33 @@ import type { PetitionData } from "@/lib/lanternPrint";
 
 const PER_PAGE = 15; // 每頁 15 人（欄）
 
-// 各橫帶固定高度（mm）——等高對齊的關鍵。
-const H_TITLE = 12; // 稱謂
-const H_NAME = 18; // 姓名
-const H_AGE = 56; // 幾歲幾月幾日＋吉時生
-const H_ADDR = 110; // 地址
+// 各橫帶固定高度（mm）——等高對齊的關鍵。用滿 A4 直式高度、字級盡量放大
+// （誦經師姐多老花，好讀優先）。四帶總高約 258mm，貼近 A4 可用高度上限。
+const H_TITLE = 18; // 稱謂
+const H_NAME = 34; // 姓名
+const H_AGE = 88; // 幾歲幾月幾日＋吉時生
+const H_ADDR = 118; // 地址
 
-const INFO_PX = 18; // 稱謂/歲月日 統一字級
-const NAME_PX = 22; // 姓名略大
+const TITLE_PX = 28; // 稱謂
+const NAME_PX = 32; // 姓名（最大、最重要）
+const AGE_PX = 26; // 幾歲幾月幾日＋吉時生
 
-// 地址依字數在該帶高度內自動放大／縮小，確保完整不截斷。
+// 地址依字數在該帶高度內自動放到最大（字少放大、字多縮小），確保完整不截斷。
 function addrFontPx(len: number): number {
-  if (len <= 0) return INFO_PX;
-  const fit = Math.floor((H_ADDR * 3.78) / (len * 1.04)); // 1mm≈3.78px
-  return Math.max(9, Math.min(20, fit));
+  if (len <= 0) return AGE_PX;
+  const fit = Math.floor(((H_ADDR - 5) * 3.78) / (len * 1.04)); // 1mm≈3.78px，扣掉上下 padding
+  return Math.max(12, Math.min(30, fit));
 }
 
 const V: React.CSSProperties = { writingMode: "vertical-rl", textOrientation: "upright", whiteSpace: "nowrap" };
+// 欄寬 12mm（15 人/頁剛好排滿 A4 寬），文字與格線之間留 padding（原本太貼、看起來不舒服）。
+// box-sizing 讓 padding 不撐破固定高度。
 const cellBase: React.CSSProperties = {
   border: "1px solid #333",
   width: "12mm",
   textAlign: "center",
-  padding: 0,
+  padding: "2.5mm 1mm",
+  boxSizing: "border-box",
 };
 
 export default function PetitionSheet({ data }: { data: PetitionData }) {
@@ -90,7 +95,7 @@ export default function PetitionSheet({ data }: { data: PetitionData }) {
                 <tr>
                   {cols.map((e, i) => (
                     <td key={`t-${i}`} style={{ ...cellBase, height: `${H_TITLE}mm` }}>
-                      <span style={{ ...V, fontSize: INFO_PX, lineHeight: 1.05 }}>{e.titleText}</span>
+                      <span style={{ ...V, fontSize: TITLE_PX, lineHeight: 1.05 }}>{e.titleText}</span>
                     </td>
                   ))}
                 </tr>
@@ -104,7 +109,7 @@ export default function PetitionSheet({ data }: { data: PetitionData }) {
                 <tr>
                   {cols.map((e, i) => (
                     <td key={`a-${i}`} style={{ ...cellBase, height: `${H_AGE}mm` }}>
-                      <span style={{ ...V, fontSize: INFO_PX, lineHeight: 1.08 }}>
+                      <span style={{ ...V, fontSize: AGE_PX, lineHeight: 1.08 }}>
                         {`${e.nominalAgeText}${e.birthText}吉時生`}
                       </span>
                     </td>
