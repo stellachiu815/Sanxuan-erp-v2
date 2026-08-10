@@ -118,11 +118,12 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
   const blocked = preflight.length > 0;
   const isRice = itemKey === "US_RICE";
   const isStorage = itemKey === "STORAGE_TROUSERS";
-  if (isRice || isStorage) {
-    const title = isRice ? "白米認購名單" : "補庫報名名單";
+  const isPalace = itemKey === "PALACE_LANTERN";
+  if (isRice || isStorage || isPalace) {
+    const title = isRice ? "白米認購名單" : isPalace ? "宮燈報名名單" : "補庫報名名單";
     const qtyLabel = isRice ? "斤數" : "份數";
     const qtyUnit = isRice ? "斤" : "份";
-    const emptyText = isRice ? "目前沒有已確認的白米認購。" : "目前沒有已確認的補庫報名。";
+    const emptyText = isRice ? "目前沒有已確認的白米認購。" : isPalace ? "目前沒有已確認的宮燈報名。" : "目前沒有已確認的補庫報名。";
     return (
       <main className="mx-auto max-w-2xl px-6 py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">

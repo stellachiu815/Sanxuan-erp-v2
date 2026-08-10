@@ -1,0 +1,11 @@
+-- V39 宮燈（PALACE_LANTERN）
+--
+-- 宮燈是名單型／贊普型活動，核心邏輯與補庫相同（選人、一人一份 × 固定單價、
+-- 姓名總名單列印，活動固定 108 份）。既有 ActivityType 沒有這個值，這裡做
+-- 「只加不刪、不動任何既有資料」的最小必要新增——與當初龍鳳燈完全相同的做法。
+--
+-- ⚠️ PostgreSQL 的 ALTER TYPE ... ADD VALUE 不能與「馬上使用這個新值」的敘述
+-- 放在同一個交易內。因此比照既有慣例，這支 migration 只做 ADD VALUE，單獨成一支，
+-- 不在同一交易內建立/使用宮燈資料（宮燈的報名項目由 ensureRegistrationItemTypesSeeded
+-- 於部署後以「只新增、不覆蓋」方式植入，見 src/lib/registrationItems.ts）。
+ALTER TYPE "ActivityType" ADD VALUE 'PALACE_LANTERN';

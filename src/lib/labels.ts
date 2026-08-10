@@ -22,6 +22,7 @@ export const activityTypeLabel: Record<string, string> = {
   TAISUI_LANTERN: "太歲燈",
   FAMILY_LANTERN: "全家燈",
   STORAGE_REPAYMENT: "補庫",
+  PALACE_LANTERN: "宮燈",
   OTHER: "其他",
   // V10.1「供品認捐中心」新增：四位主祀神明聖誕（各自獨立的 ActivityType，
   // 原因見 schema.prisma ActivityType enum 上方註解）。
@@ -39,6 +40,7 @@ export const templeEventActivityTypeOptions: { value: string; label: string }[] 
   { value: "UNIVERSAL_SALVATION", label: "中元普渡" },
   { value: "ANNUAL_LANTERN", label: "年度燈（含光明燈／太歲燈／全家燈／祭改）" },
   { value: "STORAGE_REPAYMENT", label: "補庫" },
+  { value: "PALACE_LANTERN", label: "宮燈（固定 108 份）" },
   { value: "TEMPLE_CELEBRATION", label: "宮慶" },
   // V10.1「供品認捐中心」新增
   { value: "GUANDI_BIRTHDAY", label: "關聖帝君聖誕" },

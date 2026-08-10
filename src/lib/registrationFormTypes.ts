@@ -66,6 +66,9 @@ const SUGGESTED_FORM_TYPE: Partial<Record<ActivityType, RegistrationFormType>> =
 export function suggestRegistrationFormType(
   activityType: ActivityType
 ): RegistrationFormType | null {
+  // V39 宮燈（PALACE_LANTERN）＝名單型／贊普型，同補庫用通用參加型（GENERIC 確認只需有成員；
+  // 金額由 PALACE_LANTERN 項目固定價計算）。以字串比對避免依賴尚未重產的 Prisma enum 型別。
+  if ((activityType as string) === "PALACE_LANTERN") return "GENERIC";
   return SUGGESTED_FORM_TYPE[activityType] ?? null;
 }
 

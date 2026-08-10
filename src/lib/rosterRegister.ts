@@ -19,7 +19,7 @@ import type { Role } from "@/lib/permissions";
 /** 活動類型 → 名單型報名項目 key(宮燈新增活動類型後在此加一行即可)。 */
 const ROSTER_ITEM_KEY: Record<string, string> = {
   STORAGE_REPAYMENT: "STORAGE_TROUSERS",
-  // 宮燈待新增 ActivityType 後啟用: PALACE_LANTERN: "PALACE_LANTERN",
+  PALACE_LANTERN: "PALACE_LANTERN",
 };
 
 export type RosterPerson = {

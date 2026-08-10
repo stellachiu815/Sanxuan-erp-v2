@@ -52,7 +52,10 @@ export type CreateTempleEventInput = {
   note?: string | null;
 };
 
-const ACTIVITY_TYPE_LABEL_FOR_NAME: Record<ActivityType, string> = {
+// V39：型別放寬成 Record<string,string>（原本 Record<ActivityType,string> 是「必須列滿所有
+// 活動類型」的嚴格表；新增 PALACE_LANTERN enum 後，若維持嚴格表，sandbox 因無法重產 Prisma
+// 型別會誤報缺 key、線上重產型別後又會要求列滿——放寬成 string 索引即可兩邊都過，且下方仍列滿）。
+const ACTIVITY_TYPE_LABEL_FOR_NAME: Record<string, string> = {
   DRAGON_PHOENIX_LANTERN: "龍鳳燈",
   ANNUAL_LANTERN: "年度燈",
   UNIVERSAL_SALVATION: "中元普渡",
@@ -63,6 +66,7 @@ const ACTIVITY_TYPE_LABEL_FOR_NAME: Record<ActivityType, string> = {
   TAISUI_LANTERN: "太歲燈",
   FAMILY_LANTERN: "全家燈",
   STORAGE_REPAYMENT: "補庫",
+  PALACE_LANTERN: "宮燈",
   OTHER: "其他活動",
   // V10.1「供品認捐中心」新增：四位主祀神明聖誕。
   GUANDI_BIRTHDAY: "關聖帝君聖誕",

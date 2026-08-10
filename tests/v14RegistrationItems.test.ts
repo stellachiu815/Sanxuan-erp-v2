@@ -376,6 +376,8 @@ test("R2-11. migration 種子與程式種子定義一致（key 集合相同）",
   const files = [
     "prisma/migrations/20260725000002_v14_seed_registration_items/migration.sql",
     "prisma/migrations/20260726000001_v14_1_sponsor_split/migration.sql",
+    // V39 宮燈的種子另成一支（因 enum ADD VALUE 不能與使用新值同交易）。
+    "prisma/migrations/20260826000001_v39_palace_lantern_seed/migration.sql",
   ];
   const allSql = files.map((f) => readFileSync(join(ROOT, f), "utf-8")).join("\n");
   for (const s of REGISTRATION_ITEM_SEED) {

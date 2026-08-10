@@ -11,7 +11,7 @@ import AnnualLanternRegisterForm from "@/components/registration/AnnualLanternRe
  */
 export const dynamic = "force-dynamic";
 
-const ROSTER_ACTIVITY_TYPES = new Set<string>(["STORAGE_REPAYMENT"]);
+const ROSTER_ACTIVITY_TYPES = new Set<string>(["STORAGE_REPAYMENT", "PALACE_LANTERN"]);
 
 export default async function PublicJoinPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

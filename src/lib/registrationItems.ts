@@ -147,6 +147,12 @@ export const REGISTRATION_ITEM_SEED: readonly RegistrationItemSeed[] = [
 
   // 龍鳳燈
   { key: "DRAGON_PHOENIX", name: "龍鳳燈報名", activityType: "DRAGON_PHOENIX_LANTERN", activityGroup: "DRAGON_PHOENIX_LANTERN", activityGroupName: "龍鳳燈", contentKind: "LANTERN", feeMode: "PER_UNIT", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: true, printDocumentKeys: ["DRAGON_PHOENIX_LANTERN_TABLET", "DRAGON_PHOENIX_LANTERN_ROSTER"], sortOrder: 1 },
+
+  // V39 宮燈（名單型／贊普型，核心邏輯同補庫：選人、一人一份 × 固定單價、姓名總名單）。
+  // activityType 用新增的 PALACE_LANTERN enum；此處以 cast 表示（sandbox 無法重產 Prisma
+  // 型別，部署時 build 會重產、值即生效）。單價由 fixedItemPrice（feeMode FIXED）管理，
+  // 種子 create-only 不覆蓋宮方手動設定。
+  { key: "PALACE_LANTERN", name: "宮燈報名", activityType: "PALACE_LANTERN" as unknown as ActivityType, activityGroup: "PALACE_LANTERN", activityGroupName: "宮燈", contentKind: "ROSTER", feeMode: "CUSTOM", defaultUnitPrice: null, defaultQuantity: 1, allowMultiplePerMember: false, printDocumentKeys: ["PALACE_LANTERN_ROSTER"], sortOrder: 1 },
 ];
 
 /**
@@ -193,6 +199,7 @@ export const ACTIVITY_GROUP_ORDER: readonly string[] = [
   "UNIVERSAL_SALVATION",
   "STORAGE_REPAYMENT",
   "DRAGON_PHOENIX_LANTERN",
+  "PALACE_LANTERN",
 ];
 
 /** 主活動分組的排序索引（未列出者排在最後、維持穩定）。 */

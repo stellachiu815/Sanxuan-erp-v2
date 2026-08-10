@@ -171,6 +171,37 @@ export default async function ActivityHomePage({
                 </a>
               </div>
             </section>
+            <RosterPublicRegManager templeEventId={id} />
+          </>
+        )}
+
+        {/* V39 宮燈：名單型（同補庫，一人一份 × 固定單價、姓名總名單）；活動固定 108 份。 */}
+        {(eventPricing?.activityType as string) === "PALACE_LANTERN" && eventPricing && (
+          <>
+            <FixedItemPriceCard
+              itemKey="PALACE_LANTERN"
+              title="宮燈單價"
+              note={`民國 ${eventPricing.year} 年度宮燈（固定 108 份）。報名時以此單價 × 份數（一人一份）計算應收。`}
+            />
+            <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+              <h2 className="text-sm text-ink">宮燈報名</h2>
+              <p className="mt-1 text-xs text-ink-faint">名單型報名：選人、一人一份 × 固定單價，可幫家人朋友一起報（含新信眾自動建檔）。整個活動固定 108 份。</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={`/roster-register/${id}`}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-full bg-sage-200 px-4 py-2 text-sm font-medium text-ink transition hover:bg-sage-300"
+                >
+                  🏮 現場快速報名 →
+                </a>
+                <a
+                  href={`/print-center/rosters/PALACE_LANTERN/${eventPricing.year}`}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-full bg-cream-200 px-4 py-2 text-sm text-ink-soft transition hover:bg-cream-300"
+                >
+                  📋 報名總名單 →
+                </a>
+              </div>
+            </section>
+            <RosterPublicRegManager templeEventId={id} />
           </>
         )}
 
