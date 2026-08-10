@@ -35,6 +35,8 @@ export default function AnnualLanternRegisterForm(props: { templeEventId: string
   );
 }
 
+type FamilyMemberRow = { name: string; solarBirthDate: string };
+
 function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: string; activityName: string; publicSlug?: string }) {
   const { operatorUser } = useOperator();
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
@@ -42,6 +44,25 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  // 全家燈（整戶一份）。staff：挑既有信眾→全戶納入；public：戶長＋地址＋家人名單。
+  const [familyOn, setFamilyOn] = useState(false);
+  const [familyMemberId, setFamilyMemberId] = useState("");
+  const [familyMemberLabel, setFamilyMemberLabel] = useState("");
+  const [familySearch, setFamilySearch] = useState("");
+  const [familyResults, setFamilyResults] = useState<SearchResult[]>([]);
+  const [famContact, setFamContact] = useState({ name: "", phone: "", address: "" });
+  const [famMembers, setFamMembers] = useState<FamilyMemberRow[]>([{ name: "", solarBirthDate: "" }]);
+
+  async function familyDoSearch(q: string) {
+    setFamilySearch(q); setFamilyMemberId(""); setFamilyMemberLabel(""); setOkMsg(null);
+    if (q.trim().length < 1) { setFamilyResults([]); return; }
+    try {
+      const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
+      const data = await res.json();
+      setFamilyResults(Array.isArray(data.results) ? data.results : []);
+    } catch { /* 忽略 */ }
+  }
 
   function update(i: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -89,7 +110,6 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
         };
       })
       .filter((p) => (p.existingMemberId || p.name) && p.lanterns.length > 0);
-    if (people.length === 0) { setError("請至少填一位報名者，並勾選光明燈或太歲燈"); return; }
     // 報名必填：姓名、生日、地址。新填的信眾（沒選既有）三項都要齊。
     for (let i = 0; i < people.length; i++) {
       const p = people[i];
@@ -101,24 +121,42 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
       if (miss.length > 0) { setError(`第 ${i + 1} 位還缺：${miss.join("、")}（點燈需要姓名、生日、地址）`); return; }
     }
 
+    // 全家燈組裝。
+    let family: unknown = null;
+    if (familyOn) {
+      if (publicSlug) {
+        const members = famMembers.map((m) => ({ name: m.name.trim(), solarBirthDate: m.solarBirthDate.trim() })).filter((m) => m.name);
+        if (members.length === 0 || !famContact.address.trim()) { setError("全家燈：請填戶長／家人姓名、每位生日，以及家戶地址"); return; }
+        for (const m of members) { if (!m.solarBirthDate) { setError(`全家燈家人「${m.name}」還缺生日（點燈需要生日）`); return; } }
+        family = { household: { contactName: famContact.name.trim() || members[0].name, address: famContact.address.trim(), phone: famContact.phone.trim() || null }, members };
+      } else {
+        if (!familyMemberId) { setError("全家燈：請先搜尋並選一位既有信眾（全家燈會涵蓋他的整戶）"); return; }
+        family = { existingMemberId: familyMemberId };
+      }
+    }
+
+    if (people.length === 0 && !family) { setError("請至少一位點光明／太歲燈，或加報全家燈"); return; }
+
     setBusy(true);
     try {
       const res = publicSlug
         ? await fetch(`/api/public-reg/${encodeURIComponent(publicSlug)}/submit`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind: "LANTERN", people }),
+            body: JSON.stringify({ kind: "LANTERN", people, family }),
           })
         : await fetch(`/api/annual-lantern-registration`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ operatorUserId: operatorUser?.id ?? null, templeEventId, people, confirm: true }),
+            body: JSON.stringify({ operatorUserId: operatorUser?.id ?? null, templeEventId, people, family, confirm: true }),
           });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "報名失敗，請稍後再試一次。"); return; }
       setOkMsg(publicSlug ? "已送出點燈報名！廟方核對後就會正式成立，感謝您。" : (data.message ?? "已完成點燈報名。"));
       setRows([emptyRow()]);
       setResults({});
+      setFamilyOn(false); setFamilyMemberId(""); setFamilyMemberLabel(""); setFamilySearch(""); setFamilyResults([]);
+      setFamContact({ name: "", phone: "", address: "" }); setFamMembers([{ name: "", solarBirthDate: "" }]);
     } catch {
       setError("網路錯誤，請稍後再試一次。");
     } finally {
@@ -202,6 +240,67 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                   </label>
                 )}
               </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 全家燈（整戶一份、固定價） */}
+        <div className="mt-4 rounded-2xl border border-cream-200 bg-white/60 p-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input type="checkbox" checked={familyOn} onChange={(e) => { setFamilyOn(e.target.checked); setOkMsg(null); }} />
+            加報全家燈（整戶一份）
+          </label>
+          {familyOn && (publicSlug ? (
+            <div className="mt-3 flex flex-col gap-3">
+              <p className="text-xs text-ink-faint">全家燈整戶一份。請填家戶地址與全家成員（每位姓名＋生日，用來算歲數、生肖）。</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className={labelClass}>戶長姓名（選填，預設用第一位）</span>
+                  <input className={inputClass} value={famContact.name} onChange={(e) => setFamContact({ ...famContact, name: e.target.value })} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={labelClass}>電話（選填）</span>
+                  <input className={inputClass} value={famContact.phone} onChange={(e) => setFamContact({ ...famContact, phone: e.target.value })} />
+                </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className={labelClass}>家戶地址 <span className="text-blossom-500">＊必填</span></span>
+                  <input className={inputClass} value={famContact.address} onChange={(e) => setFamContact({ ...famContact, address: e.target.value })} />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className={labelClass}>全家成員（每位姓名＋國曆生日）</span>
+                {famMembers.map((m, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <input className={`${inputClass} flex-1`} placeholder={`第 ${i + 1} 位姓名`} value={m.name} onChange={(e) => setFamMembers((prev) => prev.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))} />
+                    <input type="date" className={inputClass} value={m.solarBirthDate} onChange={(e) => setFamMembers((prev) => prev.map((x, idx) => idx === i ? { ...x, solarBirthDate: e.target.value } : x))} />
+                    {famMembers.length > 1 && <button type="button" onClick={() => setFamMembers((prev) => prev.filter((_, idx) => idx !== i))} className="text-xs text-blossom-500 hover:underline">移除</button>}
+                  </div>
+                ))}
+                <button type="button" onClick={() => setFamMembers((prev) => [...prev, { name: "", solarBirthDate: "" }])} className="self-start text-xs text-sage-500 hover:underline">＋ 再加一位家人</button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-col gap-2">
+              <p className="text-xs text-ink-faint">全家燈整戶一份。搜尋並選一位既有信眾，全家燈會涵蓋他的整戶（在世成員）。</p>
+              {familyMemberId ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl bg-sage-50 px-4 py-2.5">
+                  <span className="text-sm text-ink">全家燈涵蓋：<b>{familyMemberLabel}</b> 的整戶</span>
+                  <button type="button" onClick={() => { setFamilyMemberId(""); setFamilyMemberLabel(""); setFamilySearch(""); }} className="text-xs text-ink-faint hover:underline">換一位</button>
+                </div>
+              ) : (
+                <>
+                  <input className={inputClass} value={familySearch} onChange={(e) => void familyDoSearch(e.target.value)} placeholder="搜尋既有信眾姓名" />
+                  {familyResults.length > 0 && (
+                    <div className="max-h-40 overflow-auto rounded-xl border border-cream-200 bg-white">
+                      {familyResults.map((res) => (
+                        <button key={res.memberId} type="button" onClick={() => { setFamilyMemberId(res.memberId); setFamilyMemberLabel(`${res.name}（${res.householdName}）`); setFamilyResults([]); }} className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-cream-100">
+                          {res.name}　<span className="text-xs text-ink-faint">{res.householdName}{res.address ? `・${res.address}` : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>

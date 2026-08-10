@@ -22,6 +22,48 @@ const ROSTER_ITEM_KEY: Record<string, string> = {
   PALACE_LANTERN: "PALACE_LANTERN",
 };
 
+/**
+ * 名單型項目的「份數上限」(宮燈固定 108 份)。未列出者＝無上限(如補庫)。
+ * 佔位以「已確認(CONFIRMED)」份數計——公開報名的待確認不佔位,待廟方一鍵確認時才檢查、扣位。
+ */
+const ROSTER_ITEM_CAPACITY: Record<string, number> = {
+  PALACE_LANTERN: 108,
+};
+
+/** 查某項目某年度的容量狀態(上限/已用/剩餘);無上限回 null。已用＝已確認份數合計。 */
+export async function getRosterCapacity(
+  itemKey: string,
+  year: number
+): Promise<{ capacity: number; used: number; left: number } | null> {
+  const capacity = ROSTER_ITEM_CAPACITY[itemKey];
+  if (capacity == null) return null;
+  const agg = await prisma.ritualRegistrationItem.aggregate({
+    _sum: { quantity: true },
+    where: {
+      status: "CONFIRMED",
+      deletedAt: null,
+      registrationItemType: { key: itemKey },
+      ritualRecord: { year, deletedAt: null },
+    },
+  });
+  const used = Number(agg._sum.quantity ?? 0);
+  return { capacity, used, left: Math.max(0, capacity - used) };
+}
+
+/** 依活動查容量狀態(公開報名頁／後台用)。 */
+export async function getRosterCapacityForEvent(
+  templeEventId: string
+): Promise<{ capacity: number; used: number; left: number } | null> {
+  const event = await prisma.templeEvent.findUnique({
+    where: { id: templeEventId },
+    select: { activityType: true, year: true },
+  });
+  if (!event) return null;
+  const itemKey = ROSTER_ITEM_KEY[event.activityType];
+  if (!itemKey) return null;
+  return getRosterCapacity(itemKey, event.year);
+}
+
 export type RosterPerson = {
   /** 既有信眾:直接用這位(不再新建)。 */
   existingMemberId?: string | null;
@@ -80,6 +122,22 @@ export async function rosterRegister(
 
   const people = (input.people ?? []).filter((p) => p.existingMemberId || s(p.name));
   if (people.length === 0) return { ok: false, status: 400, error: "請至少填一位報名者" };
+
+  // 份數上限（宮燈 108 份）：只有「這次會確認為正式」時才檢查、扣位（草稿不佔位）。
+  // 在建立任何信眾之前先擋——超過上限就不建戶、不建員、不建報名。
+  if (input.confirm) {
+    const cap = await getRosterCapacity(itemKey, year);
+    if (cap) {
+      const incoming = people.reduce((sum, p) => sum + Math.max(1, Math.floor(Number(p.quantity ?? 1)) || 1), 0);
+      if (cap.used + incoming > cap.capacity) {
+        return {
+          ok: false,
+          status: 409,
+          error: `此活動上限 ${cap.capacity} 份，已報 ${cap.used} 份、只剩 ${cap.left} 份；這次要報 ${incoming} 份會超過上限。請調整份數後再報。`,
+        };
+      }
+    }
+  }
 
   // 報名必填：姓名、生日、地址（電話選填）。缺任一不建立、不確認——與「缺必備資料不能確認報名」一致。
   const hasBirth = (p: RosterPerson): boolean =>

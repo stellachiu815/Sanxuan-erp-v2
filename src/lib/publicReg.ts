@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { quickRegister, type QuickRegInput } from "@/lib/quickRegistration";
-import { rosterRegister } from "@/lib/rosterRegister";
+import { rosterRegister, getRosterCapacityForEvent } from "@/lib/rosterRegister";
 import type { Role } from "@/lib/permissions";
 
 /**
@@ -214,6 +214,12 @@ export async function submitPublicRosterRegistration(
   if (people.length === 0) return { ok: false, status: 400, error: "請至少填一位報名者姓名" };
   if (people.length > 20) return { ok: false, status: 400, error: "一次最多 20 位，請分批報名" };
 
+  // 份數上限（宮燈 108 份）：已額滿就擋線上送出（未滿仍可送，實際扣位在廟方確認時）。
+  const cap = await getRosterCapacityForEvent(form.templeEventId);
+  if (cap && cap.left <= 0) {
+    return { ok: false, status: 409, error: `這個活動已額滿（上限 ${cap.capacity} 份），目前無法再線上報名。` };
+  }
+
   if (submitterHash) {
     const dup = await prisma.$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*)::bigint AS n FROM "public_registrations"
@@ -245,7 +251,12 @@ export type PublicLanternPerson = {
   name: string; phone?: string | null; address?: string | null; solarBirthDate?: string | null;
   lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI"; quantity?: number | null }[];
 };
-export type PublicLanternPayload = { kind: "LANTERN"; people: PublicLanternPerson[] };
+/** 公開全家燈：新家戶（戶長＋地址）＋家人名單（每位姓名＋生日）。 */
+export type PublicLanternFamily = {
+  household: { contactName?: string | null; address?: string | null; phone?: string | null };
+  members: { name?: string | null; solarBirthDate?: string | null }[];
+};
+export type PublicLanternPayload = { kind: "LANTERN"; people: PublicLanternPerson[]; family?: PublicLanternFamily | null };
 
 /** 年度燈公開報名送出（免登入）：驗證＋防重複＋寫入 PENDING（payload.kind = "LANTERN"）。 */
 export async function submitPublicLanternRegistration(
@@ -265,7 +276,17 @@ export async function submitPublicLanternRegistration(
     }))
     // 點燈必填：姓名、生日、地址，且至少一種燈。
     .filter((p) => s(p.name) && s(p.address) && s(p.solarBirthDate) && p.lanterns.length > 0);
-  if (people.length === 0) return { ok: false, status: 400, error: "每位都要填姓名、生日、地址，並至少選一種燈" };
+
+  // 全家燈（選填）：新家戶＋家人名單（每位姓名＋生日），家戶需地址。
+  const famIn = payload?.family ?? null;
+  const famMembers = (famIn?.members ?? []).filter((m) => s(m.name) && s(m.solarBirthDate));
+  const famAddress = s(famIn?.household?.address);
+  const hasFamily = !!famIn && famMembers.length > 0 && !!famAddress;
+  if (famIn && !hasFamily && (famMembers.length > 0 || famAddress)) {
+    return { ok: false, status: 400, error: "全家燈：每位家人都要填姓名和生日，且需填家戶地址" };
+  }
+
+  if (people.length === 0 && !hasFamily) return { ok: false, status: 400, error: "請至少一位點光明／太歲燈（姓名、生日、地址），或加報全家燈" };
   if (people.length > 20) return { ok: false, status: 400, error: "一次最多 20 位，請分批報名" };
 
   if (submitterHash) {
@@ -285,6 +306,12 @@ export async function submitPublicLanternRegistration(
       solarBirthDate: s(p.solarBirthDate),
       lanterns: p.lanterns.map((l) => ({ itemKey: l.itemKey, quantity: Number(l.quantity) > 0 ? Math.floor(Number(l.quantity)) : 1 })),
     })),
+    family: hasFamily
+      ? {
+          household: { contactName: s(famIn?.household?.contactName), address: famAddress, phone: s(famIn?.household?.phone) },
+          members: famMembers.map((m) => ({ name: s(m.name) as string, solarBirthDate: s(m.solarBirthDate) })),
+        }
+      : null,
   };
   const id = `prg_${randomUUID()}`;
   await prisma.$executeRawUnsafe(
@@ -383,6 +410,12 @@ export async function confirmPublicRegistration(
           solarBirthDate: p.solarBirthDate ?? null,
           lanterns: (p.lanterns ?? []).map((l) => ({ itemKey: l.itemKey, quantity: l.quantity ?? 1 })),
         })),
+        family: lp.family
+          ? {
+              household: lp.family.household,
+              members: (lp.family.members ?? []).map((m) => ({ name: m.name ?? null, solarBirthDate: m.solarBirthDate ?? null })),
+            }
+          : null,
         confirm: true,
       },
       operator

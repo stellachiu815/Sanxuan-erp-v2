@@ -3,6 +3,7 @@ import { createHousehold } from "@/lib/householdManagement";
 import { createMemberForHousehold } from "@/lib/memberCreate";
 import { registerItemsBatch, type BatchItemEntry } from "@/lib/registrationItemRegistration";
 import { confirmRegistration } from "@/lib/activityRegistration";
+import { loadFamilyEligibleMembers } from "@/lib/familyLantern";
 import type { Role } from "@/lib/permissions";
 
 /**
@@ -33,9 +34,22 @@ export type AnnualLanternPerson = {
   lanterns: { itemKey: AnnualLanternItemKey; quantity?: number | null }[];
 };
 
+/**
+ * 全家燈（整戶一份、固定價）。兩種來源二選一：
+ *  - existingMemberId：既有信眾 → 全家燈涵蓋「他的整戶」（伺服器重查本戶合格成員全數納入）。
+ *  - household + members：新家戶 → 建戶＋逐位建家人（每位需姓名＋生日；地址用家戶地址），全數納入。
+ */
+export type AnnualLanternFamily = {
+  existingMemberId?: string | null;
+  household?: { contactName?: string | null; address?: string | null; phone?: string | null } | null;
+  members?: { name?: string | null; solarBirthDate?: string | null }[] | null;
+};
+
 export type AnnualLanternRegInput = {
   templeEventId: string;
   people: AnnualLanternPerson[];
+  /** 選填：加報全家燈（整戶一份）。 */
+  family?: AnnualLanternFamily | null;
   confirm?: boolean;
 };
 
@@ -63,15 +77,16 @@ export async function annualLanternRosterRegister(
   }
   const year = event.year;
 
-  // 光明／太歲燈的報名項目設定 id。
+  // 光明／太歲／全家燈的報名項目設定 id。
   const itemTypes = await prisma.registrationItemType.findMany({
-    where: { key: { in: ANNUAL_LANTERN_ITEM_KEYS as unknown as string[] } },
+    where: { key: { in: [...ANNUAL_LANTERN_ITEM_KEYS, "LANTERN_FAMILY"] } },
     select: { id: true, key: true },
   });
   const idByKey = new Map(itemTypes.map((t) => [t.key, t.id]));
   if (!idByKey.get("LANTERN_GUANGMING") || !idByKey.get("LANTERN_TAISUI")) {
     return { ok: false, status: 404, error: "找不到年度燈的報名項目設定" };
   }
+  const familyItemId = idByKey.get("LANTERN_FAMILY") ?? null;
 
   const hasBirth = (p: AnnualLanternPerson): boolean =>
     !!s(p.solarBirthDate) || (p.lunarBirthYear != null && p.lunarBirthMonth != null && p.lunarBirthDay != null);
@@ -80,7 +95,12 @@ export async function annualLanternRosterRegister(
   const people = (input.people ?? []).filter(
     (p) => (p.existingMemberId || s(p.name)) && Array.isArray(p.lanterns) && p.lanterns.some((l) => l.itemKey)
   );
-  if (people.length === 0) return { ok: false, status: 400, error: "請至少填一位報名者並選一種燈" };
+  // 全家燈：有既有信眾或有家人名單即算有效。
+  const family = input.family ?? null;
+  const hasFamily = !!family && (!!s(family.existingMemberId) || (Array.isArray(family.members) && family.members.some((m) => s(m.name))));
+  if (people.length === 0 && !hasFamily) {
+    return { ok: false, status: 400, error: "請至少填一位報名者並選一種燈，或加報全家燈" };
+  }
 
   const entries: BatchItemEntry[] = [];
   const householdIds = new Set<string>();
@@ -151,6 +171,58 @@ export async function annualLanternRosterRegister(
       const qty = Math.max(1, Math.floor(Number(l.quantity ?? 1)) || 1);
       entries.push({ memberId, registrationItemTypeId: itemId, year, quantity: qty });
     }
+  }
+
+  // 全家燈（整戶一份）。既有信眾→全戶納入；新家戶→建戶＋建家人（每位姓名＋生日）全數納入。
+  if (hasFamily && family) {
+    if (!familyItemId) return { ok: false, status: 404, error: "找不到全家燈的報名項目設定" };
+    let anchorMemberId: string;
+    let familyHouseholdId: string;
+    let includedMemberIds: string[];
+    if (s(family.existingMemberId)) {
+      const m = await prisma.member.findFirst({
+        where: { id: family.existingMemberId as string, deletedAt: null },
+        select: { id: true, householdId: true, name: true },
+      });
+      if (!m) return { ok: false, status: 404, error: "找不到全家燈選取的信眾（可能已被刪除）" };
+      const eligible = await loadFamilyEligibleMembers(m.householdId);
+      if (eligible.length === 0) return { ok: false, status: 400, error: "這一戶目前沒有可納入全家燈的成員" };
+      anchorMemberId = m.id;
+      familyHouseholdId = m.householdId;
+      includedMemberIds = eligible.map((e) => e.id);
+    } else {
+      const addr = s(family.household?.address);
+      const members = (family.members ?? []).filter((mm) => s(mm.name));
+      if (members.length === 0) return { ok: false, status: 400, error: "全家燈請至少填一位家人姓名" };
+      if (!addr) return { ok: false, status: 400, error: "全家燈需要地址" };
+      for (const mm of members) {
+        if (!s(mm.name) || !s(mm.solarBirthDate)) {
+          return { ok: false, status: 400, error: `全家燈家人「${s(mm.name) ?? "（未填）"}」缺姓名或生日（點燈需要生日）。` };
+        }
+      }
+      const contactName = s(family.household?.contactName) ?? (s(members[0].name) as string);
+      const surname = contactName.charAt(0);
+      const hh = await createHousehold(
+        { name: surname ? `${surname}家` : contactName, contactName, address: addr, phone: s(family.household?.phone) },
+        operator.name
+      );
+      familyHouseholdId = hh.household.id;
+      const createdIds: string[] = [];
+      for (let i = 0; i < members.length; i++) {
+        const mm = members[i];
+        const mem = await createMemberForHousehold(
+          familyHouseholdId,
+          { name: s(mm.name) as string, isPrimaryContact: i === 0, personalAddress: addr, birthdayType: "SOLAR", solarBirthDate: mm.solarBirthDate ?? undefined },
+          operator.name,
+          "全家燈報名：新增家人"
+        );
+        createdIds.push(mem.member.id);
+      }
+      anchorMemberId = createdIds[0];
+      includedMemberIds = createdIds;
+    }
+    householdIds.add(familyHouseholdId);
+    entries.push({ memberId: anchorMemberId, registrationItemTypeId: familyItemId, year, quantity: 1, participantMemberIds: includedMemberIds });
   }
 
   if (entries.length === 0) return { ok: false, status: 400, error: "請至少選一種燈" };

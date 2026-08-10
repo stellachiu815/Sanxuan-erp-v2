@@ -11,6 +11,7 @@ import WhiteRicePanel from "@/components/universal-salvation/WhiteRicePanel";
 import FixedItemPriceCard from "@/components/activities/FixedItemPriceCard";
 import ActivitySettingsCard from "@/components/activities/ActivitySettingsCard";
 import RosterPublicRegManager from "@/components/activities/RosterPublicRegManager";
+import { getRosterCapacityForEvent } from "@/lib/rosterRegister";
 import { resolvePocketUnitPrice } from "@/lib/pocketPricing";
 import { REGISTRATION_ITEM_SEED } from "@/lib/registrationItems";
 import { prisma } from "@/lib/prisma";
@@ -74,6 +75,12 @@ export default async function ActivityHomePage({
     yuanqinUnitPrice: eventPricing?.yuanqinUnitPrice ? Number(eventPricing.yuanqinUnitPrice) : null,
     wuyuanUnitPrice: eventPricing?.wuyuanUnitPrice ? Number(eventPricing.wuyuanUnitPrice) : null,
   };
+
+  // 宮燈份數上限（108）狀態：讓活動頁一眼看到已報／剩餘。非宮燈回 null。
+  const palaceCapacity =
+    (eventPricing?.activityType as string) === "PALACE_LANTERN"
+      ? await getRosterCapacityForEvent(id)
+      : null;
 
   return (
     <div className="min-h-screen">
@@ -185,7 +192,12 @@ export default async function ActivityHomePage({
             />
             <section className="rounded-3xl bg-white/70 p-6 shadow-card">
               <h2 className="text-sm text-ink">宮燈報名</h2>
-              <p className="mt-1 text-xs text-ink-faint">名單型報名：選人、一人一份 × 固定單價，可幫家人朋友一起報（含新信眾自動建檔）。整個活動固定 108 份。</p>
+              <p className="mt-1 text-xs text-ink-faint">名單型報名：選人、一人一份 × 固定單價，可幫家人朋友一起報（含新信眾自動建檔）。整個活動固定 108 份，報滿即不能再報。</p>
+              {palaceCapacity && (
+                <p className={`mt-2 inline-block rounded-full px-3 py-1 text-sm ${palaceCapacity.left <= 0 ? "bg-blossom-100 text-blossom-600" : "bg-sage-100 text-sage-600"}`}>
+                  {palaceCapacity.left <= 0 ? "已額滿" : `已報 ${palaceCapacity.used} 份 / ${palaceCapacity.capacity} 份（剩 ${palaceCapacity.left} 份）`}
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 <a
                   href={`/roster-register/${id}`}

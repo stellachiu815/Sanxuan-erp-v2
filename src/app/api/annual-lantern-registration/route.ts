@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await annualLanternRosterRegister(
-    { templeEventId: b.templeEventId, people: b.people, confirm: b.confirm === true },
+    { templeEventId: b.templeEventId, people: b.people, family: b.family ?? null, confirm: b.confirm === true },
     { id: check.operator.id, name: check.operator.name, role: check.operator.role }
   );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

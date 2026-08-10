@@ -10,7 +10,8 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  */
 type LanternSel = { itemKey: string; quantity?: number | null };
 type RegPerson = { name: string; phone?: string | null; address?: string | null; quantity?: number | null; lanterns?: LanternSel[] };
-type RegRow = { id: string; status: string; createdAt: string; payload: { kind?: string; people?: RegPerson[] } };
+type RegFamily = { household?: { address?: string | null } | null; members?: { name?: string | null }[] | null } | null;
+type RegRow = { id: string; status: string; createdAt: string; payload: { kind?: string; people?: RegPerson[]; family?: RegFamily } };
 
 const LANTERN_LABEL: Record<string, string> = { LANTERN_GUANGMING: "光明燈", LANTERN_TAISUI: "太歲燈" };
 function personSummary(p: RegPerson): string {
@@ -114,10 +115,15 @@ function Inner({ templeEventId }: { templeEventId: string }) {
           <ul className="mt-2 flex flex-col gap-2">
             {rows.map((r) => {
               const people = (r.payload?.kind === "ROSTER" || r.payload?.kind === "LANTERN") ? (r.payload.people ?? []) : [];
+              const family = r.payload?.kind === "LANTERN" ? r.payload.family ?? null : null;
+              const famNames = family?.members?.map((m) => m?.name).filter(Boolean) as string[] | undefined;
               return (
                 <li key={r.id} className="rounded-xl bg-cream-50 p-3">
                   <div className="text-sm text-ink">
-                    {people.length > 0 ? people.map((p) => personSummary(p)).join("、") : "（非名單型資料）"}
+                    {people.length > 0 ? people.map((p) => personSummary(p)).join("、") : (family ? "" : "（非名單型資料）")}
+                    {family && (
+                      <span className="text-sm text-ink">{people.length > 0 ? "；" : ""}全家燈（{famNames && famNames.length > 0 ? famNames.join("、") : "整戶"}）</span>
+                    )}
                   </div>
                   {people.length > 0 && (
                     <div className="mt-1 text-xs text-ink-faint">
