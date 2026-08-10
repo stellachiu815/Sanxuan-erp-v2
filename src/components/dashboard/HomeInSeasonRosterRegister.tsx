@@ -14,10 +14,11 @@ import { activityTypeLabel } from "@/lib/labels";
  */
 const ROSTER_ACTIVITY_TYPES = ["STORAGE_REPAYMENT", "PALACE_LANTERN", "ANNUAL_LANTERN"] as const;
 
-/** 每種活動的現場報名網址與按鈕字。年度燈走點燈頁；其餘走名單型報名頁。 */
-function entryFor(activityType: string, id: string): { href: string; verb: string } {
-  if (activityType === "ANNUAL_LANTERN") return { href: `/annual-lantern-register/${id}`, verb: "現場快速點燈" };
-  return { href: `/roster-register/${id}`, verb: "現場快速報名" };
+/** 每種活動的現場報名網址、按鈕字與淡彩分色（首頁色彩分區：補庫綠、宮燈藍、年度燈黃）。 */
+function entryFor(activityType: string, id: string): { href: string; verb: string; tone: string; icon: string } {
+  if (activityType === "ANNUAL_LANTERN") return { href: `/annual-lantern-register/${id}`, verb: "快速點燈", tone: "bg-yolk-100 hover:bg-yolk-200 border-yolk-200", icon: "🏮" };
+  if (activityType === "PALACE_LANTERN") return { href: `/roster-register/${id}`, verb: "快速報名", tone: "bg-mist-100 hover:bg-mist-200 border-mist-200", icon: "🏮" };
+  return { href: `/roster-register/${id}`, verb: "快速報名", tone: "bg-sage-100 hover:bg-sage-200 border-sage-200", icon: "🏪" };
 }
 
 export default async function HomeInSeasonRosterRegister() {
@@ -58,19 +59,20 @@ export default async function HomeInSeasonRosterRegister() {
   if (open.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-3">
+    <>
       {open.map((e) => {
-        const { href, verb } = entryFor(e.activityType, e.id);
+        const { href, verb, tone, icon } = entryFor(e.activityType, e.id);
         return (
           <Link
             key={e.id}
             href={href}
-            className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-card hover:bg-emerald-700"
+            className={`flex min-h-[58px] items-center gap-2 rounded-2xl border ${tone} px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:shadow-pop`}
           >
-            🕯️ {verb}（{activityTypeLabel[e.activityType] ?? e.name}）→
+            <span className="text-lg" aria-hidden>{icon}</span>
+            {verb}·{activityTypeLabel[e.activityType] ?? e.name}
           </Link>
         );
       })}
-    </div>
+    </>
   );
 }

@@ -12,14 +12,12 @@ import Link from "next/link";
 
 type Entry = { href: string; icon: string; label: string; tone: string };
 
-// V38：移除快捷入口裡重複的「新增信眾」（搜尋框下方已有大按鈕），不重複佔位。
+// V40 首頁精簡：拿掉重複的入口——信眾管理（上方已有搜尋＋新增信眾）、列印管理（下方「待列印」卡
+// 點了就進列印中心，同一個）、活動報名（繞一圈也是進活動管理，重複）。其餘收成下方小標籤，不搶戲。
 const ENTRIES: Entry[] = [
-  { href: "/devotee-center", icon: "🔍", label: "信眾管理", tone: "bg-sage-50 hover:bg-sage-100" },
-  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-50 hover:bg-blossom-100" },
-  { href: "/print-center", icon: "🖨️", label: "列印管理", tone: "bg-mist-50 hover:bg-mist-100" },
-  { href: "/registration", icon: "📝", label: "活動報名", tone: "bg-yolk-50 hover:bg-yolk-100" },
-  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-cream-200 hover:bg-cream-300" },
-  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-50 hover:bg-sage-100" },
+  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "" },
+  { href: "/activities", icon: "📅", label: "活動管理", tone: "" },
+  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "" },
 ];
 
 export default function HomeQuickNav({
@@ -32,23 +30,21 @@ export default function HomeQuickNav({
   financeReadOnly?: boolean;
 }) {
   const entries: Entry[] = [...ENTRIES];
-  // V38：財務中心放在「信眾管理」之後、「收款管理」之前（第 2 格；原本「新增信眾」的位置）。
-  //   僅可查看財務者顯示：最高管理員完整／管理員唯讀。
-  if (showFinance) entries.splice(1, 0, { href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-yolk-100 hover:bg-yolk-200" });
-  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" });
+  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "" });
+  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "" });
 
   return (
     <section className="w-full max-w-5xl">
-      <h2 className="mb-3 text-base font-medium text-ink">快捷入口</h2>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <p className="mb-2 text-xs tracking-[0.2em] text-ink-faint">其他中心</p>
+      <div className="flex flex-wrap gap-2">
         {entries.map((e) => (
           <Link
             key={e.href}
             href={e.href}
-            className={`flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl ${e.tone} p-4 text-center shadow-card transition hover:shadow-pop`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-cream-300 bg-cream-50 px-4 py-2 text-sm text-ink-soft transition hover:bg-cream-200"
           >
-            <span className="text-2xl" aria-hidden>{e.icon}</span>
-            <span className="text-sm font-medium text-ink">{e.label}</span>
+            <span aria-hidden>{e.icon}</span>
+            {e.label}
           </Link>
         ))}
       </div>

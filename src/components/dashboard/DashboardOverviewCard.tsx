@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getDashboardHomeSummary } from "@/lib/dashboardHome";
-import type { TempleEventStatus } from "@prisma/client";
 
 /**
  * V11.2「首頁 Dashboard（系統總覽）」。
@@ -10,13 +9,6 @@ import type { TempleEventStatus } from "@prisma/client";
  * 圓角卡片、莫蘭迪淡色系、陰影、hover 效果；沒有資料時一律顯示「0」
  * 「—」或「目前沒有資料」，不會出現 Error（需求「UI 要求」）。
  */
-
-const STATUS_LABEL: Record<TempleEventStatus, string> = {
-  PREPARING: "籌備中",
-  ONGOING: "活動進行中",
-  CLOSED: "已結案",
-  CANCELLED: "已取消",
-};
 
 function formatAmount(amount: number): string {
   return `${amount.toLocaleString("zh-Hant")} 元`;
@@ -72,33 +64,6 @@ export default async function DashboardOverviewCard() {
           >
             查看完整生日名單 →
           </Link>
-        </div>
-
-        {/* ② 今日活動 */}
-        <div className="rounded-3xl bg-mist-50 p-6 shadow-card transition hover:shadow-pop">
-          <p className="text-sm font-medium text-ink">📅 今日活動</p>
-          {data.todayActivities.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-faint">今天沒有活動</p>
-          ) : (
-            <ul className="mt-3 space-y-3">
-              {data.todayActivities.map((e) => (
-                <li key={e.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-ink">{e.name}</p>
-                    <p className="text-xs text-ink-faint">
-                      {e.dateDisplay}・{STATUS_LABEL[e.status]}
-                    </p>
-                  </div>
-                  <Link
-                    href={`/activities/${e.id}`}
-                    className="shrink-0 rounded-xl bg-mist-100 px-3 py-1 text-xs text-ink transition hover:bg-mist-200"
-                  >
-                    進入活動 →
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
 
         {/* ③ 今日收款 */}

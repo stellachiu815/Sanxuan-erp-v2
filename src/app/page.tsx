@@ -8,7 +8,6 @@ import DataCompletenessCard from "@/components/dashboard/DataCompletenessCard";
 import DashboardErrorBoundary from "@/components/dashboard/DashboardErrorBoundary";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
 import OfferingHomeCard from "@/components/offering/OfferingHomeCard";
-import CollectionHomeCard from "@/components/collection/CollectionHomeCard";
 import ReceiptHomeCard from "@/components/receipt/ReceiptHomeCard";
 import SystemCenterHomeCard from "@/components/system-center/SystemCenterHomeCard";
 import DevoteeCenterHomeCard from "@/components/devotee/DevoteeCenterHomeCard";
@@ -74,34 +73,33 @@ export default async function HomePage() {
       */}
       <DevoteeQuickActions />
 
-      {/*
-        V15 指令三「首頁快捷入口重新排列」：搜尋（上方 DevoteeQuickActions）維持
-        最高優先，緊接著是宮內最高頻的固定順序快捷入口——信眾中心／新增信眾／
-        收款中心／列印中心／活動中心／供品中心／系統管理（依權限）。全部沿用既有
-        路由，列印中心＝既有 /print-center（不建第二套）。
-      */}
+      {/* V40 首頁「現場最常用」：色彩分區的快速動作，靠顏色直覺辨識。
+          中元普渡（蜜桃）／年度燈（黃）／補庫（綠）／宮燈（藍）為動態依開放日期出現；
+          開立感謝狀（粉）／生日與農曆（紫）／新增報名（米）固定。 */}
+      <section className="w-full max-w-5xl">
+        <p className="mb-2 text-xs tracking-[0.2em] text-ink-faint">現場最常用</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Link href="/quick-registration" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-apricot-200 bg-apricot-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-apricot-200 hover:shadow-pop">
+            <span className="text-lg" aria-hidden>🀄</span>快速報名·中元普渡
+          </Link>
+          {/* 補庫／宮燈／年度燈：依活動設定的開放日期自動出現（各自分色）。 */}
+          <Suspense fallback={null}>
+            <HomeInSeasonRosterRegister />
+          </Suspense>
+          <Link href="/receipt-center/quick" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-blossom-200 bg-blossom-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-blossom-200 hover:shadow-pop">
+            <span className="text-lg" aria-hidden>🧾</span>開立感謝狀
+          </Link>
+          <Link href="/tools/birthday" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-lilac-200 bg-lilac-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-lilac-200 hover:shadow-pop">
+            <span className="text-lg" aria-hidden>🎂</span>生日與農曆中心
+          </Link>
+          <Link href="/registration/new" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-cream-300 bg-cream-200 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-cream-300 hover:shadow-pop">
+            <span className="text-lg" aria-hidden>➕</span>新增活動報名
+          </Link>
+        </div>
+      </section>
+
+      {/* 其他中心（小標籤，不搶戲）：收款／活動管理／供品／財務／系統（依權限）。 */}
       <HomeQuickNav showSystemCenter={showSystemCenter} showFinance={showFinance} financeReadOnly={financeReadOnly} />
-
-      {/* V38 現場快速報名：中元普渡現場報名的最高頻入口，放在首頁顯眼處。 */}
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Link
-          href="/quick-registration"
-          className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-card hover:bg-emerald-700"
-        >
-          🀄 現場快速報名（中元普渡）→
-        </Link>
-        <Link
-          href="/registration/new"
-          className="rounded-full bg-sage-100 px-5 py-2.5 text-sm font-medium text-ink shadow-card hover:bg-sage-200"
-        >
-          ➕ 新增活動報名（可建新信眾）→
-        </Link>
-      </div>
-
-      {/* 當季名單型活動（補庫／宮燈）的現場快速報名——當季自動出現,直接一鍵進報名。 */}
-      <Suspense fallback={null}>
-        <HomeInSeasonRosterRegister />
-      </Suspense>
 
 
       {/*
@@ -152,10 +150,9 @@ export default async function HomePage() {
         的主因。改為各自包 Suspense 串流：首頁外殼與快捷入口先出現，三張卡稍後補上，
         不改任何查詢邏輯與資料正確性（沿用既有元件，不建第二套）。
       */}
+      {/* V40 效能＋精簡：拿掉「收款摘要卡」——它的待收款／今日收款數字上方「系統總覽」已經有，
+          原本等於同一次載入重複跑一次收款彙總重查詢。收款細節走上方「收款管理」入口即可。 */}
       <DevoteeCenterHomeCard />
-      <Suspense fallback={<HomeCardSkeleton />}>
-        <CollectionHomeCard />
-      </Suspense>
       <Suspense fallback={<HomeCardSkeleton />}>
         <ReceiptHomeCard />
       </Suspense>
@@ -163,56 +160,18 @@ export default async function HomePage() {
         <OfferingHomeCard />
       </Suspense>
       <SystemCenterHomeCard />
-      <div className="flex flex-wrap items-center justify-center gap-4">
+      {/* V40：最底下原本一長排連結大多與上方卡片／標籤重複，整排拿掉；只留不重複的少數
+          （匯入／祭改／模板／信眾名單／回收區），縮成一排安靜的小連結。 */}
+      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-2 text-ink-faint">
         {showImport && (
-          <Link href="/system-center/data-import" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-            家戶／信眾 Excel 正式匯入 →
-          </Link>
+          <Link href="/system-center/data-import" className="text-xs underline-offset-4 hover:underline">家戶／信眾 Excel 匯入</Link>
         )}
-        <Link href="/tools/birthday" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🎂 生日與農曆中心 →
-        </Link>
-        <Link href="/activities" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          ➕ 建立宮務活動 →
-        </Link>
-        <Link href="/purification" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🧧 祭改管理 →
-        </Link>
-        <Link href="/templates" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          📑 台北三玄宮模板中心 →
-        </Link>
-        <Link href="/offering-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🙏 供品認捐中心 →
-        </Link>
-        <Link href="/devotee-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          💛 信眾關係中心 →
-        </Link>
-        <Link href="/collection-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          💰 全宮共用收款中心 →
-        </Link>
-        <Link href="/receipt-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🧾 全宮共用收據中心 →
-        </Link>
-        {showSystemCenter && (
-          <Link href="/system-center" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-            🛠️ 系統管理 →
-          </Link>
-        )}
+        <Link href="/purification" className="text-xs underline-offset-4 hover:underline">祭改管理</Link>
+        <Link href="/templates" className="text-xs underline-offset-4 hover:underline">模板中心</Link>
+        <Link href="/devotee-center/list" className="text-xs underline-offset-4 hover:underline">家戶管理（信眾名單）</Link>
         {showRecycleBin && (
-          <Link
-            href="/system/recycle-bin"
-            className="text-sm text-ink-faint underline-offset-4 hover:underline"
-          >
-            🗑 回收區 →
-          </Link>
+          <Link href="/system/recycle-bin" className="text-xs underline-offset-4 hover:underline">回收區</Link>
         )}
-        {/* V12.1「家戶管理中心」驗收修正輪：家戶管理（新增家戶／指定戶長／
-            合併／拆分／轉移／封存）這次直接整合進「信眾名單」頁面，不是
-            另一個獨立入口，所以這裡改成直接指向信眾名單，不調整上面既有
-            連結的順序。 */}
-        <Link href="/devotee-center/list" className="text-sm text-ink-faint underline-offset-4 hover:underline">
-          🏠 家戶管理中心（信眾名單）→
-        </Link>
       </div>
     </main>
   );

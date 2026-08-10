@@ -78,8 +78,8 @@ export default function ReceiptPrintView({ receipt }: { receipt: ReceiptPrintDat
 
         <div className="flex items-start justify-between border-b-2 border-ink pb-4">
           <div>
-            <h1 className="text-2xl text-ink">台北三玄宮</h1>
-            <p className="mt-1 text-lg text-ink-soft">收據</p>
+            <h1 className="text-4xl font-medium tracking-wide text-ink">台北三玄宮</h1>
+            <p className="mt-1 text-lg text-ink-soft">感謝狀</p>
           </div>
           <div className="text-right text-base text-ink-soft">
             <p>收據號碼：{receipt.receiptNumber}</p>
