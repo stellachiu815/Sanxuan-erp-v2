@@ -5,9 +5,10 @@ import { useOperator, OperatorProvider } from "@/lib/operatorClient";
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass, errorTextClass } from "@/components/household/formStyles";
 
 /**
- * 名單型（贊普型）現場快速報名表單——補庫／宮燈／年度燈共用。
- * 一位報名者可幫多人報(多列);每列可「搜既有信眾帶入」或「填新信眾」。
- * 送出走 /api/roster-registration(共用引擎 rosterRegister),預設立即確認為正式。
+ * 年度燈（光明燈／太歲燈）現場快速報名＋公開報名表單。
+ * 一位報名者可幫多人報（多列）；每位可勾「光明燈／太歲燈」（可複選）並各填份數。
+ * 報名必填：姓名、生日、地址（點燈要算歲數／生肖）。電話選填。
+ * 走 /api/annual-lantern-registration（共用引擎，立即確認）；公開模式改送 /api/public-reg/[slug]/submit（建草稿）。
  */
 
 type Row = {
@@ -17,13 +18,16 @@ type Row = {
   phone: string;
   address: string;
   solarBirthDate: string;
-  quantity: string;
+  guangming: boolean;
+  guangmingQty: string;
+  taisui: boolean;
+  taisuiQty: string;
 };
 type SearchResult = { memberId: string; name: string; householdName: string; address: string | null };
 
-const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", solarBirthDate: "", quantity: "1" });
+const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1" });
 
-export default function RosterRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
+export default function AnnualLanternRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
     <OperatorProvider>
       <Inner {...props} />
@@ -51,8 +55,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
 
   async function search(i: number, q: string) {
     update(i, { name: q, existingMemberId: "", existingLabel: "" });
-    // 公開報名(信眾自己填)不查既有信眾資料庫——一律當新資料填,廟方確認時再比對/建檔。
-    if (publicSlug) return;
+    if (publicSlug) return; // 公開報名一律新資料，不查既有信眾。
     if (q.trim().length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
     try {
       const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
@@ -72,19 +75,22 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     setError(null);
     setOkMsg(null);
     const people = rows
-      .map((r) => ({
-        existingMemberId: r.existingMemberId.trim() || null,
-        name: r.name.trim() || null,
-        phone: r.phone.trim() || null,
-        address: r.address.trim() || null,
-        birthdayType: r.solarBirthDate.trim() ? ("SOLAR" as const) : null,
-        solarBirthDate: r.solarBirthDate.trim() || null,
-        quantity: Number(r.quantity) > 0 ? Number(r.quantity) : 1,
-      }))
-      .filter((p) => p.existingMemberId || p.name);
-    if (people.length === 0) { setError("請至少填一位報名者的姓名"); return; }
-    // 報名必填：姓名、生日、地址（電話選填）。新填的信眾（沒選既有）必須三項都齊，
-    // 缺任一不給送出——與「缺必備資料不能確認報名」一致。既有信眾由後端檢查其資料是否齊全。
+      .map((r) => {
+        const lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI"; quantity: number }[] = [];
+        if (r.guangming) lanterns.push({ itemKey: "LANTERN_GUANGMING", quantity: Number(r.guangmingQty) > 0 ? Number(r.guangmingQty) : 1 });
+        if (r.taisui) lanterns.push({ itemKey: "LANTERN_TAISUI", quantity: Number(r.taisuiQty) > 0 ? Number(r.taisuiQty) : 1 });
+        return {
+          existingMemberId: r.existingMemberId.trim() || null,
+          name: r.name.trim() || null,
+          phone: r.phone.trim() || null,
+          address: r.address.trim() || null,
+          solarBirthDate: r.solarBirthDate.trim() || null,
+          lanterns,
+        };
+      })
+      .filter((p) => (p.existingMemberId || p.name) && p.lanterns.length > 0);
+    if (people.length === 0) { setError("請至少填一位報名者，並勾選光明燈或太歲燈"); return; }
+    // 報名必填：姓名、生日、地址。新填的信眾（沒選既有）三項都要齊。
     for (let i = 0; i < people.length; i++) {
       const p = people[i];
       if (p.existingMemberId) continue;
@@ -92,7 +98,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
       if (!p.name) miss.push("姓名");
       if (!p.solarBirthDate) miss.push("生日");
       if (!p.address) miss.push("地址");
-      if (miss.length > 0) { setError(`第 ${i + 1} 位還缺：${miss.join("、")}（點燈／報名都需要姓名、生日、地址）`); return; }
+      if (miss.length > 0) { setError(`第 ${i + 1} 位還缺：${miss.join("、")}（點燈需要姓名、生日、地址）`); return; }
     }
 
     setBusy(true);
@@ -101,16 +107,16 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
         ? await fetch(`/api/public-reg/${encodeURIComponent(publicSlug)}/submit`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind: "ROSTER", people: people.map((p) => ({ name: p.name, phone: p.phone, address: p.address, solarBirthDate: p.solarBirthDate, quantity: p.quantity })) }),
+            body: JSON.stringify({ kind: "LANTERN", people }),
           })
-        : await fetch(`/api/roster-registration`, {
+        : await fetch(`/api/annual-lantern-registration`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ operatorUserId: operatorUser?.id ?? null, templeEventId, people, confirm: true }),
           });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "報名失敗，請稍後再試一次。"); return; }
-      setOkMsg(publicSlug ? "已送出報名！廟方核對後就會正式成立，感謝您。" : (data.message ?? "已完成報名。"));
+      setOkMsg(publicSlug ? "已送出點燈報名！廟方核對後就會正式成立，感謝您。" : (data.message ?? "已完成點燈報名。"));
       setRows([emptyRow()]);
       setResults({});
     } catch {
@@ -123,11 +129,10 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-3xl bg-white/70 p-6 shadow-card">
-        <h1 className="text-lg text-ink">{activityName}・{publicSlug ? "線上報名" : "現場快速報名"}</h1>
+        <h1 className="text-lg text-ink">{activityName}・{publicSlug ? "線上點燈報名" : "現場快速點燈"}</h1>
         <p className="mt-1 text-sm text-ink-soft">
-          {publicSlug
-            ? "一人一份。可幫家人朋友一起報（多列），每位填一組資料。送出後由廟方核對成立。"
-            : "一人一份、固定單價。可幫家人朋友一起報（多列）；每位可「搜既有信眾帶入」或直接填新信眾（系統自動建檔）。"}
+          可幫家人朋友一起點（多列）。每位勾選要點的燈（光明燈／太歲燈可複選）並填份數。
+          <b className="text-ink">點燈需要姓名、生日、地址</b>（用來算歲數、生肖）。
         </p>
 
         <div className="mt-4 flex flex-col gap-3">
@@ -148,7 +153,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
               ) : (
                 <>
                   <label className="mt-2 flex flex-col gap-1">
-                    <span className={labelClass}>姓名（打字可搜既有信眾，或直接當新信眾）</span>
+                    <span className={labelClass}>姓名 <span className="text-blossom-500">＊必填</span>{publicSlug ? "" : "（打字可搜既有信眾）"}</span>
                     <input className={inputClass} value={r.name} onChange={(e) => void search(i, e.target.value)} placeholder="信眾姓名" />
                   </label>
                   {(results[i]?.length ?? 0) > 0 && (
@@ -162,12 +167,12 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                   )}
                   <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="flex flex-col gap-1">
-                      <span className={labelClass}>電話（選填）</span>
-                      <input className={inputClass} value={r.phone} onChange={(e) => update(i, { phone: e.target.value })} />
-                    </label>
-                    <label className="flex flex-col gap-1">
                       <span className={labelClass}>國曆生日 <span className="text-blossom-500">＊必填</span></span>
                       <input type="date" className={inputClass} value={r.solarBirthDate} onChange={(e) => update(i, { solarBirthDate: e.target.value })} />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className={labelClass}>電話（選填）</span>
+                      <input className={inputClass} value={r.phone} onChange={(e) => update(i, { phone: e.target.value })} />
                     </label>
                     <label className="flex flex-col gap-1 sm:col-span-2">
                       <span className={labelClass}>地址 <span className="text-blossom-500">＊必填</span></span>
@@ -177,10 +182,26 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                 </>
               )}
 
-              <label className="mt-2 flex flex-col gap-1">
-                <span className={labelClass}>份數</span>
-                <input type="number" min={1} className={`${inputClass} w-28`} value={r.quantity} onChange={(e) => update(i, { quantity: e.target.value })} />
-              </label>
+              <div className="mt-3 flex flex-wrap items-center gap-4 rounded-xl bg-white/70 px-4 py-3">
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={r.guangming} onChange={(e) => update(i, { guangming: e.target.checked })} />
+                  光明燈
+                </label>
+                {r.guangming && (
+                  <label className="flex items-center gap-1 text-xs text-ink-soft">
+                    份數 <input type="number" min={1} className={`${inputClass} w-20`} value={r.guangmingQty} onChange={(e) => update(i, { guangmingQty: e.target.value })} />
+                  </label>
+                )}
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={r.taisui} onChange={(e) => update(i, { taisui: e.target.checked })} />
+                  太歲燈
+                </label>
+                {r.taisui && (
+                  <label className="flex items-center gap-1 text-xs text-ink-soft">
+                    份數 <input type="number" min={1} className={`${inputClass} w-20`} value={r.taisuiQty} onChange={(e) => update(i, { taisuiQty: e.target.value })} />
+                  </label>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -188,7 +209,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button type="button" onClick={addRow} className={secondaryButtonClass}>＋ 再加一位</button>
           <button type="button" onClick={() => void submit()} disabled={busy} className={primaryButtonClass}>
-            {busy ? (publicSlug ? "送出中…" : "報名中…") : (publicSlug ? "送出報名" : "完成報名")}
+            {busy ? (publicSlug ? "送出中…" : "報名中…") : (publicSlug ? "送出點燈報名" : "完成點燈")}
           </button>
           {okMsg && <span className="text-sm text-sage-500">{okMsg}</span>}
         </div>
@@ -196,7 +217,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
         <p className="mt-3 rounded-2xl bg-cream-100 px-4 py-3 text-xs leading-relaxed text-ink-soft">
           {publicSlug
             ? "送出後會進入廟方的「待確認清單」，由廟方核對後才正式成立、不會馬上收款。感謝您的報名。"
-            : "送出即建立正式報名（金額＝固定單價 × 份數）。新信眾會自動建成信眾資料;之後可到信眾頁補齊其他欄位。"}
+            : "送出即建立正式報名（金額＝該年度光明／太歲單價 × 份數）。若顯示應收 0，請先到活動頁設定年度燈單價。新信眾會自動建檔。"}
         </p>
       </section>
     </div>

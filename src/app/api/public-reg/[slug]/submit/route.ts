@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { submitPublicRegistration, submitPublicRosterRegistration, type PublicPayload, type PublicRosterPayload } from "@/lib/publicReg";
+import { submitPublicRegistration, submitPublicRosterRegistration, submitPublicLanternRegistration, type PublicPayload, type PublicRosterPayload, type PublicLanternPayload } from "@/lib/publicReg";
 
 /**
  * 信眾公開報名送出（**免登入**）。POST /api/public-reg/[slug]/submit
@@ -18,13 +18,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const b = body as Record<string, unknown>;
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
 
-  // 名單型（補庫/宮燈）公開報名。
-  if (b.kind === "ROSTER") {
+  // 名單型（補庫/宮燈）與年度燈（光明/太歲燈）公開報名——都用 people[0].name 做防重複雜湊。
+  if (b.kind === "ROSTER" || b.kind === "LANTERN") {
     const firstName = Array.isArray(b.people) && b.people.length > 0 && typeof (b.people[0] as { name?: unknown })?.name === "string"
       ? (b.people[0] as { name: string }).name
       : "";
     const submitterHash = createHash("sha256").update(`${ip}|${firstName}`).digest("hex").slice(0, 32);
-    const res = await submitPublicRosterRegistration(slug, body as PublicRosterPayload, submitterHash);
+    const res = b.kind === "LANTERN"
+      ? await submitPublicLanternRegistration(slug, body as PublicLanternPayload, submitterHash)
+      : await submitPublicRosterRegistration(slug, body as PublicRosterPayload, submitterHash);
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
     return NextResponse.json({ ok: true, id: res.id }, { status: 201 });
   }

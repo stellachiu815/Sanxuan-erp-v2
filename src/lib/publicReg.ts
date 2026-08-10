@@ -240,6 +240,60 @@ export async function submitPublicRosterRegistration(
   return { ok: true, id };
 }
 
+// ── 年度燈（光明／太歲燈）公開報名：信眾自己填 → PENDING → 廟方一鍵建檔+確認。 ──
+export type PublicLanternPerson = {
+  name: string; phone?: string | null; address?: string | null; solarBirthDate?: string | null;
+  lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI"; quantity?: number | null }[];
+};
+export type PublicLanternPayload = { kind: "LANTERN"; people: PublicLanternPerson[] };
+
+/** 年度燈公開報名送出（免登入）：驗證＋防重複＋寫入 PENDING（payload.kind = "LANTERN"）。 */
+export async function submitPublicLanternRegistration(
+  slug: string,
+  payload: PublicLanternPayload,
+  submitterHash: string | null
+): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> {
+  const form = await getPublicFormBySlug(slug);
+  if (!form) return { ok: false, status: 404, error: "找不到這個報名網址" };
+  if (!form.isOpen) return { ok: false, status: 409, error: "這個活動目前未開放線上報名" };
+
+  const validKeys = new Set(["LANTERN_GUANGMING", "LANTERN_TAISUI"]);
+  const people = (payload?.people ?? [])
+    .map((p) => ({
+      ...p,
+      lanterns: (p.lanterns ?? []).filter((l) => validKeys.has(l.itemKey)),
+    }))
+    // 點燈必填：姓名、生日、地址，且至少一種燈。
+    .filter((p) => s(p.name) && s(p.address) && s(p.solarBirthDate) && p.lanterns.length > 0);
+  if (people.length === 0) return { ok: false, status: 400, error: "每位都要填姓名、生日、地址，並至少選一種燈" };
+  if (people.length > 20) return { ok: false, status: 400, error: "一次最多 20 位，請分批報名" };
+
+  if (submitterHash) {
+    const dup = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(*)::bigint AS n FROM "public_registrations"
+      WHERE "formId" = ${form.id} AND "submitterHash" = ${submitterHash}
+        AND "createdAt" > (CURRENT_TIMESTAMP - INTERVAL '30 seconds')`;
+    if (Number(dup[0]?.n ?? 0) > 0) return { ok: false, status: 429, error: "剛剛已送出過，請稍候再試（避免重複報名）" };
+  }
+
+  const stored: PublicLanternPayload = {
+    kind: "LANTERN",
+    people: people.map((p) => ({
+      name: s(p.name) as string,
+      phone: s(p.phone),
+      address: s(p.address),
+      solarBirthDate: s(p.solarBirthDate),
+      lanterns: p.lanterns.map((l) => ({ itemKey: l.itemKey, quantity: Number(l.quantity) > 0 ? Math.floor(Number(l.quantity)) : 1 })),
+    })),
+  };
+  const id = `prg_${randomUUID()}`;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "public_registrations" ("id","formId","status","payload","submitterHash","createdAt","updatedAt") VALUES ($1,$2,'PENDING',$3::jsonb,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+    id, form.id, JSON.stringify(stored), submitterHash
+  );
+  return { ok: true, id };
+}
+
 export type PublicRegRow = {
   id: string;
   status: string;
@@ -311,6 +365,32 @@ export async function confirmPublicRegistration(
     await prisma.$executeRawUnsafe(
       `UPDATE "public_registrations" SET "status"='CONFIRMED', "confirmedAt"=CURRENT_TIMESTAMP, "confirmedByName"=$1, "note"=$2, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$3`,
       operator.name, `已轉正式報名（${res.ritualRecordIds.length} 戶）`, id
+    );
+    return { ok: true, ritualRecordId: res.ritualRecordIds[0] ?? "" };
+  }
+
+  // 年度燈（光明／太歲燈）：走 annualLanternRosterRegister（選人、每人選燈、新信眾建檔、直接確認）。
+  if (payloadObj.kind === "LANTERN") {
+    const { annualLanternRosterRegister } = await import("@/lib/annualLanternRegister");
+    const lp = payloadObj as unknown as PublicLanternPayload;
+    const res = await annualLanternRosterRegister(
+      {
+        templeEventId: rec.templeEventId,
+        people: (lp.people ?? []).map((p) => ({
+          name: p.name,
+          phone: p.phone ?? null,
+          address: p.address ?? null,
+          solarBirthDate: p.solarBirthDate ?? null,
+          lanterns: (p.lanterns ?? []).map((l) => ({ itemKey: l.itemKey, quantity: l.quantity ?? 1 })),
+        })),
+        confirm: true,
+      },
+      operator
+    );
+    if (!res.ok) return { ok: false, status: res.status, error: res.error };
+    await prisma.$executeRawUnsafe(
+      `UPDATE "public_registrations" SET "status"='CONFIRMED', "confirmedAt"=CURRENT_TIMESTAMP, "confirmedByName"=$1, "note"=$2, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$3`,
+      operator.name, `已轉正式點燈報名（${res.ritualRecordIds.length} 戶）`, id
     );
     return { ok: true, ritualRecordId: res.ritualRecordIds[0] ?? "" };
   }

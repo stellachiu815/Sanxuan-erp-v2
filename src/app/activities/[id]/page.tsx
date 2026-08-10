@@ -126,6 +126,25 @@ export default async function ActivityHomePage({
           </>
         )}
 
+        {/* 年度燈：光明／太歲燈的現場快速報名＋公開報名（信眾線上填→待確認→一鍵建檔確認）。 */}
+        {eventPricing?.activityType === "ANNUAL_LANTERN" && (
+          <>
+            <section className="rounded-3xl bg-white/70 p-6 shadow-card">
+              <h2 className="text-sm text-ink">點燈報名（光明燈／太歲燈）</h2>
+              <p className="mt-1 text-xs text-ink-faint">選人、勾要點的燈（可複選）＋份數，姓名／生日／地址必填（點燈要算歲數、生肖）。含新信眾自動建檔。全家燈請走信眾頁年度燈選單。</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={`/annual-lantern-register/${id}`}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-full bg-sage-200 px-4 py-2 text-sm font-medium text-ink transition hover:bg-sage-300"
+                >
+                  🕯️ 現場快速點燈 →
+                </a>
+              </div>
+            </section>
+            <RosterPublicRegManager templeEventId={id} />
+          </>
+        )}
+
         {/* 補庫：固定單價設定（贊普型，一人一份 × 單價；單價存項目本身，不動資料庫）。 */}
         {eventPricing?.activityType === "STORAGE_REPAYMENT" && (
           <>

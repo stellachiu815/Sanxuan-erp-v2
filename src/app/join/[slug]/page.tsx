@@ -2,6 +2,7 @@ import { getPublicFormBySlug } from "@/lib/publicReg";
 import { prisma } from "@/lib/prisma";
 import PublicRegForm from "@/components/public/PublicRegForm";
 import RosterRegisterForm from "@/components/registration/RosterRegisterForm";
+import AnnualLanternRegisterForm from "@/components/registration/AnnualLanternRegisterForm";
 
 /**
  * 信眾公開報名頁 /join/[slug]（免登入，中介層已放行）。
@@ -26,8 +27,15 @@ export default async function PublicJoinPage({ params }: { params: Promise<{ slu
     );
   }
 
-  // 名單型活動（補庫/宮燈）→ 名單型公開表單。
+  // 名單型活動（補庫/宮燈）→ 名單型公開表單；年度燈 → 光明/太歲燈公開表單。
   const ev = await prisma.templeEvent.findUnique({ where: { id: form.templeEventId }, select: { activityType: true } });
+  if (ev && ev.activityType === "ANNUAL_LANTERN") {
+    return (
+      <main className="mx-auto max-w-xl px-4 py-8">
+        <AnnualLanternRegisterForm templeEventId={form.templeEventId} activityName={form.activityName} publicSlug={decodedSlug} />
+      </main>
+    );
+  }
   if (ev && ROSTER_ACTIVITY_TYPES.has(ev.activityType)) {
     return (
       <main className="mx-auto max-w-xl px-4 py-8">

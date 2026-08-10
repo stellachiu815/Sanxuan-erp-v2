@@ -8,7 +8,18 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  * 名單型（補庫/宮燈）活動頁的「公開報名管理」——產生報名網址 + 待確認清單 + 一鍵建檔＋確認。
  * 全走既有 /api/admin/public-reg（save-form / confirm / reject / list），確認已於後端分流到 rosterRegister。
  */
-type RegRow = { id: string; status: string; createdAt: string; payload: { kind?: string; people?: { name: string; phone?: string | null; address?: string | null; quantity?: number | null }[] } };
+type LanternSel = { itemKey: string; quantity?: number | null };
+type RegPerson = { name: string; phone?: string | null; address?: string | null; quantity?: number | null; lanterns?: LanternSel[] };
+type RegRow = { id: string; status: string; createdAt: string; payload: { kind?: string; people?: RegPerson[] } };
+
+const LANTERN_LABEL: Record<string, string> = { LANTERN_GUANGMING: "光明燈", LANTERN_TAISUI: "太歲燈" };
+function personSummary(p: RegPerson): string {
+  if (Array.isArray(p.lanterns) && p.lanterns.length > 0) {
+    const lights = p.lanterns.map((l) => `${LANTERN_LABEL[l.itemKey] ?? l.itemKey}${(l.quantity ?? 1) > 1 ? `×${l.quantity}` : ""}`).join("、");
+    return `${p.name}（${lights}）`;
+  }
+  return `${p.name}${(p.quantity ?? 1) > 1 ? `×${p.quantity}` : ""}`;
+}
 
 export default function RosterPublicRegManager({ templeEventId }: { templeEventId: string }) {
   return (
@@ -102,11 +113,11 @@ function Inner({ templeEventId }: { templeEventId: string }) {
         ) : (
           <ul className="mt-2 flex flex-col gap-2">
             {rows.map((r) => {
-              const people = r.payload?.kind === "ROSTER" ? (r.payload.people ?? []) : [];
+              const people = (r.payload?.kind === "ROSTER" || r.payload?.kind === "LANTERN") ? (r.payload.people ?? []) : [];
               return (
                 <li key={r.id} className="rounded-xl bg-cream-50 p-3">
                   <div className="text-sm text-ink">
-                    {people.length > 0 ? people.map((p) => `${p.name}${(p.quantity ?? 1) > 1 ? `×${p.quantity}` : ""}`).join("、") : "（非名單型資料）"}
+                    {people.length > 0 ? people.map((p) => personSummary(p)).join("、") : "（非名單型資料）"}
                   </div>
                   {people.length > 0 && (
                     <div className="mt-1 text-xs text-ink-faint">
