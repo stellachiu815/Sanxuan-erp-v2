@@ -143,15 +143,24 @@ export async function createTempleEvent(
   // copyActivityOfferingsForNewEvent() 沿用去年設定，不重覆補預設。
   await seedDefaultActivityOfferings(created.id, input.activityType, operatorName);
 
-  // V38：建普渡活動時，自動產生一張「信眾公開報名表」＋網址（/join/普渡{年}）。
-  //   目前僅普渡有對應的報名頁項目集；其他活動類型之後再擴充。best-effort，失敗不影響建活動。
-  if (input.activityType === "UNIVERSAL_SALVATION") {
+  // V38/V39：建活動時**自動**產生一張「信眾公開報名表」＋網址（/join/{類型}{年}），
+  //   讓活動一建立就自動出現在信眾公開入口頁 /join，不用另外手動開（直覺、少一步）。
+  //   支援：普渡、補庫、宮燈、年度燈（皆有對應的公開報名頁）。best-effort，失敗不影響建活動。
+  //   之後仍可到活動頁「公開報名」卡片改網址代碼、關閉、或看待確認清單。
+  const PUBLIC_SLUG_LABEL: Record<string, string> = {
+    UNIVERSAL_SALVATION: "普渡",
+    STORAGE_REPAYMENT: "補庫",
+    PALACE_LANTERN: "宮燈",
+    ANNUAL_LANTERN: "年度燈",
+  };
+  const slugLabel = PUBLIC_SLUG_LABEL[input.activityType as string];
+  if (slugLabel) {
     try {
       const { upsertPublicRegForm, DEFAULT_PRICES } = await import("@/lib/publicReg");
       const cfg = { config: { fields: ["phone", "address"] as ("phone" | "address" | "birthday")[], prices: DEFAULT_PRICES }, isOpen: true, createdByName: operatorName ?? null, headerNote: null };
-      let res = await upsertPublicRegForm({ templeEventId: created.id, slug: `普渡${input.year}`, ...cfg });
+      let res = await upsertPublicRegForm({ templeEventId: created.id, slug: `${slugLabel}${input.year}`, ...cfg });
       if (!res.ok) {
-        await upsertPublicRegForm({ templeEventId: created.id, slug: `普渡${input.year}-${Math.random().toString(36).slice(2, 6)}`, ...cfg });
+        await upsertPublicRegForm({ templeEventId: created.id, slug: `${slugLabel}${input.year}-${Math.random().toString(36).slice(2, 6)}`, ...cfg });
       }
     } catch { /* 自動產生報名表失敗不影響建活動 */ }
   }

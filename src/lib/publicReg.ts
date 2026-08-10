@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { quickRegister, type QuickRegInput } from "@/lib/quickRegistration";
 import { rosterRegister, getRosterCapacityForEvent } from "@/lib/rosterRegister";
+import { canAcceptRegistration } from "@/lib/activityYear";
 import type { Role } from "@/lib/permissions";
 
 /**
@@ -138,6 +139,42 @@ export async function upsertPublicRegForm(input: {
   );
   const ev = await eventInfo(input.templeEventId);
   return { ok: true, form: toView({ id, slug, templeEventId: input.templeEventId, fieldsConfig: input.config, isOpen: input.isOpen ?? true, headerNote: input.headerNote ?? null }, ev) };
+}
+
+/** 信眾公開入口頁用：列出目前「開放中」的公開報名活動（表單開啟＋活動在受理期間內）。 */
+export type PublicOpenForm = { slug: string; activityName: string; year: number | null; activityType: string };
+export async function listOpenPublicForms(): Promise<PublicOpenForm[]> {
+  let rows: {
+    slug: string; name: string; year: number; activityType: string;
+    isArchived: boolean; isCompleted: boolean; status: string; isRegistrationOpen: boolean;
+    registrationStartAt: Date | null; registrationEndAt: Date | null; solarDate: Date | null; isPrintOpen: boolean;
+  }[];
+  try {
+    rows = await prisma.$queryRaw`
+      SELECT f."slug", e."name", e."year", e."activityType"::text AS "activityType",
+             e."isArchived", e."isCompleted", e."status"::text AS "status", e."isRegistrationOpen",
+             e."registrationStartAt", e."registrationEndAt", e."solarDate", e."isPrintOpen"
+      FROM "public_reg_forms" f JOIN "temple_events" e ON e."id" = f."templeEventId"
+      WHERE f."isOpen" = true AND e."isArchived" = false
+      ORDER BY e."year" DESC, e."name" ASC`;
+  } catch {
+    return []; // 表未建立或查詢失敗 → 空清單，不炸頁面
+  }
+  const now = new Date();
+  return rows
+    .filter((r) =>
+      canAcceptRegistration(
+        {
+          templeEventId: "", activityType: r.activityType as unknown as import("@prisma/client").ActivityType,
+          year: r.year, name: r.name,
+          registrationStartAt: r.registrationStartAt, registrationEndAt: r.registrationEndAt, eventDate: r.solarDate,
+          isRegistrationOpen: r.isRegistrationOpen, isPrintOpen: r.isPrintOpen,
+          isCompleted: r.isCompleted, isArchived: r.isArchived, status: r.status as never,
+        },
+        now
+      ).ok
+    )
+    .map((r) => ({ slug: r.slug, activityName: r.name, year: r.year, activityType: r.activityType }));
 }
 
 export async function getPublicFormBySlug(slug: string): Promise<PublicFormView | null> {

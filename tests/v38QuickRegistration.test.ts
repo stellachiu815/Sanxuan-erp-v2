@@ -188,7 +188,13 @@ test("信眾公開報名：免登入頁、送出只進待確認、確認即轉�
 test("建普渡活動時自動產生公開報名表", () => {
   const src = read("src/lib/templeEvents.ts");
   assert.ok(src.includes("upsertPublicRegForm"), "建活動時自動產生報名表");
-  assert.ok(src.includes("普渡${input.year}"), "預設 slug 普渡{年}");
+  // V39：自動產生 slug 由「類型標籤 + 年度」組成（普渡/補庫/宮燈/年度燈皆自動產生）。
+  assert.ok(src.includes('UNIVERSAL_SALVATION: "普渡"'), "普渡自動產生報名表（slug 普渡{年}）");
+  assert.ok(src.includes("${slugLabel}${input.year}"), "預設 slug＝{類型}{年}");
+  assert.ok(
+    src.includes('STORAGE_REPAYMENT: "補庫"') && src.includes('PALACE_LANTERN: "宮燈"') && src.includes('ANNUAL_LANTERN: "年度燈"'),
+    "補庫／宮燈／年度燈建活動時也自動產生公開報名表"
+  );
 });
 
 test("報名就是報名：確認驗證認得新式贊普/白米/寶袋（不卡草稿）", () => {
