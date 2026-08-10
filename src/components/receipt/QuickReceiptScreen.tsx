@@ -41,6 +41,7 @@ function Inner({ year }: { year: number }) {
   const [donations, setDonations] = useState<DonationLine[]>([]);
   const [method, setMethod] = useState("CASH");
   const [recvQuery, setRecvQuery] = useState(""); // 活動繳款清單內搜尋
+  const [showRecv, setShowRecv] = useState(false); // 活動繳款清單預設收起（只添油香時不用捲）
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 防重複送出：同一次「開立」動作固定用一組識別碼（連點／重送只會建一筆收款＋一張收據）。
@@ -187,38 +188,54 @@ function Inner({ year }: { year: number }) {
         )}
 
         {selected && (
-          <>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-ink-faint">活動繳款（自動帶未收款，勾選加入）</p>
-              {receivables.length > 6 && (
-                <input
-                  value={recvQuery}
-                  onChange={(e) => setRecvQuery(e.target.value)}
-                  placeholder="🔍 搜尋姓名／活動"
-                  className="w-48 rounded-lg border border-cream-200 px-3 py-1.5 text-sm text-ink"
-                />
-              )}
-            </div>
-            <div className="mt-1 flex flex-col gap-2">
-              {receivables.length === 0 && <p className="text-sm text-ink-faint">這位信眾目前沒有未收款項。</p>}
-              {receivables
-                .filter((r) => {
-                  const q = recvQuery.trim();
-                  if (!q) return true;
-                  return `${r.itemName}${r.activityName ?? ""}`.includes(q);
-                })
-                .map((r) => (
-                <label key={`${r.sourceType}-${r.sourceId}`} className="flex items-center justify-between gap-3 rounded-xl bg-cream-50 px-4 py-2.5">
-                  <span className="flex items-center gap-2 text-sm text-ink">
-                    <input type="checkbox" disabled={!r.canCollect} checked={r.sourceId in picked} onChange={() => toggleReceivable(r)} />
-                    {r.itemName}{r.activityName ? `・${r.activityName}` : ""}
-                    {!r.canCollect && <span className="text-xs text-blossom-500">（{r.cannotCollectReason ?? "無法收款"}）</span>}
-                  </span>
-                  <span className="text-sm text-ink-soft">{r.unpaidAmount.toLocaleString("zh-Hant")} 元</span>
-                </label>
-              ))}
-            </div>
-          </>
+          <div className="mt-4 rounded-2xl border border-cream-200 bg-cream-50/60 p-3">
+            {/* 預設收起：只添油香等捐獻時不用捲過一長串活動清單。要繳活動費才展開。 */}
+            <button
+              type="button"
+              onClick={() => setShowRecv((v) => !v)}
+              className="flex w-full items-center justify-between text-sm text-ink"
+            >
+              <span>
+                🎫 活動繳款
+                {Object.keys(picked).length > 0
+                  ? <span className="ml-1 text-sage-600">（已選 {Object.keys(picked).length} 筆）</span>
+                  : <span className="ml-1 text-ink-faint">（未繳 {receivables.length} 筆，只添油香可略過）</span>}
+              </span>
+              <span className="text-ink-faint">{showRecv ? "收起 ▲" : "展開 ▼"}</span>
+            </button>
+
+            {showRecv && (
+              <>
+                {receivables.length > 6 && (
+                  <input
+                    value={recvQuery}
+                    onChange={(e) => setRecvQuery(e.target.value)}
+                    placeholder="🔍 搜尋姓名／活動"
+                    className="mt-3 w-full rounded-lg border border-cream-200 px-3 py-1.5 text-sm text-ink"
+                  />
+                )}
+                <div className="mt-2 flex max-h-72 flex-col gap-2 overflow-auto">
+                  {receivables.length === 0 && <p className="text-sm text-ink-faint">這位信眾目前沒有未收款項。</p>}
+                  {receivables
+                    .filter((r) => {
+                      const q = recvQuery.trim();
+                      if (!q) return true;
+                      return `${r.itemName}${r.activityName ?? ""}`.includes(q);
+                    })
+                    .map((r) => (
+                    <label key={`${r.sourceType}-${r.sourceId}`} className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-2.5">
+                      <span className="flex items-center gap-2 text-sm text-ink">
+                        <input type="checkbox" disabled={!r.canCollect} checked={r.sourceId in picked} onChange={() => toggleReceivable(r)} />
+                        {r.itemName}{r.activityName ? `・${r.activityName}` : ""}
+                        {!r.canCollect && <span className="text-xs text-blossom-500">（{r.cannotCollectReason ?? "無法收款"}）</span>}
+                      </span>
+                      <span className="text-sm text-ink-soft">{r.unpaidAmount.toLocaleString("zh-Hant")} 元</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </section>
 
