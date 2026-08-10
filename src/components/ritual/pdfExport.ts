@@ -19,8 +19,10 @@ export async function exportSheetsToPdf(container: HTMLElement, fileName: string
     throw new Error("目前沒有可匯出的牌位版面。");
   }
 
-  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-
+  // V40：頁面尺寸依每張版面「實際比例」自動決定，寬固定 210mm、高照比例算——
+  //   感謝狀（210×148 A5 橫式）就出 A5 橫式一頁、牌位（A4）仍出 A4，不再硬塞 A4 造成
+  //   下半空白、比例被拉伸。
+  let doc: import("jspdf").jsPDF | null = null;
   for (let i = 0; i < sheets.length; i++) {
     const canvas = await html2canvas(sheets[i], {
       scale: 2,
@@ -28,9 +30,15 @@ export async function exportSheetsToPdf(container: HTMLElement, fileName: string
       useCORS: true,
     });
     const imgData = canvas.toDataURL("image/png");
-    if (i > 0) doc.addPage("a4", "portrait");
-    doc.addImage(imgData, "PNG", 0, 0, 210, 297);
+    const pageW = 210;
+    const pageH = Math.max(1, Math.round((pageW * canvas.height) / canvas.width));
+    if (!doc) {
+      doc = new jsPDF({ unit: "mm", format: [pageW, pageH] });
+    } else {
+      doc.addPage([pageW, pageH]);
+    }
+    doc.addImage(imgData, "PNG", 0, 0, pageW, pageH);
   }
 
-  doc.save(fileName);
+  doc?.save(fileName);
 }

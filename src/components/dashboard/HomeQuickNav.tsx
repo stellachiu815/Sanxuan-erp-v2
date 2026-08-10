@@ -18,7 +18,7 @@ const ENTRIES: Entry[] = [
   { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-75" },
   { href: "/receipt-center", icon: "🧾", label: "收據管理", tone: "bg-lilac-75" },
   { href: "/print-center", icon: "🖨️", label: "列印管理", tone: "bg-mist-75" },
-  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-yolk-75" },
+  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-apricot-75" },
   { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-75" },
   { href: "/devotee-center/list", icon: "🏠", label: "家戶管理", tone: "bg-apricot-75" },
 ];
@@ -33,7 +33,7 @@ export default function HomeQuickNav({
   financeReadOnly?: boolean;
 }) {
   const entries: Entry[] = [...ENTRIES];
-  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-mist-75" });
+  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-yolk-75" });
   if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-150" });
 
   return (
