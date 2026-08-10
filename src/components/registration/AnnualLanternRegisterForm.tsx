@@ -17,15 +17,17 @@ type Row = {
   name: string;
   phone: string;
   address: string;
+  gender: string;
   solarBirthDate: string;
   guangming: boolean;
   guangmingQty: string;
   taisui: boolean;
   taisuiQty: string;
+  purification: boolean;
 };
 type SearchResult = { memberId: string; name: string; householdName: string; address: string | null };
 
-const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1" });
+const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
 
 export default function AnnualLanternRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
@@ -35,7 +37,7 @@ export default function AnnualLanternRegisterForm(props: { templeEventId: string
   );
 }
 
-type FamilyMemberRow = { name: string; solarBirthDate: string };
+type FamilyMemberRow = { name: string; solarBirthDate: string; gender: string };
 
 function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: string; activityName: string; publicSlug?: string }) {
   const { operatorUser } = useOperator();
@@ -52,7 +54,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
   const [familySearch, setFamilySearch] = useState("");
   const [familyResults, setFamilyResults] = useState<SearchResult[]>([]);
   const [famContact, setFamContact] = useState({ name: "", phone: "", address: "" });
-  const [famMembers, setFamMembers] = useState<FamilyMemberRow[]>([{ name: "", solarBirthDate: "" }]);
+  const [famMembers, setFamMembers] = useState<FamilyMemberRow[]>([{ name: "", solarBirthDate: "", gender: "" }]);
 
   async function familyDoSearch(q: string) {
     setFamilySearch(q); setFamilyMemberId(""); setFamilyMemberLabel(""); setOkMsg(null);
@@ -97,37 +99,47 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     setOkMsg(null);
     const people = rows
       .map((r) => {
-        const lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI"; quantity: number }[] = [];
+        const lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI" | "LANTERN_PURIFICATION"; quantity: number }[] = [];
         if (r.guangming) lanterns.push({ itemKey: "LANTERN_GUANGMING", quantity: Number(r.guangmingQty) > 0 ? Number(r.guangmingQty) : 1 });
         if (r.taisui) lanterns.push({ itemKey: "LANTERN_TAISUI", quantity: Number(r.taisuiQty) > 0 ? Number(r.taisuiQty) : 1 });
+        if (r.purification) lanterns.push({ itemKey: "LANTERN_PURIFICATION", quantity: 1 });
         return {
           existingMemberId: r.existingMemberId.trim() || null,
           name: r.name.trim() || null,
           phone: r.phone.trim() || null,
           address: r.address.trim() || null,
+          gender: r.gender.trim() || null,
           solarBirthDate: r.solarBirthDate.trim() || null,
           lanterns,
         };
       })
       .filter((p) => (p.existingMemberId || p.name) && p.lanterns.length > 0);
-    // 報名必填：姓名、生日、地址。新填的信眾（沒選既有）三項都要齊。
+    // 報名必填：姓名、生日、地址、性別。新填的信眾（沒選既有）都要齊；祭改一定要性別（小人頭要分男女）。
     for (let i = 0; i < people.length; i++) {
       const p = people[i];
-      if (p.existingMemberId) continue;
-      const miss: string[] = [];
-      if (!p.name) miss.push("姓名");
-      if (!p.solarBirthDate) miss.push("生日");
-      if (!p.address) miss.push("地址");
-      if (miss.length > 0) { setError(`第 ${i + 1} 位還缺：${miss.join("、")}（點燈需要姓名、生日、地址）`); return; }
+      const needsPurification = p.lanterns.some((l) => l.itemKey === "LANTERN_PURIFICATION");
+      if (!p.existingMemberId) {
+        const miss: string[] = [];
+        if (!p.name) miss.push("姓名");
+        if (!p.solarBirthDate) miss.push("生日");
+        if (!p.address) miss.push("地址");
+        if (!p.gender) miss.push("性別");
+        if (miss.length > 0) { setError(`第 ${i + 1} 位還缺：${miss.join("、")}（點燈需要姓名、生日、地址、性別）`); return; }
+      } else if (needsPurification && !p.gender) {
+        setError(`第 ${i + 1} 位報祭改需要性別（小人頭要分男女），請補選性別`); return;
+      }
     }
 
     // 全家燈組裝。
     let family: unknown = null;
     if (familyOn) {
       if (publicSlug) {
-        const members = famMembers.map((m) => ({ name: m.name.trim(), solarBirthDate: m.solarBirthDate.trim() })).filter((m) => m.name);
-        if (members.length === 0 || !famContact.address.trim()) { setError("全家燈：請填戶長／家人姓名、每位生日，以及家戶地址"); return; }
-        for (const m of members) { if (!m.solarBirthDate) { setError(`全家燈家人「${m.name}」還缺生日（點燈需要生日）`); return; } }
+        const members = famMembers.map((m) => ({ name: m.name.trim(), solarBirthDate: m.solarBirthDate.trim(), gender: m.gender.trim() })).filter((m) => m.name);
+        if (members.length === 0 || !famContact.address.trim()) { setError("全家燈：請填戶長／家人姓名、每位生日性別，以及家戶地址"); return; }
+        for (const m of members) {
+          if (!m.solarBirthDate) { setError(`全家燈家人「${m.name}」還缺生日（點燈需要生日）`); return; }
+          if (!m.gender) { setError(`全家燈家人「${m.name}」還缺性別`); return; }
+        }
         family = { household: { contactName: famContact.name.trim() || members[0].name, address: famContact.address.trim(), phone: famContact.phone.trim() || null }, members };
       } else {
         if (!familyMemberId) { setError("全家燈：請先搜尋並選一位既有信眾（全家燈會涵蓋他的整戶）"); return; }
@@ -156,7 +168,7 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
       setRows([emptyRow()]);
       setResults({});
       setFamilyOn(false); setFamilyMemberId(""); setFamilyMemberLabel(""); setFamilySearch(""); setFamilyResults([]);
-      setFamContact({ name: "", phone: "", address: "" }); setFamMembers([{ name: "", solarBirthDate: "" }]);
+      setFamContact({ name: "", phone: "", address: "" }); setFamMembers([{ name: "", solarBirthDate: "", gender: "" }]);
     } catch {
       setError("網路錯誤，請稍後再試一次。");
     } finally {
@@ -212,12 +224,32 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                       <span className={labelClass}>電話（選填）</span>
                       <input className={inputClass} value={r.phone} onChange={(e) => update(i, { phone: e.target.value })} />
                     </label>
+                    <label className="flex flex-col gap-1">
+                      <span className={labelClass}>性別 <span className="text-blossom-500">＊必填</span></span>
+                      <select className={inputClass} value={r.gender} onChange={(e) => update(i, { gender: e.target.value })}>
+                        <option value="">請選擇</option>
+                        <option value="男">男</option>
+                        <option value="女">女</option>
+                      </select>
+                    </label>
                     <label className="flex flex-col gap-1 sm:col-span-2">
                       <span className={labelClass}>地址 <span className="text-blossom-500">＊必填</span></span>
                       <input className={inputClass} value={r.address} onChange={(e) => update(i, { address: e.target.value })} />
                     </label>
                   </div>
                 </>
+              )}
+
+              {/* 既有信眾也顯示性別（祭改要分男女；空白代表沿用信眾資料）。 */}
+              {r.existingMemberId && (
+                <label className="mt-2 flex items-center gap-2 text-sm text-ink">
+                  <span className={labelClass}>性別</span>
+                  <select className={`${inputClass} w-28`} value={r.gender} onChange={(e) => update(i, { gender: e.target.value })}>
+                    <option value="">沿用信眾資料</option>
+                    <option value="男">男</option>
+                    <option value="女">女</option>
+                  </select>
+                </label>
               )}
 
               <div className="mt-3 flex flex-wrap items-center gap-4 rounded-xl bg-white/70 px-4 py-3">
@@ -239,6 +271,10 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                     份數 <input type="number" min={1} className={`${inputClass} w-20`} value={r.taisuiQty} onChange={(e) => update(i, { taisuiQty: e.target.value })} />
                   </label>
                 )}
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={r.purification} onChange={(e) => update(i, { purification: e.target.checked })} />
+                  祭改（小人頭）
+                </label>
               </div>
             </div>
           ))}
@@ -268,15 +304,20 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                 </label>
               </div>
               <div className="flex flex-col gap-2">
-                <span className={labelClass}>全家成員（每位姓名＋國曆生日）</span>
+                <span className={labelClass}>全家成員（每位姓名＋國曆生日＋性別）</span>
                 {famMembers.map((m, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2">
                     <input className={`${inputClass} flex-1`} placeholder={`第 ${i + 1} 位姓名`} value={m.name} onChange={(e) => setFamMembers((prev) => prev.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))} />
                     <input type="date" className={inputClass} value={m.solarBirthDate} onChange={(e) => setFamMembers((prev) => prev.map((x, idx) => idx === i ? { ...x, solarBirthDate: e.target.value } : x))} />
+                    <select className={`${inputClass} w-24`} value={m.gender} onChange={(e) => setFamMembers((prev) => prev.map((x, idx) => idx === i ? { ...x, gender: e.target.value } : x))}>
+                      <option value="">性別</option>
+                      <option value="男">男</option>
+                      <option value="女">女</option>
+                    </select>
                     {famMembers.length > 1 && <button type="button" onClick={() => setFamMembers((prev) => prev.filter((_, idx) => idx !== i))} className="text-xs text-blossom-500 hover:underline">移除</button>}
                   </div>
                 ))}
-                <button type="button" onClick={() => setFamMembers((prev) => [...prev, { name: "", solarBirthDate: "" }])} className="self-start text-xs text-sage-500 hover:underline">＋ 再加一位家人</button>
+                <button type="button" onClick={() => setFamMembers((prev) => [...prev, { name: "", solarBirthDate: "", gender: "" }])} className="self-start text-xs text-sage-500 hover:underline">＋ 再加一位家人</button>
               </div>
             </div>
           ) : (

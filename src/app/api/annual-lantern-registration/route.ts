@@ -20,12 +20,15 @@ export async function POST(request: NextRequest) {
   if (typeof b.templeEventId !== "string" || !b.templeEventId) {
     return NextResponse.json({ error: "缺少活動" }, { status: 400 });
   }
-  if (!Array.isArray(b.people) || b.people.length === 0) {
-    return NextResponse.json({ error: "請至少填一位報名者" }, { status: 400 });
+  // 四個項目（光明／太歲／祭改／全家燈）各自獨立，不一定要綁在一起——只報全家燈也算有效。
+  const hasPeople = Array.isArray(b.people) && b.people.length > 0;
+  const hasFamily = !!b.family && typeof b.family === "object";
+  if (!hasPeople && !hasFamily) {
+    return NextResponse.json({ error: "請至少報一項（光明／太歲／祭改，或全家燈）" }, { status: 400 });
   }
 
   const result = await annualLanternRosterRegister(
-    { templeEventId: b.templeEventId, people: b.people, family: b.family ?? null, confirm: b.confirm === true },
+    { templeEventId: b.templeEventId, people: Array.isArray(b.people) ? b.people : [], family: b.family ?? null, confirm: b.confirm === true },
     { id: check.operator.id, name: check.operator.name, role: check.operator.role }
   );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

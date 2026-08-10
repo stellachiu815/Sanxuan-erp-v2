@@ -248,13 +248,13 @@ export async function submitPublicRosterRegistration(
 
 // ── 年度燈（光明／太歲燈）公開報名：信眾自己填 → PENDING → 廟方一鍵建檔+確認。 ──
 export type PublicLanternPerson = {
-  name: string; phone?: string | null; address?: string | null; solarBirthDate?: string | null;
-  lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI"; quantity?: number | null }[];
+  name: string; phone?: string | null; address?: string | null; gender?: string | null; solarBirthDate?: string | null;
+  lanterns: { itemKey: "LANTERN_GUANGMING" | "LANTERN_TAISUI" | "LANTERN_PURIFICATION"; quantity?: number | null }[];
 };
-/** 公開全家燈：新家戶（戶長＋地址）＋家人名單（每位姓名＋生日）。 */
+/** 公開全家燈：新家戶（戶長＋地址）＋家人名單（每位姓名＋生日＋性別）。 */
 export type PublicLanternFamily = {
   household: { contactName?: string | null; address?: string | null; phone?: string | null };
-  members: { name?: string | null; solarBirthDate?: string | null }[];
+  members: { name?: string | null; solarBirthDate?: string | null; gender?: string | null }[];
 };
 export type PublicLanternPayload = { kind: "LANTERN"; people: PublicLanternPerson[]; family?: PublicLanternFamily | null };
 
@@ -268,25 +268,25 @@ export async function submitPublicLanternRegistration(
   if (!form) return { ok: false, status: 404, error: "找不到這個報名網址" };
   if (!form.isOpen) return { ok: false, status: 409, error: "這個活動目前未開放線上報名" };
 
-  const validKeys = new Set(["LANTERN_GUANGMING", "LANTERN_TAISUI"]);
+  const validKeys = new Set(["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_PURIFICATION"]);
   const people = (payload?.people ?? [])
     .map((p) => ({
       ...p,
       lanterns: (p.lanterns ?? []).filter((l) => validKeys.has(l.itemKey)),
     }))
-    // 點燈必填：姓名、生日、地址，且至少一種燈。
-    .filter((p) => s(p.name) && s(p.address) && s(p.solarBirthDate) && p.lanterns.length > 0);
+    // 點燈必填：姓名、生日、地址、性別，且至少一項；祭改一定要性別。
+    .filter((p) => s(p.name) && s(p.address) && s(p.solarBirthDate) && s(p.gender) && p.lanterns.length > 0);
 
-  // 全家燈（選填）：新家戶＋家人名單（每位姓名＋生日），家戶需地址。
+  // 全家燈（選填）：新家戶＋家人名單（每位姓名＋生日＋性別），家戶需地址。
   const famIn = payload?.family ?? null;
-  const famMembers = (famIn?.members ?? []).filter((m) => s(m.name) && s(m.solarBirthDate));
+  const famMembers = (famIn?.members ?? []).filter((m) => s(m.name) && s(m.solarBirthDate) && s(m.gender));
   const famAddress = s(famIn?.household?.address);
   const hasFamily = !!famIn && famMembers.length > 0 && !!famAddress;
-  if (famIn && !hasFamily && (famMembers.length > 0 || famAddress)) {
-    return { ok: false, status: 400, error: "全家燈：每位家人都要填姓名和生日，且需填家戶地址" };
+  if (famIn && !hasFamily && ((famIn.members ?? []).some((m) => s(m.name)) || famAddress)) {
+    return { ok: false, status: 400, error: "全家燈：每位家人都要填姓名、生日、性別，且需填家戶地址" };
   }
 
-  if (people.length === 0 && !hasFamily) return { ok: false, status: 400, error: "請至少一位點光明／太歲燈（姓名、生日、地址），或加報全家燈" };
+  if (people.length === 0 && !hasFamily) return { ok: false, status: 400, error: "請至少一位點光明／太歲／祭改（姓名、生日、地址、性別），或加報全家燈" };
   if (people.length > 20) return { ok: false, status: 400, error: "一次最多 20 位，請分批報名" };
 
   if (submitterHash) {
@@ -303,13 +303,14 @@ export async function submitPublicLanternRegistration(
       name: s(p.name) as string,
       phone: s(p.phone),
       address: s(p.address),
+      gender: s(p.gender),
       solarBirthDate: s(p.solarBirthDate),
       lanterns: p.lanterns.map((l) => ({ itemKey: l.itemKey, quantity: Number(l.quantity) > 0 ? Math.floor(Number(l.quantity)) : 1 })),
     })),
     family: hasFamily
       ? {
           household: { contactName: s(famIn?.household?.contactName), address: famAddress, phone: s(famIn?.household?.phone) },
-          members: famMembers.map((m) => ({ name: s(m.name) as string, solarBirthDate: s(m.solarBirthDate) })),
+          members: famMembers.map((m) => ({ name: s(m.name) as string, solarBirthDate: s(m.solarBirthDate), gender: s(m.gender) })),
         }
       : null,
   };
@@ -407,13 +408,14 @@ export async function confirmPublicRegistration(
           name: p.name,
           phone: p.phone ?? null,
           address: p.address ?? null,
+          gender: p.gender ?? null,
           solarBirthDate: p.solarBirthDate ?? null,
           lanterns: (p.lanterns ?? []).map((l) => ({ itemKey: l.itemKey, quantity: l.quantity ?? 1 })),
         })),
         family: lp.family
           ? {
               household: lp.family.household,
-              members: (lp.family.members ?? []).map((m) => ({ name: m.name ?? null, solarBirthDate: m.solarBirthDate ?? null })),
+              members: (lp.family.members ?? []).map((m) => ({ name: m.name ?? null, solarBirthDate: m.solarBirthDate ?? null, gender: m.gender ?? null })),
             }
           : null,
         confirm: true,

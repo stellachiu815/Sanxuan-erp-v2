@@ -286,6 +286,19 @@ export async function validateForConfirm(
       if (entryCount === 0 && !hasUsItem && !isSponsor) {
         reasons.push("普渡報名至少需要一筆牌位登記，或白米／贊普等項目");
       }
+      // V39（Stella 定案，選項二）：缺資料不能確認——普渡在確認階段擋「牌位缺姓名」。
+      //   地址不在此硬擋（地址以祭祀資料為準、可用「重新對齊地址」修；缺地址由列印階段的資料完整檢查把關）。
+      const CAT_LABEL: Record<string, string> = { ANCESTOR_LINE: "歷代祖先", INDIVIDUAL_SOUL: "乙位正魂", DEBT_CREDITOR: "累世冤親債主", UNBORN_CHILD: "無緣子女／地基主" };
+      const namelessCats = [
+        ...new Set(
+          (detail?.entries ?? [])
+            .filter((e) => !(e.displayName ?? "").trim())
+            .map((e) => CAT_LABEL[e.category] ?? e.category)
+        ),
+      ];
+      if (namelessCats.length > 0) {
+        reasons.push(`有牌位尚未填姓名（${namelessCats.join("、")}），請補齊姓名後再確認`);
+      }
       // V14.1：舊式贊普（detail.isSponsor）不得以應收 0 確認。新式贊普由 item 自身計價，不走此檢查。
       if (isSponsor && !hasUsItem && Number(detail?.sponsorAmount ?? 0) <= 0) {
         reasons.push("尚未設定贊普單價／金額——請於贊普區塊填寫後再確認（不可以應收 0 確認）");

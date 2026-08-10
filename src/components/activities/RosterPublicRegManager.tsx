@@ -13,7 +13,7 @@ type RegPerson = { name: string; phone?: string | null; address?: string | null;
 type RegFamily = { household?: { address?: string | null } | null; members?: { name?: string | null }[] | null } | null;
 type RegRow = { id: string; status: string; createdAt: string; payload: { kind?: string; people?: RegPerson[]; family?: RegFamily } };
 
-const LANTERN_LABEL: Record<string, string> = { LANTERN_GUANGMING: "光明燈", LANTERN_TAISUI: "太歲燈" };
+const LANTERN_LABEL: Record<string, string> = { LANTERN_GUANGMING: "光明燈", LANTERN_TAISUI: "太歲燈", LANTERN_PURIFICATION: "祭改" };
 function personSummary(p: RegPerson): string {
   if (Array.isArray(p.lanterns) && p.lanterns.length > 0) {
     const lights = p.lanterns.map((l) => `${LANTERN_LABEL[l.itemKey] ?? l.itemKey}${(l.quantity ?? 1) > 1 ? `×${l.quantity}` : ""}`).join("、");

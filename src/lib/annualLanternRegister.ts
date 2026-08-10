@@ -17,7 +17,9 @@ import type { Role } from "@/lib/permissions";
  * 金額＝該年度「年度燈單價設定」的光明／太歲單價 × 份數（未設單價 → 應收 0 → 確認會被擋，先設單價）。
  */
 
-export const ANNUAL_LANTERN_ITEM_KEYS = ["LANTERN_GUANGMING", "LANTERN_TAISUI"] as const;
+// 年度燈底下可分別報名的「個人項目」：光明燈／太歲燈／祭改（各自獨立，同中元普渡的作法）。
+// 全家燈是家戶層級，另走 family。
+export const ANNUAL_LANTERN_ITEM_KEYS = ["LANTERN_GUANGMING", "LANTERN_TAISUI", "LANTERN_PURIFICATION"] as const;
 export type AnnualLanternItemKey = (typeof ANNUAL_LANTERN_ITEM_KEYS)[number];
 
 export type AnnualLanternPerson = {
@@ -25,12 +27,14 @@ export type AnnualLanternPerson = {
   name?: string | null;
   address?: string | null;
   phone?: string | null;
+  /** 性別（男／女）——祭改小人頭需要；新信眾一併建檔。 */
+  gender?: string | null;
   solarBirthDate?: string | null;
   lunarBirthYear?: number | null;
   lunarBirthMonth?: number | null;
   lunarBirthDay?: number | null;
   lunarIsLeapMonth?: boolean | null;
-  /** 這位要點的燈與份數，例如 [{ itemKey:"LANTERN_GUANGMING", quantity:1 }]。 */
+  /** 這位要報的項目與份數，例如 [{ itemKey:"LANTERN_GUANGMING", quantity:1 }, { itemKey:"LANTERN_PURIFICATION" }]。 */
   lanterns: { itemKey: AnnualLanternItemKey; quantity?: number | null }[];
 };
 
@@ -42,7 +46,7 @@ export type AnnualLanternPerson = {
 export type AnnualLanternFamily = {
   existingMemberId?: string | null;
   household?: { contactName?: string | null; address?: string | null; phone?: string | null } | null;
-  members?: { name?: string | null; solarBirthDate?: string | null }[] | null;
+  members?: { name?: string | null; solarBirthDate?: string | null; gender?: string | null }[] | null;
 };
 
 export type AnnualLanternRegInput = {
@@ -148,6 +152,7 @@ export async function annualLanternRosterRegister(
           name,
           isPrimaryContact: true,
           personalAddress: s(p.address),
+          gender: s(p.gender) ?? undefined,
           birthdayType: s(p.solarBirthDate) ? "SOLAR" : (p.lunarBirthYear != null ? "LUNAR" : undefined),
           solarBirthDate: p.solarBirthDate ?? undefined,
           lunarBirthYear: p.lunarBirthYear ?? undefined,
@@ -212,7 +217,7 @@ export async function annualLanternRosterRegister(
         const mm = members[i];
         const mem = await createMemberForHousehold(
           familyHouseholdId,
-          { name: s(mm.name) as string, isPrimaryContact: i === 0, personalAddress: addr, birthdayType: "SOLAR", solarBirthDate: mm.solarBirthDate ?? undefined },
+          { name: s(mm.name) as string, isPrimaryContact: i === 0, personalAddress: addr, gender: s(mm.gender) ?? undefined, birthdayType: "SOLAR", solarBirthDate: mm.solarBirthDate ?? undefined },
           operator.name,
           "全家燈報名：新增家人"
         );
