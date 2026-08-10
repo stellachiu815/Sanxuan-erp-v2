@@ -78,20 +78,20 @@ export default async function HomePage() {
       <section className="w-full max-w-5xl">
         <h2 className="mb-3 text-base font-medium text-ink">🀄 現場最常用</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <Link href="/quick-registration" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-apricot-50 p-4 text-center shadow-card transition hover:bg-apricot-100 hover:shadow-pop">
+          <Link href="/quick-registration" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-apricot-75 p-4 text-center shadow-card transition hover:shadow-pop">
             <span className="text-2xl" aria-hidden>🀄</span><span className="text-sm font-medium text-ink">快速報名·中元普渡</span>
           </Link>
           {/* 補庫／宮燈／年度燈：依活動設定的開放日期自動出現（各自分色）。 */}
           <Suspense fallback={null}>
             <HomeInSeasonRosterRegister />
           </Suspense>
-          <Link href="/receipt-center/quick" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-blossom-50 p-4 text-center shadow-card transition hover:bg-blossom-100 hover:shadow-pop">
+          <Link href="/receipt-center/quick" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-blossom-75 p-4 text-center shadow-card transition hover:shadow-pop">
             <span className="text-2xl" aria-hidden>🧾</span><span className="text-sm font-medium text-ink">開立感謝狀</span>
           </Link>
-          <Link href="/tools/birthday" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-sage-50 p-4 text-center shadow-card transition hover:bg-sage-100 hover:shadow-pop">
+          <Link href="/tools/birthday" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-sage-75 p-4 text-center shadow-card transition hover:shadow-pop">
             <span className="text-2xl" aria-hidden>🎂</span><span className="text-sm font-medium text-ink">生日與農曆中心</span>
           </Link>
-          <Link href="/registration/new" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-cream-100 p-4 text-center shadow-card transition hover:bg-cream-200 hover:shadow-pop">
+          <Link href="/registration/new" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-cream-150 p-4 text-center shadow-card transition hover:shadow-pop">
             <span className="text-2xl" aria-hidden>➕</span><span className="text-sm font-medium text-ink">新增活動報名</span>
           </Link>
         </div>

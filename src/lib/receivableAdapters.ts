@@ -1167,19 +1167,32 @@ function makeRegistrationItemAdapter(
           registrationItemType: true,
           ritualRecord: { include: { household: true, templeEvent: true } },
           // V14.2：普渡牌位正式關聯——收款中心顯示同一筆 UniversalSalvationEntry 的名稱。
-          universalSalvationEntry: { select: { displayName: true } },
+          // V40：多帶類別＋陽上人，讓收款/感謝狀清單看得出「這是哪一種牌位、給誰」，
+          //   不再只有「陳姓（陳家）」分不清兩個陳家。
+          universalSalvationEntry: { select: { displayName: true, category: true, yangshangNames: true, yangshangName: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 500,
       });
 
+      const US_CAT_LABEL: Record<string, string> = {
+        ANCESTOR_LINE: "超拔祖先", INDIVIDUAL_SOUL: "乙位正魂", DEBT_CREDITOR: "累世冤親債主", UNBORN_CHILD: "無緣子女",
+      };
       return rows
         .map((r) => {
           const rec = r.ritualRecord;
           // 名稱優先讀正式關聯的牌位（超拔祖先→周姓歷代祖先、乙位正魂→○○○乙位正魂、
-          // 冤親→當事人姓名），退回自訂名稱／項目型別名。
-          const baseName =
-            r.universalSalvationEntry?.displayName ?? r.customName ?? r.registrationItemType.name;
+          // 冤親→當事人姓名），退回自訂名稱／項目型別名。V40：牌位再補「類別·名稱（陽上：…）」。
+          const entry = r.universalSalvationEntry;
+          let baseName: string;
+          if (entry) {
+            const catL = entry.category ? US_CAT_LABEL[entry.category] ?? "" : "";
+            const yang = (entry.yangshangNames?.length ? entry.yangshangNames : (entry.yangshangName ? [entry.yangshangName] : [])).join("、");
+            const nm = (entry.displayName ?? "").trim() || "（未命名）";
+            baseName = `${catL ? `${catL}·` : ""}${nm}${yang ? `（陽上：${yang}）` : ""}`;
+          } else {
+            baseName = r.customName ?? r.registrationItemType.name;
+          }
           const amountDue = Number(r.amountDue);
           const amountPaid = Number(r.amountPaid);
           const amountUnpaid = Number(r.amountUnpaid);

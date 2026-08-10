@@ -206,12 +206,12 @@ function Inner({ year }: { year: number }) {
 
             {showRecv && (
               <>
-                {receivables.length > 6 && (
+                {receivables.length > 3 && (
                   <input
                     value={recvQuery}
                     onChange={(e) => setRecvQuery(e.target.value)}
-                    placeholder="🔍 搜尋姓名／活動"
-                    className="mt-3 w-full rounded-lg border border-cream-200 px-3 py-1.5 text-sm text-ink"
+                    placeholder="🔍 搜尋牌位名／陽上／活動"
+                    className="mt-3 w-full rounded-lg border border-cream-200 px-3 py-2 text-base text-ink"
                   />
                 )}
                 <div className="mt-2 flex max-h-72 flex-col gap-2 overflow-auto">
