@@ -2503,6 +2503,11 @@ enum ReceivableSourceType {
   // 無法共用單一 LanternRegistration（@@unique），改為**項目自身計價**（RitualRegistrationItem.amountDue），
   // 由此來源進待收款／收款中心／首頁統計。祭改仍走 PURIFICATION_ENTRY，不在此。
   ANNUAL_LANTERN_ITEM
+  // V40：新式贊普（US_SPONSOR／US_SPONSOR_DONATION 自身計價）與新式增加寶袋（US_POCKET_EXTRA）
+  // 各自為 RitualRegistrationItem.amountDue 收費來源，adapter 早已產生應收、進待收款/收款中心，
+  // 但先前漏加對應 enum 值 → 一收款建 PaymentAllocation 就報「Invalid value for sourceType」。此處補上。
+  UNIVERSAL_SALVATION_SPONSOR_ITEM
+  UNIVERSAL_SALVATION_POCKET_ITEM
   // --- 以下為僅預留列舉值，沒有 Adapter、沒有登記/收費資料表，尚未有任何資料／畫面 ---
   PEACE_LANTERN // 平安燈（尚不存在：沒有對應的活動類型與登記資料）
   TAISUI_LANTERN // 太歲燈（尚不存在：沒有收費欄位或登記資料）

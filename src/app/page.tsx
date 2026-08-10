@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import DevoteeQuickActions from "@/components/devotee/DevoteeQuickActions";
 import HomeQuickNav from "@/components/dashboard/HomeQuickNav";
 import HomeInSeasonRosterRegister from "@/components/dashboard/HomeInSeasonRosterRegister";
-import PrintPendingCard from "@/components/dashboard/PrintPendingCard";
 import DataCompletenessCard from "@/components/dashboard/DataCompletenessCard";
 import DashboardErrorBoundary from "@/components/dashboard/DashboardErrorBoundary";
 import DashboardOverviewCard from "@/components/dashboard/DashboardOverviewCard";
@@ -89,7 +88,7 @@ export default async function HomePage() {
           <Link href="/receipt-center/quick" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-blossom-50 p-4 text-center shadow-card transition hover:bg-blossom-100 hover:shadow-pop">
             <span className="text-2xl" aria-hidden>🧾</span><span className="text-sm font-medium text-ink">開立感謝狀</span>
           </Link>
-          <Link href="/tools/birthday" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-lilac-50 p-4 text-center shadow-card transition hover:bg-lilac-100 hover:shadow-pop">
+          <Link href="/tools/birthday" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-sage-50 p-4 text-center shadow-card transition hover:bg-sage-100 hover:shadow-pop">
             <span className="text-2xl" aria-hidden>🎂</span><span className="text-sm font-medium text-ink">生日與農曆中心</span>
           </Link>
           <Link href="/registration/new" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-cream-100 p-4 text-center shadow-card transition hover:bg-cream-200 hover:shadow-pop">
@@ -123,10 +122,9 @@ export default async function HomePage() {
         </Suspense>
       </DashboardErrorBoundary>
 
-      {/* V15 指令三「待列印」＋ V15R3「資料待補」資訊卡（皆可點入對應頁）。 */}
+      {/* V40：待列印移到「其他中心」的「列印管理」卡；這裡只留「資料待補」。 */}
       <section className="w-full max-w-5xl">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <PrintPendingCard />
           <DataCompletenessCard />
         </div>
       </section>

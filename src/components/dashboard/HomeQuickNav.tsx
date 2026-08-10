@@ -17,6 +17,7 @@ type Entry = { href: string; icon: string; label: string; tone: string };
 const ENTRIES: Entry[] = [
   { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-50 hover:bg-blossom-100" },
   { href: "/receipt-center", icon: "🧾", label: "收據管理", tone: "bg-lilac-50 hover:bg-lilac-100" },
+  { href: "/print-center", icon: "🖨️", label: "列印管理", tone: "bg-mist-50 hover:bg-mist-100" },
   { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-yolk-50 hover:bg-yolk-100" },
   { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-50 hover:bg-sage-100" },
   { href: "/devotee-center/list", icon: "🏠", label: "家戶管理", tone: "bg-apricot-50 hover:bg-apricot-100" },

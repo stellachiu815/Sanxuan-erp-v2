@@ -27,7 +27,7 @@ export default function GlobalHomeButton() {
   return (
     <Link
       href="/"
-      className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-full bg-sage-200/95 px-4 py-2.5 text-sm text-ink shadow-card backdrop-blur transition hover:bg-sage-300 active:scale-95"
+      className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-full bg-sage-200/95 px-4 py-2.5 text-sm text-ink shadow-card backdrop-blur transition hover:bg-sage-300 active:scale-95 print:hidden"
       aria-label="回首頁"
     >
       <span aria-hidden="true">🏠</span>

@@ -41,8 +41,12 @@ export default function ReceiptPrintView({ receipt }: { receipt: ReceiptPrintDat
   }
 
   return (
-    <div className="min-h-screen bg-cream-50 py-10">
-      <style>{`@page { size: A5 landscape; margin: 0; }`}</style>
+    <div className="min-h-screen bg-cream-50 py-10 print:min-h-0 print:bg-white print:py-0">
+      <style>{`@page { size: 210mm 148mm; margin: 0; }
+        @media print {
+          html, body { margin: 0 !important; padding: 0 !important; }
+          .print-sheet { min-height: 0 !important; height: auto !important; box-shadow: none !important; }
+        }`}</style>
 
       <div className="mx-auto mb-6 flex max-w-2xl items-center justify-between px-6 print:hidden">
         <p className="text-sm text-ink-soft">收據列印預覽</p>
