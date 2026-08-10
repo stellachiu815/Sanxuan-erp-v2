@@ -42,7 +42,7 @@ export default function ReceiptPrintView({ receipt }: { receipt: ReceiptPrintDat
 
   return (
     <div className="min-h-screen bg-cream-50 py-10">
-      <style>{`@page { size: A4; margin: 0; }`}</style>
+      <style>{`@page { size: A5 landscape; margin: 0; }`}</style>
 
       <div className="mx-auto mb-6 flex max-w-2xl items-center justify-between px-6 print:hidden">
         <p className="text-sm text-ink-soft">收據列印預覽</p>
@@ -122,10 +122,6 @@ export default function ReceiptPrintView({ receipt }: { receipt: ReceiptPrintDat
         </div>
 
         {receipt.note && <p className="mt-2 text-sm text-ink-faint">備註：{receipt.note}</p>}
-
-        <div className="mt-10 flex items-end justify-between">
-          <p className="text-sm text-ink-faint">台北三玄宮 敬致</p>
-        </div>
       </div>
     </div>
   );

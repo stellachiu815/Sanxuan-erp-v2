@@ -40,19 +40,26 @@ function Inner({ year }: { year: number }) {
   const [picked, setPicked] = useState<Record<string, number>>({}); // sourceId -> amount
   const [donations, setDonations] = useState<DonationLine[]>([]);
   const [method, setMethod] = useState("CASH");
+  const [recvQuery, setRecvQuery] = useState(""); // 活動繳款清單內搜尋
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 防重複送出：同一次「開立」動作固定用一組識別碼（連點／重送只會建一筆收款＋一張收據）。
   const idemRef = useRef<string | null>(null);
 
-  async function search(q: string) {
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function search(q: string) {
     setQuery(q); setSelected(null); setError(null);
-    if (!q.trim()) { setResults([]); return; }
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}${operatorUser?.id ? `&operatorUserId=${encodeURIComponent(operatorUser.id)}` : ""}`);
-      const data = await res.json();
-      setResults(Array.isArray(data.results) ? data.results : []);
-    } catch { /* 搜尋失敗不擋 */ }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const term = q.trim();
+    if (!term) { setResults([]); return; }
+    // 防抖：打字停約 300ms 才查一次，避免連續請求互相蓋掉（打三個字反而沒結果）。
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(term)}${operatorUser?.id ? `&operatorUserId=${encodeURIComponent(operatorUser.id)}` : ""}`);
+        const data = await res.json();
+        setResults(Array.isArray(data.results) ? data.results : []);
+      } catch { /* 搜尋失敗不擋 */ }
+    }, 300);
   }
   async function pick(m: SearchResult) {
     setSelected(m); setResults([]); setQuery(m.name);
@@ -181,10 +188,26 @@ function Inner({ year }: { year: number }) {
 
         {selected && (
           <>
-            <p className="mt-4 text-xs text-ink-faint">活動繳款（自動帶未收款，勾選加入）</p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-ink-faint">活動繳款（自動帶未收款，勾選加入）</p>
+              {receivables.length > 6 && (
+                <input
+                  value={recvQuery}
+                  onChange={(e) => setRecvQuery(e.target.value)}
+                  placeholder="🔍 搜尋姓名／活動"
+                  className="w-48 rounded-lg border border-cream-200 px-3 py-1.5 text-sm text-ink"
+                />
+              )}
+            </div>
             <div className="mt-1 flex flex-col gap-2">
               {receivables.length === 0 && <p className="text-sm text-ink-faint">這位信眾目前沒有未收款項。</p>}
-              {receivables.map((r) => (
+              {receivables
+                .filter((r) => {
+                  const q = recvQuery.trim();
+                  if (!q) return true;
+                  return `${r.itemName}${r.activityName ?? ""}`.includes(q);
+                })
+                .map((r) => (
                 <label key={`${r.sourceType}-${r.sourceId}`} className="flex items-center justify-between gap-3 rounded-xl bg-cream-50 px-4 py-2.5">
                   <span className="flex items-center gap-2 text-sm text-ink">
                     <input type="checkbox" disabled={!r.canCollect} checked={r.sourceId in picked} onChange={() => toggleReceivable(r)} />

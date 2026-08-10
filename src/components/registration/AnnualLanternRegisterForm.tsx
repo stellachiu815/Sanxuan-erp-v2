@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useOperator, OperatorProvider } from "@/lib/operatorClient";
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass, errorTextClass } from "@/components/household/formStyles";
 
@@ -56,14 +56,19 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
   const [famContact, setFamContact] = useState({ name: "", phone: "", address: "" });
   const [famMembers, setFamMembers] = useState<FamilyMemberRow[]>([{ name: "", solarBirthDate: "", gender: "" }]);
 
-  async function familyDoSearch(q: string) {
+  const familyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function familyDoSearch(q: string) {
     setFamilySearch(q); setFamilyMemberId(""); setFamilyMemberLabel(""); setOkMsg(null);
-    if (q.trim().length < 1) { setFamilyResults([]); return; }
-    try {
-      const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
-      const data = await res.json();
-      setFamilyResults(Array.isArray(data.results) ? data.results : []);
-    } catch { /* 忽略 */ }
+    if (familyTimer.current) clearTimeout(familyTimer.current);
+    const term = q.trim();
+    if (term.length < 1) { setFamilyResults([]); return; }
+    familyTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(term)}`);
+        const data = await res.json();
+        setFamilyResults(Array.isArray(data.results) ? data.results : []);
+      } catch { /* 忽略 */ }
+    }, 300);
   }
 
   function update(i: number, patch: Partial<Row>) {
@@ -76,15 +81,20 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     setResults((prev) => { const n = { ...prev }; delete n[i]; return n; });
   }
 
-  async function search(i: number, q: string) {
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function search(i: number, q: string) {
     update(i, { name: q, existingMemberId: "", existingLabel: "" });
     if (publicSlug) return; // 公開報名一律新資料，不查既有信眾。
-    if (q.trim().length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
-    try {
-      const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
-      const data = await res.json();
-      setResults((p) => ({ ...p, [i]: Array.isArray(data.results) ? data.results : [] }));
-    } catch { /* 搜尋失敗不擋填寫 */ }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const term = q.trim();
+    if (term.length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(term)}`);
+        const data = await res.json();
+        setResults((p) => ({ ...p, [i]: Array.isArray(data.results) ? data.results : [] }));
+      } catch { /* 搜尋失敗不擋填寫 */ }
+    }, 300);
   }
   function pickExisting(i: number, r: SearchResult) {
     update(i, { existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, name: r.name, address: r.address ?? "" });

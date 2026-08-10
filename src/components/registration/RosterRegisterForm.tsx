@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useOperator, OperatorProvider } from "@/lib/operatorClient";
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass, errorTextClass } from "@/components/household/formStyles";
 
@@ -49,16 +49,22 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     setResults((prev) => { const n = { ...prev }; delete n[i]; return n; });
   }
 
-  async function search(i: number, q: string) {
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function search(i: number, q: string) {
     update(i, { name: q, existingMemberId: "", existingLabel: "" });
     // 公開報名(信眾自己填)不查既有信眾資料庫——一律當新資料填,廟方確認時再比對/建檔。
     if (publicSlug) return;
-    if (q.trim().length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
-    try {
-      const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(q.trim())}`);
-      const data = await res.json();
-      setResults((p) => ({ ...p, [i]: Array.isArray(data.results) ? data.results : [] }));
-    } catch { /* 搜尋失敗不擋填寫 */ }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const term = q.trim();
+    if (term.length < 1) { setResults((p) => ({ ...p, [i]: [] })); return; }
+    // 防抖：打字停下約 300ms 才查一次（不再每個字都打一次 API，避免卡頓）。
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/roster-registration/devotees?q=${encodeURIComponent(term)}`);
+        const data = await res.json();
+        setResults((p) => ({ ...p, [i]: Array.isArray(data.results) ? data.results : [] }));
+      } catch { /* 搜尋失敗不擋填寫 */ }
+    }, 300);
   }
   function pickExisting(i: number, r: SearchResult) {
     update(i, { existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, name: r.name, address: r.address ?? "" });
