@@ -12,12 +12,14 @@ import Link from "next/link";
 
 type Entry = { href: string; icon: string; label: string; tone: string };
 
-// V40 首頁精簡：拿掉重複的入口——信眾管理（上方已有搜尋＋新增信眾）、列印管理（下方「待列印」卡
-// 點了就進列印中心，同一個）、活動報名（繞一圈也是進活動管理，重複）。其餘收成下方小標籤，不搶戲。
+// V40 首頁：拿掉重複的入口——信眾管理（上方已有搜尋＋新增信眾）、列印管理（下方「待列印」卡即進列印中心）、
+// 活動報名（繞一圈也是進活動管理）。其餘中心做成與「現場最常用」同款的彩色卡片。
 const ENTRIES: Entry[] = [
-  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "" },
-  { href: "/activities", icon: "📅", label: "活動管理", tone: "" },
-  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "" },
+  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-100 hover:bg-blossom-200" },
+  { href: "/receipt-center", icon: "🧾", label: "收據管理", tone: "bg-lilac-100 hover:bg-lilac-200" },
+  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-yolk-100 hover:bg-yolk-200" },
+  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-100 hover:bg-sage-200" },
+  { href: "/devotee-center/list", icon: "🏠", label: "家戶管理", tone: "bg-apricot-100 hover:bg-apricot-200" },
 ];
 
 export default function HomeQuickNav({
@@ -30,21 +32,21 @@ export default function HomeQuickNav({
   financeReadOnly?: boolean;
 }) {
   const entries: Entry[] = [...ENTRIES];
-  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "" });
-  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "" });
+  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-mist-100 hover:bg-mist-200" });
+  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" });
 
   return (
     <section className="w-full max-w-5xl">
-      <p className="mb-2 text-xs tracking-[0.2em] text-ink-faint">其他中心</p>
-      <div className="flex flex-wrap gap-2">
+      <h2 className="mb-3 text-base font-medium text-ink">🏛️ 其他中心</h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {entries.map((e) => (
           <Link
             key={e.href}
             href={e.href}
-            className="inline-flex items-center gap-1.5 rounded-full border border-cream-300 bg-cream-50 px-4 py-2 text-sm text-ink-soft transition hover:bg-cream-200"
+            className={`flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl ${e.tone} p-4 text-center shadow-card transition hover:shadow-pop`}
           >
-            <span aria-hidden>{e.icon}</span>
-            {e.label}
+            <span className="text-2xl" aria-hidden>{e.icon}</span>
+            <span className="text-sm font-medium text-ink">{e.label}</span>
           </Link>
         ))}
       </div>

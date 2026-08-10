@@ -77,28 +77,28 @@ export default async function HomePage() {
           中元普渡（蜜桃）／年度燈（黃）／補庫（綠）／宮燈（藍）為動態依開放日期出現；
           開立感謝狀（粉）／生日與農曆（紫）／新增報名（米）固定。 */}
       <section className="w-full max-w-5xl">
-        <p className="mb-2 text-xs tracking-[0.2em] text-ink-faint">現場最常用</p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Link href="/quick-registration" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-apricot-200 bg-apricot-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-apricot-200 hover:shadow-pop">
-            <span className="text-lg" aria-hidden>🀄</span>快速報名·中元普渡
+        <h2 className="mb-3 text-base font-medium text-ink">🀄 現場最常用</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <Link href="/quick-registration" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-apricot-100 p-4 text-center shadow-card transition hover:bg-apricot-200 hover:shadow-pop">
+            <span className="text-2xl" aria-hidden>🀄</span><span className="text-sm font-medium text-ink">快速報名·中元普渡</span>
           </Link>
           {/* 補庫／宮燈／年度燈：依活動設定的開放日期自動出現（各自分色）。 */}
           <Suspense fallback={null}>
             <HomeInSeasonRosterRegister />
           </Suspense>
-          <Link href="/receipt-center/quick" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-blossom-200 bg-blossom-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-blossom-200 hover:shadow-pop">
-            <span className="text-lg" aria-hidden>🧾</span>開立感謝狀
+          <Link href="/receipt-center/quick" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-blossom-100 p-4 text-center shadow-card transition hover:bg-blossom-200 hover:shadow-pop">
+            <span className="text-2xl" aria-hidden>🧾</span><span className="text-sm font-medium text-ink">開立感謝狀</span>
           </Link>
-          <Link href="/tools/birthday" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-lilac-200 bg-lilac-100 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-lilac-200 hover:shadow-pop">
-            <span className="text-lg" aria-hidden>🎂</span>生日與農曆中心
+          <Link href="/tools/birthday" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-lilac-100 p-4 text-center shadow-card transition hover:bg-lilac-200 hover:shadow-pop">
+            <span className="text-2xl" aria-hidden>🎂</span><span className="text-sm font-medium text-ink">生日與農曆中心</span>
           </Link>
-          <Link href="/registration/new" className="flex min-h-[58px] items-center gap-2 rounded-2xl border border-cream-300 bg-cream-200 px-4 py-3 text-sm font-medium text-ink shadow-card transition hover:bg-cream-300 hover:shadow-pop">
-            <span className="text-lg" aria-hidden>➕</span>新增活動報名
+          <Link href="/registration/new" className="flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-3xl bg-cream-200 p-4 text-center shadow-card transition hover:bg-cream-300 hover:shadow-pop">
+            <span className="text-2xl" aria-hidden>➕</span><span className="text-sm font-medium text-ink">新增活動報名</span>
           </Link>
         </div>
       </section>
 
-      {/* 其他中心（小標籤，不搶戲）：收款／活動管理／供品／財務／系統（依權限）。 */}
+      {/* 其他中心：與「現場最常用」同款彩色卡片。 */}
       <HomeQuickNav showSystemCenter={showSystemCenter} showFinance={showFinance} financeReadOnly={financeReadOnly} />
 
 
@@ -168,7 +168,6 @@ export default async function HomePage() {
         )}
         <Link href="/purification" className="text-xs underline-offset-4 hover:underline">祭改管理</Link>
         <Link href="/templates" className="text-xs underline-offset-4 hover:underline">模板中心</Link>
-        <Link href="/devotee-center/list" className="text-xs underline-offset-4 hover:underline">家戶管理（信眾名單）</Link>
         {showRecycleBin && (
           <Link href="/system/recycle-bin" className="text-xs underline-offset-4 hover:underline">回收區</Link>
         )}
