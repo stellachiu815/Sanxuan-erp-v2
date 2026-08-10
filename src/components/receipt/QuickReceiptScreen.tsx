@@ -42,6 +42,7 @@ function Inner({ year }: { year: number }) {
   const [method, setMethod] = useState("CASH");
   const [recvQuery, setRecvQuery] = useState(""); // 活動繳款清單內搜尋
   const [showRecv, setShowRecv] = useState(false); // 活動繳款清單預設收起（只添油香時不用捲）
+  const [allMode, setAllMode] = useState(false); // 幫別人繳：顯示全部未繳（代報名用）
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 防重複送出：同一次「開立」動作固定用一組識別碼（連點／重送只會建一筆收款＋一張收據）。
@@ -62,15 +63,20 @@ function Inner({ year }: { year: number }) {
       } catch { /* 搜尋失敗不擋 */ }
     }, 300);
   }
-  async function pick(m: SearchResult) {
-    setSelected(m); setResults([]); setQuery(m.name);
+  async function loadReceivables(householdId: string, all: boolean) {
     try {
-      const res = await fetch(`/api/collection-center/pending?sponsorMemberId=${encodeURIComponent(m.memberId)}`);
+      // 預設帶「整戶」未繳項目（加戶）；all=true 時不帶家戶條件＝全部未繳（幫別人繳/代報名用，配搜尋）。
+      const qs = all ? "" : `?sponsorHouseholdId=${encodeURIComponent(householdId)}`;
+      const res = await fetch(`/api/collection-center/pending${qs}`);
       const data = await res.json();
       setReceivables(Array.isArray(data.rows) ? data.rows : []);
     } catch { setReceivables([]); }
   }
-  function clearSelected() { setSelected(null); setQuery(""); setReceivables([]); setPicked({}); }
+  async function pick(m: SearchResult) {
+    setSelected(m); setResults([]); setQuery(m.name); setAllMode(false); setRecvQuery("");
+    await loadReceivables(m.householdId, false);
+  }
+  function clearSelected() { setSelected(null); setQuery(""); setReceivables([]); setPicked({}); setAllMode(false); }
 
   function toggleReceivable(r: Receivable) {
     if (!r.canCollect) return;
@@ -206,12 +212,23 @@ function Inner({ year }: { year: number }) {
 
             {showRecv && (
               <>
+                <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+                  <input
+                    type="checkbox"
+                    checked={allMode}
+                    onChange={(e) => { const on = e.target.checked; setAllMode(on); setRecvQuery(""); if (selected) void loadReceivables(selected.householdId, on); }}
+                  />
+                  幫別人繳（顯示全部未繳，用搜尋找）
+                </label>
+                <p className="mt-1 text-xs text-ink-faint">
+                  {allMode ? "目前顯示全部信眾的未繳項目，請用下方搜尋找到要繳的那筆。" : `目前只顯示「${selected?.name ?? ""}」整戶的未繳項目。`}
+                </p>
                 {receivables.length > 3 && (
                   <input
                     value={recvQuery}
                     onChange={(e) => setRecvQuery(e.target.value)}
-                    placeholder="🔍 搜尋牌位名／陽上／活動"
-                    className="mt-3 w-full rounded-lg border border-cream-200 px-3 py-2 text-base text-ink"
+                    placeholder="🔍 搜尋牌位名／陽上／認購人／活動"
+                    className="mt-2 w-full rounded-lg border border-cream-200 px-3 py-2 text-base text-ink"
                   />
                 )}
                 <div className="mt-2 flex max-h-72 flex-col gap-2 overflow-auto">

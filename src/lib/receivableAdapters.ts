@@ -155,7 +155,8 @@ const offeringClaimAdapter: ReceivableSourceAdapter = {
           phone: c.phoneSnapshot,
           activityId: c.activityId,
           activityName: c.activity.name,
-          itemName: c.offeringType.name,
+          // V40：品相·認捐人，讓清單一致看得出「哪個供品、誰認捐」。
+          itemName: `${c.offeringType.name}${c.sponsorNameSnapshot ? `·${c.sponsorNameSnapshot}` : ""}`,
           receivableAmount: Number(c.amountDue),
           paidAmount: Number(c.amountPaid),
           unpaidAmount: Number(c.amountUnpaid),
@@ -421,7 +422,7 @@ const universalSalvationSponsorAdapter: ReceivableSourceAdapter = {
           phone: r.ritualRecord.household.phone,
           activityId: r.ritualRecord.templeEventId,
           activityName: `${r.ritualRecord.year}年度普渡`,
-          itemName: "普渡贊普",
+          itemName: `普渡贊普·${r.yangshangName || r.ritualRecord.household.contactName || r.ritualRecord.household.name}`,
           receivableAmount: Number(r.amountDue),
           paidAmount: Number(r.amountPaid),
           unpaidAmount: Number(r.amountUnpaid),
@@ -543,7 +544,8 @@ const purificationEntryAdapter: ReceivableSourceAdapter = {
           phone,
           activityId: r.templeEventId,
           activityName: r.templeEvent.name,
-          itemName: `祭改（編號 ${r.number ?? "尚未編號"}）`,
+          // V40：祭改·對象姓名（編號…），清單一致看得出是誰的祭改。
+          itemName: `祭改·${payerName}（編號 ${r.number ?? "尚未編號"}）`,
           receivableAmount: Number(r.amountDue ?? 0),
           paidAmount: Number(r.amountPaid),
           unpaidAmount: Number(r.amountUnpaid),
@@ -1166,6 +1168,8 @@ function makeRegistrationItemAdapter(
         include: {
           registrationItemType: true,
           ritualRecord: { include: { household: true, templeEvent: true } },
+          // V40：帶報名成員姓名（白米認購人、贊普人…），讓非牌位項目也看得出「給誰」。
+          member: { select: { name: true } },
           // V14.2：普渡牌位正式關聯——收款中心顯示同一筆 UniversalSalvationEntry 的名稱。
           // V40：多帶類別＋陽上人，讓收款/感謝狀清單看得出「這是哪一種牌位、給誰」，
           //   不再只有「陳姓（陳家）」分不清兩個陳家。
@@ -1191,7 +1195,10 @@ function makeRegistrationItemAdapter(
             const nm = (entry.displayName ?? "").trim() || "（未命名）";
             baseName = `${catL ? `${catL}·` : ""}${nm}${yang ? `（陽上：${yang}）` : ""}`;
           } else {
-            baseName = r.customName ?? r.registrationItemType.name;
+            // 非牌位（白米／贊普／補庫／龍鳳燈／年度燈…）：帶報名成員姓名（認購人／贊普人），
+            // 才看得出「陳家的誰」。自訂名稱優先（如隨喜贊普自填名），否則「項目·成員」。
+            const memberName = r.member?.name ?? null;
+            baseName = r.customName ?? (memberName ? `${r.registrationItemType.name}·${memberName}` : r.registrationItemType.name);
           }
           const amountDue = Number(r.amountDue);
           const amountPaid = Number(r.amountPaid);
