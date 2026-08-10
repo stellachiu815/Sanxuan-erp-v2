@@ -15,11 +15,11 @@ type Entry = { href: string; icon: string; label: string; tone: string };
 // V40 首頁：拿掉重複的入口——信眾管理（上方已有搜尋＋新增信眾）、列印管理（下方「待列印」卡即進列印中心）、
 // 活動報名（繞一圈也是進活動管理）。其餘中心做成與「現場最常用」同款的彩色卡片。
 const ENTRIES: Entry[] = [
-  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-100 hover:bg-blossom-200" },
-  { href: "/receipt-center", icon: "🧾", label: "收據管理", tone: "bg-lilac-100 hover:bg-lilac-200" },
-  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-yolk-100 hover:bg-yolk-200" },
-  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-100 hover:bg-sage-200" },
-  { href: "/devotee-center/list", icon: "🏠", label: "家戶管理", tone: "bg-apricot-100 hover:bg-apricot-200" },
+  { href: "/collection-center", icon: "💰", label: "收款管理", tone: "bg-blossom-50 hover:bg-blossom-100" },
+  { href: "/receipt-center", icon: "🧾", label: "收據管理", tone: "bg-lilac-50 hover:bg-lilac-100" },
+  { href: "/activities", icon: "📅", label: "活動管理", tone: "bg-yolk-50 hover:bg-yolk-100" },
+  { href: "/offering-center", icon: "🎁", label: "供品管理", tone: "bg-sage-50 hover:bg-sage-100" },
+  { href: "/devotee-center/list", icon: "🏠", label: "家戶管理", tone: "bg-apricot-50 hover:bg-apricot-100" },
 ];
 
 export default function HomeQuickNav({
@@ -32,8 +32,8 @@ export default function HomeQuickNav({
   financeReadOnly?: boolean;
 }) {
   const entries: Entry[] = [...ENTRIES];
-  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-mist-100 hover:bg-mist-200" });
-  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-200 hover:bg-cream-300" });
+  if (showFinance) entries.push({ href: "/finance-center", icon: "📒", label: financeReadOnly ? "財務中心（唯讀）" : "財務中心", tone: "bg-mist-50 hover:bg-mist-100" });
+  if (showSystemCenter) entries.push({ href: "/system-center", icon: "⚙️", label: "系統管理", tone: "bg-cream-100 hover:bg-cream-200" });
 
   return (
     <section className="w-full max-w-5xl">

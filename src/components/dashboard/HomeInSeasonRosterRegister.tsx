@@ -16,9 +16,9 @@ const ROSTER_ACTIVITY_TYPES = ["STORAGE_REPAYMENT", "PALACE_LANTERN", "ANNUAL_LA
 
 /** 每種活動的現場報名網址、按鈕字與淡彩分色（首頁色彩分區：補庫綠、宮燈藍、年度燈黃）。 */
 function entryFor(activityType: string, id: string): { href: string; verb: string; tone: string; icon: string } {
-  if (activityType === "ANNUAL_LANTERN") return { href: `/annual-lantern-register/${id}`, verb: "快速點燈·年度燈", tone: "bg-yolk-100 hover:bg-yolk-200", icon: "🏮" };
-  if (activityType === "PALACE_LANTERN") return { href: `/roster-register/${id}`, verb: "快速報名·宮燈", tone: "bg-mist-100 hover:bg-mist-200", icon: "🏮" };
-  return { href: `/roster-register/${id}`, verb: "快速報名·補庫", tone: "bg-sage-100 hover:bg-sage-200", icon: "🏪" };
+  if (activityType === "ANNUAL_LANTERN") return { href: `/annual-lantern-register/${id}`, verb: "快速點燈·年度燈", tone: "bg-yolk-50 hover:bg-yolk-100", icon: "🏮" };
+  if (activityType === "PALACE_LANTERN") return { href: `/roster-register/${id}`, verb: "快速報名·宮燈", tone: "bg-mist-50 hover:bg-mist-100", icon: "🏮" };
+  return { href: `/roster-register/${id}`, verb: "快速報名·補庫", tone: "bg-sage-50 hover:bg-sage-100", icon: "🏪" };
 }
 
 export default async function HomeInSeasonRosterRegister() {
