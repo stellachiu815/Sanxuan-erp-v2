@@ -125,9 +125,6 @@ export default function ReceiptPrintView({ receipt }: { receipt: ReceiptPrintDat
 
         <div className="mt-10 flex items-end justify-between">
           <p className="text-sm text-ink-faint">台北三玄宮 敬致</p>
-          <div className="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-ink-faint text-xs text-ink-faint">
-            宮方蓋章
-          </div>
         </div>
       </div>
     </div>
