@@ -80,10 +80,20 @@ function toEntry(m: Awaited<ReturnType<typeof eligibleMembersBase>>[number]): Bi
   };
 }
 
+/**
+ * V40：「今天」一律以**台灣時區（Asia/Taipei，UTC+8，無日光節約）**判斷。
+ * 伺服器（Render）跑 UTC，台灣凌晨 0～8 點時 UTC 還在前一天，直接用 UTC 會讓
+ * 「今日生日」慢一天。把時間 +8 小時後再讀 UTC 欄位＝台灣當地日期。
+ */
+function toTaipei(now: Date): Date {
+  return new Date(now.getTime() + 8 * 60 * 60 * 1000);
+}
+
 /** 「今日國曆生日」「未來七日國曆生日」共用：只看已登記 solarBirthDate 的信眾。 */
 async function listSolarBirthdaysInWindow(startOffsetDays: number, endOffsetDays: number, now: Date): Promise<BirthdayEntry[]> {
   const members = await eligibleMembersBase();
   const results: BirthdayEntry[] = [];
+  const tpe = toTaipei(now);
 
   for (const m of members) {
     if (m.devoteeProfile?.isDisabled) continue;
@@ -93,7 +103,7 @@ async function listSolarBirthdaysInWindow(startOffsetDays: number, endOffsetDays
     const bDay = m.solarBirthDate.getUTCDate();
 
     for (let offset = startOffsetDays; offset <= endOffsetDays; offset++) {
-      const check = new Date(now);
+      const check = new Date(tpe);
       check.setUTCHours(0, 0, 0, 0);
       check.setUTCDate(check.getUTCDate() + offset);
       if (check.getUTCMonth() === bMonth && check.getUTCDate() === bDay) {
@@ -115,7 +125,7 @@ export async function listUpcoming7DaySolarBirthdays(now: Date = new Date()): Pr
 
 export async function listThisMonthSolarBirthdays(now: Date = new Date()): Promise<BirthdayEntry[]> {
   const members = await eligibleMembersBase();
-  const currentMonth = now.getUTCMonth();
+  const currentMonth = toTaipei(now).getUTCMonth();
   return members
     .filter((m) => !m.devoteeProfile?.isDisabled && m.solarBirthDate && m.solarBirthDate.getUTCMonth() === currentMonth)
     .map(toEntry);
@@ -123,7 +133,8 @@ export async function listThisMonthSolarBirthdays(now: Date = new Date()): Promi
 
 /** 「本月農曆生日」：直接比對儲存的農曆月份，見上方檔案說明第 1 點。 */
 export async function listThisMonthLunarBirthdays(now: Date = new Date()): Promise<BirthdayEntry[]> {
-  const currentLunarMonth = solarToLunar(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))).month;
+  const t0 = toTaipei(now);
+  const currentLunarMonth = solarToLunar(new Date(Date.UTC(t0.getUTCFullYear(), t0.getUTCMonth(), t0.getUTCDate()))).month;
   const members = await eligibleMembersBase();
   return members
     .filter((m) => !m.devoteeProfile?.isDisabled && m.lunarBirthMonth === currentLunarMonth)
@@ -141,7 +152,8 @@ export async function listThisMonthLunarBirthdays(now: Date = new Date()): Promi
  * 可靠程度與既有的月份比對一致。
  */
 export async function listTodayLunarBirthdays(now: Date = new Date()): Promise<BirthdayEntry[]> {
-  const todayLunar = solarToLunar(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())));
+  const tToday = toTaipei(now);
+  const todayLunar = solarToLunar(new Date(Date.UTC(tToday.getUTCFullYear(), tToday.getUTCMonth(), tToday.getUTCDate())));
   const members = await eligibleMembersBase();
   return members
     .filter(

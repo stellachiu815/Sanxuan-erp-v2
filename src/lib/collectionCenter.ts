@@ -718,9 +718,11 @@ export type TodayCollectionSummary = { count: number; totalAmount: number };
 
 /** 首頁 Dashboard（需求「三、今日收款」）：今天（伺服器本地日期）已完成的收款交易筆數與金額加總。 */
 export async function getTodayCollectionSummary(now: Date = new Date()): Promise<TodayCollectionSummary> {
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTomorrow = new Date(startOfToday);
-  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+  // V40：「今天」以台灣時區（UTC+8）的當日為準——伺服器跑 UTC，台灣凌晨時
+  //   直接用 UTC 日界會把「今日收款」算成錯的區間。台灣午夜換算回 UTC 即當日範圍。
+  const tpe = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const startOfToday = new Date(Date.UTC(tpe.getUTCFullYear(), tpe.getUTCMonth(), tpe.getUTCDate()) - 8 * 60 * 60 * 1000);
+  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
 
   const transactions = await prisma.paymentTransaction.findMany({
     where: { status: "COMPLETED", paidOn: { gte: startOfToday, lt: startOfTomorrow } },
