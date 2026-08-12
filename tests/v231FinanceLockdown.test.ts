@@ -66,7 +66,19 @@ test("9. 所有財務 API（含 GET）皆以 assertFinancePermissionForOperator 
   assert.ok(routes.length >= 8, "財務 API 應完整涵蓋");
   for (const f of routes) {
     const s = readFileSync(f, "utf8");
-    assert.ok(s.includes("assertFinancePermissionForOperator"), `${f.slice(apiDir.length + 1)} 應有財務權限檢查`);
+    const rel = f.slice(apiDir.length + 1);
+    // V40 例外：live-export 是給 Google 試算表 IMPORTDATA 接的唯讀 CSV 端點，
+    // IMPORTDATA 無法帶登入身分，改以環境變數 token（定長比較）當通行證。仍必須有把關，
+    // 只是把關方式不同——這裡要求它確實含 token 驗證，而非放行。
+    if (rel === join("live-export", "route.ts")) {
+      assert.ok(
+        s.includes("FINANCE_LIVE_EXPORT_TOKEN") && s.includes("safeEqual"),
+        `${rel} 應以 token（FINANCE_LIVE_EXPORT_TOKEN + 定長比較）保護`
+      );
+      assert.ok(!/export async function (POST|PUT|PATCH|DELETE)/.test(s), `${rel} 必須唯讀，不得有寫入 handler`);
+      continue;
+    }
+    assert.ok(s.includes("assertFinancePermissionForOperator"), `${rel} 應有財務權限檢查`);
   }
   // GET 端點（summary/ledger/reports/export）也受保護：view/export 兩個 action，STAFF/READONLY 皆無 → 403。
   assert.ok(!canFinance("STAFF", "view") && !canFinance("READONLY", "view"), "GET 讀取一律擋下 STAFF/READONLY");
