@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { listLedger } from "@/lib/financeCenter";
+import { listLedger, rocYearNow } from "@/lib/financeCenter";
 
 /**
  * V40 財務「即時試算表」唯讀資料端點（給 Google 試算表 IMPORTDATA 接）。
@@ -14,8 +14,9 @@ import { listLedger } from "@/lib/financeCenter";
  *    （環境變數 FINANCE_LIVE_EXPORT_TOKEN）當通行證。網址會帶這組 token，務必保密、
  *    那份試算表也不要公開分享。沒設定 token 時端點直接關閉。
  *
- *  用法：GET /api/finance-center/live-export?token=XXXX[&year=115]
- *   year 省略＝全部年度；帶 year 只出該民國年度。
+ *  用法：GET /api/finance-center/live-export?token=XXXX[&year=115][&all=1]
+ *   預設＝只出「當年度」（民國年），讓試算表維持精簡、不會無限長；每年自然換新的。
+ *   &year=114 指定看某一年（過去年度另開分頁）；&all=1 才會出全部年度。
  */
 export const dynamic = "force-dynamic";
 
@@ -53,8 +54,10 @@ export async function GET(request: NextRequest) {
     return new NextResponse("token 不正確，無法讀取財務資料。", { status: 401 });
   }
 
+  // 預設只出當年度（避免試算表無限長變卡）；&all=1 才全部；&year=NNN 指定年度。
+  const all = url.searchParams.get("all") === "1";
   const yearParam = url.searchParams.get("year");
-  const year = yearParam && /^\d+$/.test(yearParam) ? Number(yearParam) : undefined;
+  const year = yearParam && /^\d+$/.test(yearParam) ? Number(yearParam) : all ? undefined : rocYearNow();
 
   const entries = await listLedger({ includePayments: true, includeVoid: false, ...(year ? { year } : {}) });
 
