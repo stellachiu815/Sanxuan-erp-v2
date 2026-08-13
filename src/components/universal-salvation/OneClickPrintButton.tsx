@@ -41,7 +41,8 @@ export default function OneClickPrintButton({
   const [toast, setToast] = useState<string | null>(null);
 
   function openOneClickRoute() {
-    setPrintedIds(summary.printableIds);
+    const ids = summary.printableIds;
+    setPrintedIds(ids);
     setError(null);
     setToast(null);
     if (typeof window === "undefined") return;
@@ -49,10 +50,14 @@ export default function OneClickPrintButton({
     // 優先新分頁（保留本管理頁與確認狀態）；被彈窗封鎖 → 同分頁導向專用列印頁，絕不停在管理頁列印。
     const win = window.open(url, "_blank", "noopener");
     if (!win) window.location.assign(url);
+    // V40：一鍵列印後**自動標記完成**（不用再按第二顆「確認完成列印」）。開了列印頁就直接登記
+    // 這批已列印；若自動登記失敗（例如網路），printedIds 仍在、下方的手動確認鈕會出現當備援。
+    void confirmPrinted(ids);
   }
 
-  async function confirmPrinted() {
-    if (!printedIds || printedIds.length === 0 || confirming) return;
+  async function confirmPrinted(idsArg?: string[]) {
+    const printed = idsArg ?? printedIds;
+    if (!printed || printed.length === 0 || confirming) return;
     setConfirming(true);
     setError(null);
     setToast(null);
@@ -64,7 +69,7 @@ export default function OneClickPrintButton({
       const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: printedIds, idempotencyKey }),
+        body: JSON.stringify({ ids: printed, idempotencyKey }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -75,7 +80,7 @@ export default function OneClickPrintButton({
         setError(detail);
         return;
       }
-      setToast(`已確認完成列印：${printedIds.length} 筆（已累計列印次數並建立列印批次）。`);
+      setToast(`已自動標記完成列印：${printed.length} 筆（已累計列印次數並建立列印批次）。`);
       setPrintedIds(null);
       onChanged();
     } catch {
@@ -109,11 +114,12 @@ export default function OneClickPrintButton({
               {meta.oneClickLabel}（{summary.printableComplete}）
             </button>
             {printedIds && printedIds.length > 0 && (
-              <button type="button" className={secondaryButtonClass} onClick={confirmPrinted} disabled={confirming}>
-                {confirming ? "確認中…" : `✅ 確認完成列印（${printedIds.length}）`}
+              <button type="button" className={secondaryButtonClass} onClick={() => confirmPrinted()} disabled={confirming}>
+                {confirming ? "標記中…" : `✅ 補標記完成列印（${printedIds.length}）`}
               </button>
             )}
           </div>
+          <p className="mt-2 text-xs text-ink-faint">按「{meta.oneClickLabel.replace(/（.*$/, "")}」會開列印頁並**自動標記完成**，不用再按第二顆確認。</p>
           <p className="mt-2 text-xs text-ink-faint">
             少量／補印：請至下方「牌位與寶袋列印」勾選該筆後按「產生列印頁／預覽」，會進入同一個牌位專用列印頁。
           </p>
