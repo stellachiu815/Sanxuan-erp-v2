@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { quickRegister, type QuickRegInput } from "@/lib/quickRegistration";
 import { rosterRegister, getRosterCapacityForEvent } from "@/lib/rosterRegister";
 import { canAcceptRegistration } from "@/lib/activityYear";
+import { getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import type { Role } from "@/lib/permissions";
 
 /**
@@ -215,6 +216,17 @@ export async function submitPublicRegistration(
     Number(payload.riceKg) > 0 || Number(payload.sponsorQty) > 0 || Number(payload.donationAmount) > 0 ||
     Number(payload.pocketQty) > 0 || !!s(payload.masterName);
   if (!anySelected) return { ok: false, status: 400, error: "請至少選擇一項要報名的項目" };
+
+  // V40：白米有年度配額且未開放超量時，後端再擋一次超收（信眾端驗證可被繞過）。
+  if (Number(payload.riceKg) > 0) {
+    const rice = await getRiceQuotaSummary(form.templeEventId);
+    if (rice && rice.open && !rice.allowOverbook) {
+      const remaining = Math.max(0, rice.remainingKg);
+      if (Number(payload.riceKg) > remaining) {
+        return { ok: false, status: 409, error: remaining === 0 ? "白米已額滿，暫時無法認購" : `白米最多只剩 ${remaining} 斤，請調整白米斤數` };
+      }
+    }
+  }
 
   // 防重複送出：同一 form＋同 submitterHash，最近 30 秒內已送過 → 擋（避免連點重送）。
   if (submitterHash) {

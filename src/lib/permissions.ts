@@ -475,23 +475,15 @@ const SYSTEM_PERMISSIONS: Record<Role, SystemAction[]> = {
   // 這兩個獨立入口（見 src/app/system-center/page.tsx 的
   // AdminToolsSection，放在 SystemCenterGate 之外，各自用這裡對應的
   // action 個別檢查）。
-  // V39（Stella 於 AskUserQuestion 明確定案）：ADMIN 全開＝與 SUPER_ADMIN 相同，
-  // **含系統中心、備份/還原、使用者角色管理、永久清空回收桶**（只有財務中心維持唯讀）。
-  // ⚠️ 唯一保留的安全底線在別處：不得把「最後一位最高管理員」降級（見 users [id] route），
-  //    避免整個系統沒有任何最高管理員而鎖死——這是防呆不變式，不是權限限制。
-  ADMIN: [
-    "viewSystemCenter",
-    "runBackup",
-    "downloadBackup",
-    "restoreBackup",
-    "manageGoogleDriveConnection",
-    "manageBackupSchedule",
-    "manageDataImport",
-    "manageUsers",
-    "manageRecycleBin",
-    "purgeRecycleBin",
-    "runAcceptanceScan",
-  ],
+  // V40（Stella 於 AskUserQuestion 明確定案，取代 V39）：管理者(ADMIN)的「系統管理」改為
+  // **純檢視／唯讀（最嚴）**——只保留 viewSystemCenter（看得到系統管理選單與版本／健康檢查／
+  // Log／設定／備份狀態等唯讀頁面），其餘所有會改變資料或設定的動作一律移除：
+  // 立即備份、下載備份、還原、Google Drive 連線、備份排程、資料匯入、使用者/角色管理、
+  // 回收桶還原、永久清空回收桶、驗收掃描。ADMIN 只能看、不能執行任何系統管理動作。
+  // （財務中心 ADMIN 仍為唯讀，維持不變。）
+  // ⚠️ 只保留 viewSystemCenter 即為「純檢視」：各敏感 API 各自檢查自己的 SystemAction，
+  //    移除該 action 後 ADMIN 呼叫這些 API 會被擋（403），畫面按鈕也不顯示。
+  ADMIN: ["viewSystemCenter"],
   STAFF: [],
   READONLY: [],
   FINANCE_CLERK: [],

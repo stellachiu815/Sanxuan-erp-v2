@@ -40,19 +40,20 @@ test("SUPER_ADMIN：看得到全部管理入口", () => {
   assert.equal(canSystem(r, "purgeRecycleBin"), true); // 永久刪除
 });
 
-test("ADMIN（V39 全開）：使用者管理／備份還原／seed／永久刪除全部看得到（只有財務唯讀）", () => {
+test("ADMIN（V40 系統管理唯讀）：仍看得到系統管理選單（純檢視），但匯入/回收桶/使用者/備份還原等寫入入口不可", () => {
   const r: Role = "ADMIN";
-  assert.equal(homeShowImport(r), true);
-  assert.equal(homeShowRecycleBin(r), true);
-  assert.equal(homeShowSystemCenter(r), true);
+  // V40：系統管理改唯讀——看得到主選單（viewSystemCenter），但寫入類入口與動作全部關閉。
+  assert.equal(homeShowSystemCenter(r), true); // 主選單仍看得到（純檢視）
+  assert.equal(canSystem(r, "viewSystemCenter"), true);
+  assert.equal(homeShowImport(r), false); // 資料匯入入口不可
+  assert.equal(homeShowRecycleBin(r), false); // 回收桶入口不可
+  assert.equal(canSystem(r, "manageUsers"), false); // 使用者管理不可
+  assert.equal(canSystem(r, "restoreBackup"), false); // 備份還原不可
+  assert.equal(canSystem(r, "purgeRecycleBin"), false); // 永久清空回收桶不可
+  // 一般業務不受影響（系統管理以外）：
   assert.equal(canTemplate(r, "create"), true);
   assert.equal(canCollection(r, "voidPayment"), true);
-  // V39 定案：全開
-  assert.equal(canSystem(r, "manageUsers"), true); // 使用者管理
-  assert.equal(canSystem(r, "restoreBackup"), true); // 備份還原
-  assert.equal(canSystem(r, "viewSystemCenter"), true); // 系統管理主選單
-  assert.equal(canTemplate(r, "seed"), true); // 模板 seed
-  assert.equal(canSystem(r, "purgeRecycleBin"), true); // 永久清空回收桶
+  assert.equal(canTemplate(r, "seed"), true);
 });
 
 test("STAFF：日常操作可；使用者管理／匯入／核心設定／永久刪除／備份還原／模板管理不可", () => {

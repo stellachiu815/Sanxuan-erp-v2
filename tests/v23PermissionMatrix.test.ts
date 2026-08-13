@@ -92,8 +92,14 @@ test("收據：STAFF 可開立/列印/補印/匯出，不可作廢/換開；作�
   assert.ok(canReceipt("SUPER_ADMIN", "manageNumbering") && canReceipt("ADMIN", "manageNumbering"));
 });
 
-test("系統管理（V39 ADMIN 全開）：ADMIN 與 SUPER_ADMIN 相同（含使用者/備份/還原/雲端/清空）；STAFF/READONLY 全無", () => {
-  for (const a of SYSTEM_ALL) assert.ok(canSystem("SUPER_ADMIN", a) && canSystem("ADMIN", a), `SUPER/ADMIN 皆可 ${a}`);
+test("系統管理（V40 ADMIN 純檢視/唯讀）：ADMIN 只可 viewSystemCenter，其餘動作只有 SUPER_ADMIN；STAFF/READONLY 全無", () => {
+  // V40（Stella 定案，取代 V39）：管理者系統管理改「純檢視/唯讀」，只保留 viewSystemCenter；
+  // 備份/還原/雲端/排程/匯入/使用者角色/回收桶/驗收掃描等會改資料或設定的動作一律移除。
+  assert.ok(canSystem("ADMIN", "viewSystemCenter"), "ADMIN 可看系統管理（唯讀）");
+  for (const a of SYSTEM_ALL) {
+    assert.ok(canSystem("SUPER_ADMIN", a), `SUPER_ADMIN 可 ${a}`);
+    if (a !== "viewSystemCenter") assert.ok(!canSystem("ADMIN", a), `ADMIN 不可 ${a}（唯讀）`);
+  }
   for (const a of SYSTEM_ALL) assert.ok(!canSystem("STAFF", a) && !canSystem("READONLY", a), `STAFF/READONLY 不可 ${a}`);
 });
 

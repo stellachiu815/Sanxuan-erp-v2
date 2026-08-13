@@ -1,4 +1,5 @@
 import { getPublicFormBySlug } from "@/lib/publicReg";
+import { getRiceQuotaSummary } from "@/lib/whiteRiceService";
 import { prisma } from "@/lib/prisma";
 import PublicRegForm from "@/components/public/PublicRegForm";
 import RosterRegisterForm from "@/components/registration/RosterRegisterForm";
@@ -44,9 +45,15 @@ export default async function PublicJoinPage({ params }: { params: Promise<{ slu
     );
   }
 
+  // V40：白米有年度配額，公開頁直接顯示「剩餘 X 斤」、超過就不讓送出（避免超收無限放大）。
+  const riceSummary = await getRiceQuotaSummary(form.templeEventId);
+  const riceQuota = riceSummary
+    ? { remainingKg: riceSummary.remainingKg, allowOverbook: riceSummary.allowOverbook, open: riceSummary.open }
+    : null;
+
   return (
     <main className="mx-auto max-w-xl px-4 py-8">
-      <PublicRegForm form={form} />
+      <PublicRegForm form={form} riceQuota={riceQuota} />
     </main>
   );
 }

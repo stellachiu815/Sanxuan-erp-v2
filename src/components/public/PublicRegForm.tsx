@@ -14,7 +14,9 @@ type UnbornRow = { mainText: "無緣子女" | "本宅地基主"; yangshang: stri
 const input = "w-full rounded-lg border border-mist-200 px-3 py-2 text-base";
 const card = "rounded-2xl bg-white/80 p-4 shadow-card";
 
-export default function PublicRegForm({ form }: { form: PublicFormView }) {
+type RiceQuota = { remainingKg: number; allowOverbook: boolean; open: boolean };
+
+export default function PublicRegForm({ form, riceQuota }: { form: PublicFormView; riceQuota?: RiceQuota | null }) {
   const p = form.config.prices;
   const showPhone = form.config.fields.includes("phone");
   const showAddress = form.config.fields.includes("address");
@@ -56,6 +58,11 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
     return tabletCount * p.tablet + rice + sponsor + don + pocket + master;
   }, [tabletCount, riceKg, sponsorQty, donation, pocketQty, masterAmount, p]);
 
+  // V40 白米配額：open 且未開放超量時才限制；剩餘量不顯示負數；超出即擋送出。
+  const riceLimited = !!riceQuota && riceQuota.open && !riceQuota.allowOverbook;
+  const riceRemaining = riceQuota ? Math.max(0, riceQuota.remainingKg) : null;
+  const riceOver = riceLimited && riceRemaining !== null && Number(riceKg) > riceRemaining;
+
   function addAncestor() { setAncestors((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
   function addSoul() { setSouls((a) => [...a, { displayName: "", yangshang: "", tabletAddress: "" }]); }
   function addUnborn() { setUnborn((a) => [...a, { mainText: "無緣子女", yangshang: "" }]); }
@@ -67,6 +74,9 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
     }
     if (Number(pocketQty) > 0 && tabletCount === 0) {
       setError("寶袋需搭配至少一張牌位（祖先／正魂／冤親／無緣），請先報一張牌位"); return;
+    }
+    if (riceOver) {
+      setError(riceRemaining === 0 ? "白米已額滿，暫時無法認購" : `白米最多只剩 ${riceRemaining} 斤，請調整白米斤數`); return;
     }
     setBusy(true); setError(null);
     const payload = {
@@ -187,8 +197,15 @@ export default function PublicRegForm({ form }: { form: PublicFormView }) {
         </div>
 
         <div className="mt-4 flex flex-col gap-2">
-          <label className="flex flex-col gap-1"><span className="text-sm text-ink">白米（斤）<span className="text-ink-faint">　每斤 ${p.ricePerJin}</span></span>
-            <input value={riceKg} onChange={(e) => setRiceKg(e.target.value)} inputMode="numeric" placeholder="0" className={input} /></label>
+          <label className="flex flex-col gap-1"><span className="text-sm text-ink">白米（斤）<span className="text-ink-faint">　每斤 ${p.ricePerJin}</span>
+            {riceLimited && riceRemaining !== null && (
+              <span className={`ml-1 text-xs ${riceRemaining === 0 ? "text-rose-600" : "text-ink-faint"}`}>
+                {riceRemaining === 0 ? "（已額滿）" : `（剩餘 ${riceRemaining} 斤）`}
+              </span>
+            )}</span>
+            <input value={riceKg} onChange={(e) => setRiceKg(e.target.value)} inputMode="numeric" placeholder="0" className={input} />
+            {riceOver && <span className="text-xs text-rose-600">{riceRemaining === 0 ? "白米已額滿，暫時無法認購" : `超過剩餘量，白米最多只能認購 ${riceRemaining} 斤`}</span>}
+          </label>
           <label className="flex flex-col gap-1"><span className="text-sm text-ink">贊普（數量）<span className="text-ink-faint">　每份 ${p.sponsorPerUnit}</span></span>
             <input value={sponsorQty} onChange={(e) => setSponsorQty(e.target.value)} inputMode="numeric" placeholder="0" className={input} /></label>
           {Number(sponsorQty) > 0 && <input value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="贊普認購人名稱（可填公司名，留空＝報名人）" className={input} />}
