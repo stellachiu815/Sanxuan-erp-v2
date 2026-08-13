@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AddMemberModal from "./AddMemberModal";
+import EditMemberModal from "./EditMemberModal";
 import EditHouseholdModal from "./EditHouseholdModal";
 import WorshipRecordWizard from "./WorshipRecordWizard";
 import WorshipRecordManageModal from "./WorshipRecordManageModal";
@@ -22,6 +23,7 @@ import OperatorBar from "@/components/system/OperatorBar";
 type ModalKind =
   | "editHousehold"
   | "addMember"
+  | "pickMemberToEdit"
   | "addWorship"
   | "manageWorship"
   | "manageMembers"
@@ -145,6 +147,8 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
   const router = useRouter();
   const { operatorUser } = useOperator();
   const [openModal, setOpenModal] = useState<ModalKind>(null);
+  // V40：修改成員資料——先選一位成員，再開編輯視窗。
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string } | null>(null);
 
   const canManage = operatorUser?.role ? canDevotee(operatorUser.role, "updateProfile") : false;
   /**
@@ -226,6 +230,16 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
             >
               <span className="text-2xl">➕</span>
               <span className="text-sm text-ink">新增家人</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOpenModal("pickMemberToEdit")}
+              className="flex min-h-24 flex-col items-center gap-2 rounded-2xl bg-cream-200/70 px-4 py-5 text-center
+                         shadow-soft transition hover:bg-cream-300/70"
+            >
+              <span className="text-2xl">🧑‍🦰</span>
+              <span className="text-sm text-ink">修改成員資料</span>
             </button>
 
             <button
@@ -378,6 +392,37 @@ function QuickActionsPanelInner({ householdId, household, members, worshipRecord
         <AddMemberModal
           householdId={householdId}
           onClose={() => setOpenModal(null)}
+          onSuccess={handleSuccess}
+        />
+      )}
+      {/* V40 修改成員資料：先選一位成員 → 開編輯視窗 */}
+      {openModal === "pickMemberToEdit" && (
+        <Modal title="選擇要修改的成員" onClose={() => setOpenModal(null)}>
+          {members.length === 0 ? (
+            <p className="py-4 text-sm text-ink-faint">這一戶目前沒有成員。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => { setEditTarget({ id: m.id, name: m.name }); setOpenModal(null); }}
+                  className="flex items-center justify-between rounded-2xl bg-cream-100 px-4 py-3 text-left text-sm text-ink transition hover:bg-cream-200"
+                >
+                  <span className="font-medium">{m.name}</span>
+                  <span className="text-xs text-ink-faint">修改 →</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+      {editTarget && (
+        <EditMemberModal
+          householdId={householdId}
+          memberId={editTarget.id}
+          memberName={editTarget.name}
+          onClose={() => setEditTarget(null)}
           onSuccess={handleSuccess}
         />
       )}

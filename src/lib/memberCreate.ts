@@ -253,6 +253,53 @@ export async function createMemberForHousehold(
 }
 
 /**
+ * V40：更新一位既有家戶成員的「個人資料」。
+ *
+ * 只改個人資料欄位：姓名／性別／國曆或農曆生日／個人地址／是否辭世／備註。
+ * **不動**身份（role）、主要聯絡人（isPrimaryContact）、身分證字號、手機/Email——
+ * 那些各有專屬入口（指定戶長／主要聯絡人、管理成員、信眾頁），避免這裡誤改。
+ * 整段包在 transaction：成員更新＋版本紀錄要嘛全成功、要嘛全不寫入。
+ */
+export async function updateMemberForHousehold(
+  memberId: string,
+  input: CreateMemberInput,
+  operatorName: string | null,
+  db?: DbClient
+) {
+  // 沿用建立時同一套正規化（含姓名必填、生日國曆/農曆驗證），不另寫一套。
+  const normalized = normalizeCreateMemberInput(input);
+
+  const run = async (tx: DbClient) => {
+    const before = await tx.member.findFirst({ where: { id: memberId, deletedAt: null } });
+    if (!before) throw new HouseholdManagementError("找不到這位成員（可能已被封存或移出）", 404);
+
+    const data: Record<string, unknown> = {
+      name: normalized.name,
+      gender: normalized.gender,
+      isDeceased: normalized.isDeceased,
+      notes: normalized.notes,
+      solarBirthDate: normalized.solarBirthDate,
+      lunarBirthYear: normalized.lunarBirthYear,
+      lunarBirthMonth: normalized.lunarBirthMonth,
+      lunarBirthDay: normalized.lunarBirthDay,
+      lunarIsLeapMonth: normalized.lunarIsLeapMonth,
+      // 個人地址（Member.address）；cast 相容尚未 regenerate 的 Prisma client（與建立路徑一致）。
+      address: normalized.address,
+    };
+
+    const after = await tx.member.update({ where: { id: memberId }, data });
+    await recordVersion(
+      { entityType: "Member", entityId: memberId, action: "UPDATE", beforeData: before, afterData: after, operatorName, changeNote: "修改家戶成員資料" },
+      tx
+    );
+    return after;
+  };
+
+  const member = db ? await run(db) : await prisma.$transaction((tx) => run(tx));
+  return { member };
+}
+
+/**
  * 「要加入某個既有家戶」時的建立前疑似重複比對（V12.2 最後一個缺口）。
  *
  * ⚠️ 這裡**沒有任何比對邏輯**——它只負責把「電話／地址要用哪個值去比對」
