@@ -85,30 +85,39 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
   }
 
   // ── V15R5（P0）畫面一律民國；西元只在內部儲存/換算 ───────────────────
-  // 國曆：文字輸入民國（如 46/4/17 → 民國46年4月17日），內部轉西元 ISO 存回 value.solarBirthDate。
-  const [solarMinguoText, setSolarMinguoText] = useState("");
+  // V40 手機修正：國曆原本是「單一文字欄位、要自己打 46/4/17」，但手機叫出的是數字
+  //   鍵盤沒有「/」鍵，打不出斜線。改成跟農曆一樣的「年（民國）／月／日」三個數字欄位，
+  //   手機直接用數字鍵盤填、不用斜線、也不會打錯分隔位置。內部一樣轉西元 ISO 存回
+  //   value.solarBirthDate。
+  const [solarY, setSolarY] = useState(""); // 民國年
+  const [solarM, setSolarM] = useState("");
+  const [solarD, setSolarD] = useState("");
   const [solarError, setSolarError] = useState<string | null>(null);
   useEffect(() => {
     if (!value.solarBirthDate) {
-      setSolarMinguoText("");
+      setSolarY("");
+      setSolarM("");
+      setSolarD("");
       return;
     }
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.solarBirthDate);
-    if (m) setSolarMinguoText(`${adToMinguo(Number(m[1]))}/${Number(m[2])}/${Number(m[3])}`);
+    if (m) {
+      setSolarY(String(adToMinguo(Number(m[1]))));
+      setSolarM(String(Number(m[2])));
+      setSolarD(String(Number(m[3])));
+    }
   }, [value.solarBirthDate]);
 
-  function handleSolarMinguoChange(text: string) {
-    setSolarMinguoText(text);
+  function applySolarParts(y: string, mo: string, d: string) {
     setSolarError(null);
-    const t = text.trim();
-    if (!t) {
-      update({ solarBirthDate: "" });
+    if (!y.trim() || !mo.trim() || !d.trim()) {
+      update({ solarBirthDate: "" }); // 尚未填齊三格：暫不換算
       return;
     }
     // 一律以民國解讀（parseFlexibleDate：年 < 1000 視為民國，+1911）。
-    const parsed = parseFlexibleDate(t);
+    const parsed = parseFlexibleDate(`${y.trim()}/${mo.trim()}/${d.trim()}`);
     if (parsed.ok) update({ solarBirthDate: toIsoDateString(parsed.date) });
-    else setSolarError(parsed.reason); // 尚未輸入完整：保留既有值，不清空
+    else setSolarError(parsed.reason);
   }
 
   // 農曆年：畫面輸入民國年，內部轉西元存回 value.lunarBirthYear（DB 一律西元）。
@@ -264,16 +273,43 @@ export default function BirthdayField({ value, onChange, allowNone = true }: Pro
 
       {value.birthdayType === "solar" && (
         <div className="mt-3">
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="國曆生日（民國年，例：46/4/17）"
-            className={inputClass}
-            value={solarMinguoText}
-            onChange={(e) => handleSolarMinguoChange(e.target.value)}
-          />
-          {solarError && solarMinguoText.trim() && (
-            <p className="mt-1 text-xs text-ink-faint">請輸入完整民國日期，例如 46/4/17</p>
+          <div className="grid grid-cols-3 gap-3">
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="年（民國）"
+              className={inputClass}
+              value={solarY}
+              onChange={(e) => {
+                setSolarY(e.target.value);
+                applySolarParts(e.target.value, solarM, solarD);
+              }}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="月"
+              className={inputClass}
+              value={solarM}
+              onChange={(e) => {
+                setSolarM(e.target.value);
+                applySolarParts(solarY, e.target.value, solarD);
+              }}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="日"
+              className={inputClass}
+              value={solarD}
+              onChange={(e) => {
+                setSolarD(e.target.value);
+                applySolarParts(solarY, solarM, e.target.value);
+              }}
+            />
+          </div>
+          {solarError && (solarY.trim() || solarM.trim() || solarD.trim()) && (
+            <p className="mt-1 text-xs text-ink-faint">請完整輸入民國年、月、日（例：民國 46 年 4 月 17 日）</p>
           )}
         </div>
       )}

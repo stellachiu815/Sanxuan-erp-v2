@@ -64,8 +64,10 @@ test("民國生日全年份：35/46/99/100/115 一律民國、正確轉西元，
 
 test("BirthdayField：畫面一律民國輸入/顯示，內部才轉西元", () => {
   const bf = read("src/components/birthday/BirthdayField.tsx");
-  assert.equal(bf.includes("國曆生日（民國年"), true, "國曆改民國文字輸入");
-  assert.equal(bf.includes("年（民國）"), true, "農曆年改民國");
+  // V40：國曆由「單一文字欄位打 46/4/17」改為「年（民國）／月／日」三個數字欄位
+  //   （手機數字鍵盤沒有「/」鍵，單欄位打不出斜線）；一樣民國輸入、內部轉西元。
+  assert.equal(bf.includes("applySolarParts"), true, "國曆改民國三欄位（年/月/日）數字輸入");
+  assert.equal(bf.includes("年（民國）"), true, "年一律民國");
   assert.equal(bf.includes('placeholder="年（西元）"'), false, "不再要求西元");
   assert.equal(bf.includes("parseFlexibleDate"), true, "民國→西元用共用解析");
   assert.equal(bf.includes("民國 {adToMinguo(c.lunarYear)}"), true, "候選年顯示民國");
