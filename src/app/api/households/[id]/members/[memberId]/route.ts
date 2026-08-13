@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { assertDevoteePermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId } from "@/lib/requestOperator";
-import { updateMemberForHousehold } from "@/lib/memberCreate";
-import { toHouseholdApiError } from "@/lib/householdManagement";
+import { updateDevoteeBase, type BirthdayEditInput, type UpdateDevoteeBaseInput } from "@/lib/devoteeBaseEdit";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -58,11 +57,35 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   });
   if (!belongs) return NextResponse.json({ error: "找不到這位成員（可能已被封存或移出）" }, { status: 404 });
 
+  const b = body as Record<string, unknown>;
+  let birthday: BirthdayEditInput = { type: "none" };
+  if (b.birthdayType === "solar" && typeof b.solarBirthDate === "string" && b.solarBirthDate) {
+    birthday = { type: "solar", solarBirthDate: new Date(b.solarBirthDate) };
+  } else if (b.birthdayType === "lunar") {
+    birthday = {
+      type: "lunar",
+      lunarBirthYear: Number(b.lunarBirthYear),
+      lunarBirthMonth: Number(b.lunarBirthMonth),
+      lunarBirthDay: Number(b.lunarBirthDay),
+      lunarIsLeapMonth: Boolean(b.lunarIsLeapMonth),
+    };
+  }
+
+  // 只改個人資料（姓名／性別／生日／個人地址／辭世／備註），沿用既有 updateDevoteeBase（含版本紀錄）。
+  const input: UpdateDevoteeBaseInput = {
+    name: typeof b.name === "string" ? b.name : undefined,
+    gender: typeof b.gender === "string" ? b.gender : null,
+    isDeceased: Boolean(b.isDeceased),
+    notes: typeof b.notes === "string" ? b.notes : null,
+    address: typeof b.address === "string" ? b.address : null,
+    birthday,
+  };
+
   try {
-    const { member } = await updateMemberForHousehold(memberId, body, check.operator.name);
+    const result = await updateDevoteeBase(memberId, input, check.operator.name);
     revalidatePath(`/household/${id}`);
-    return NextResponse.json({ member: { id: member.id } });
+    return NextResponse.json({ member: { id: result.member.id } });
   } catch (e) {
-    return toHouseholdApiError(e);
+    return NextResponse.json({ error: e instanceof Error ? e.message : "儲存失敗，請稍後再試一次。" }, { status: 400 });
   }
 }
