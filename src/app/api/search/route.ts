@@ -54,6 +54,8 @@ export type QuickSearchResult = {
   birthdayDisplay: string | null;
   /** 直接可用的跳轉目標，畫面不需要自己拼路由 */
   href: string;
+  /** V40：靠「乙位正魂牌位名」命中時，說明是哪個名字對上的（例如「乙位正魂：王大明」）。 */
+  matchNote?: string | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -151,5 +153,56 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ results: results.slice(0, 20) });
+  // V40：也用「乙位正魂」牌位名找到那一戶——有些普渡是用往生者（乙位正魂）的名字報名、
+  //   沒留陽上人，之前用那個名字搜不到。搜永久牌位（WorshipRecord type=INDIVIDUAL）
+  //   與普渡牌位（UniversalSalvationEntry category=INDIVIDUAL_SOUL）。
+  const [soulWorship, soulEntries] = await Promise.all([
+    prisma.worshipRecord.findMany({
+      where: { deletedAt: null, type: "INDIVIDUAL", displayName: { contains: q }, household: { deletedAt: null } },
+      select: {
+        displayName: true,
+        household: { select: { id: true, name: true, contactName: true, phone: true, mobile: true, address: true } },
+      },
+      take: 20,
+    }),
+    prisma.universalSalvationEntry.findMany({
+      where: { deletedAt: null, category: "INDIVIDUAL_SOUL", displayName: { contains: q } },
+      select: {
+        displayName: true,
+        universalSalvation: {
+          select: { ritualRecord: { select: { household: { select: { id: true, name: true, contactName: true, phone: true, mobile: true, address: true } } } } },
+        },
+      },
+      take: 20,
+    }),
+  ]);
+
+  // 每一戶只列一筆（用牌位名當說明）；已在上面（成員／家戶）命中的戶不再重複。
+  const soulByHousehold = new Map<string, { h: { id: string; name: string; contactName: string | null; phone: string | null; mobile: string | null; address: string | null }; tablet: string }>();
+  for (const w of soulWorship) {
+    if (w.household && !soulByHousehold.has(w.household.id)) soulByHousehold.set(w.household.id, { h: w.household, tablet: w.displayName });
+  }
+  for (const e of soulEntries) {
+    const h = e.universalSalvation?.ritualRecord?.household;
+    if (h && !soulByHousehold.has(h.id)) soulByHousehold.set(h.id, { h, tablet: e.displayName });
+  }
+  const alreadyListed = new Set(results.map((r) => r.householdId));
+  for (const { h, tablet } of soulByHousehold.values()) {
+    if (householdsWithMemberHit.has(h.id) || alreadyListed.has(h.id)) continue;
+    alreadyListed.add(h.id);
+    results.push({
+      kind: "HOUSEHOLD",
+      memberId: null,
+      householdId: h.id,
+      name: h.contactName || h.name,
+      householdName: h.name,
+      phone: h.mobile || h.phone || null,
+      addressSummary: summarizeAddress(h.address),
+      birthdayDisplay: null,
+      href: `/household/${h.id}`,
+      matchNote: `乙位正魂：${tablet}`,
+    });
+  }
+
+  return NextResponse.json({ results: results.slice(0, 30) });
 }

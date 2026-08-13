@@ -40,6 +40,8 @@ type SearchResult = {
   addressIsHouseholdFallback?: boolean;
   birthdayDisplay: string | null;
   href: string;
+  /** V40：靠「乙位正魂牌位名」命中時的說明（例如「乙位正魂：王大明」）。 */
+  matchNote?: string | null;
 };
 
 type Props = {
@@ -158,6 +160,9 @@ export default function SearchBar({
                 </span>
                 {r.kind === "HOUSEHOLD" && (
                   <span className="rounded-full bg-mist-100 px-2 py-0.5 text-xs text-ink-soft">家戶</span>
+                )}
+                {r.matchNote && (
+                  <span className="rounded-full bg-blossom-100 px-2 py-0.5 text-xs text-ink-soft">{r.matchNote}</span>
                 )}
               </span>
               {/* 同名信眾靠這一行區分：電話／生日／地址（fallback 家戶地址時標示） */}
