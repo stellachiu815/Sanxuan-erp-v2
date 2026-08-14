@@ -40,6 +40,7 @@ export default function OneClickPrintButton({
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  // V40 redeploy marker：觸發一次重新部署（不改任何行為）。
   function openOneClickRoute() {
     const ids = summary.printableIds;
     setPrintedIds(ids);
