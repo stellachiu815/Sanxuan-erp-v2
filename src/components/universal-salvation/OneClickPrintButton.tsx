@@ -119,7 +119,7 @@ export default function OneClickPrintButton({
               </button>
             )}
           </div>
-          <p className="mt-2 text-xs text-ink-faint">按「{meta.oneClickLabel.replace(/（.*$/, "")}」只會開列印頁，<b>不會標記</b>；真的印完後，再按上面綠色「確認完成列印」才會登記。</p>
+          <p className="mt-2 text-xs text-ink-faint">按「{meta.oneClickLabel.replace(/（.*$/, "")}」→ 開列印頁 →<b>在列印頁按「🖨 列印」就會自動登記已列印</b>，不用再回來按確認。（只開來看、沒按列印，就不會被登記。）</p>
           <p className="mt-2 text-xs text-ink-faint">
             少量／補印：請至下方「牌位與寶袋列印」勾選該筆後按「產生列印頁／預覽」，會進入同一個牌位專用列印頁。
           </p>

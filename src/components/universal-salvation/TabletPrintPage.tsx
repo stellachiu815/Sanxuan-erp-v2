@@ -12,6 +12,7 @@ import {
 } from "@/components/ritual/tablets";
 import { resolveYangshangNames } from "@/lib/yangshang";
 import { useTabletPrint } from "@/hooks/useTabletPrint";
+import { fetchUniversalSalvation } from "@/lib/universalSalvationFetch";
 import type { TabletPrintGroup } from "@/lib/TabletBatchService";
 import type { TabletTemplateSetting } from "@/lib/tabletTemplateSettingsShape";
 
@@ -30,6 +31,7 @@ export default function TabletPrintPage({
   batchLabel,
   paperLabel,
   count,
+  itemIds = [],
   groups,
   debug = false,
   showWorkNumber = true,
@@ -41,6 +43,8 @@ export default function TabletPrintPage({
   batchLabel: string;
   paperLabel: string;
   count: number;
+  /** V40：本頁要列印的項目 id——按「列印」時直接登記為已列印（不用再回管理頁按確認）。 */
+  itemIds?: string[];
   groups: TabletPrintGroup[];
   debug?: boolean;
   /** V30.3：是否顯示裁切外作業號碼 No.<registrationOrder>（由 ?workno=0/1 控制，預設顯示）。 */
@@ -59,6 +63,37 @@ export default function TabletPrintPage({
   const landscape = groups.length === 0 ? true : groups.some((g) => LANDSCAPE_DTS.includes(g.documentType));
   const { print } = useTabletPrint(groups.length > 0);
   const sheetsRef = useRef<HTMLDivElement>(null);
+
+  // V40：按「列印」就自動登記為已列印（不用再回管理頁按確認）。開頁只是預覽、不會登記；
+  //   只有真的按下「列印」才登記——這樣「看一下」不會被誤標。登記是背景進行，不擋列印對話框。
+  const [printMsg, setPrintMsg] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  async function markPrintedInBackground() {
+    if (itemIds.length === 0 || confirming) return;
+    setConfirming(true);
+    const idempotencyKey =
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${year}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      const res = await fetchUniversalSalvation(`/api/universal-salvation/${year}/print-items/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: itemIds, idempotencyKey }),
+      });
+      if (res.ok) setPrintMsg(`✅ 已自動登記為「已列印」（${itemIds.length} 筆）——其他設備重新整理後也會同步看到。`);
+      else {
+        const d = await res.json().catch(() => null);
+        setPrintMsg(`⚠️ 自動登記沒成功（${d?.error ?? `HTTP ${res.status}`}）。可回列印管理頁手動「確認完成列印」。`);
+      }
+    } catch {
+      setPrintMsg("⚠️ 自動登記沒成功（網路問題）。可回列印管理頁手動「確認完成列印」。");
+    } finally {
+      setConfirming(false);
+    }
+  }
+  function handlePrintAndConfirm() {
+    void markPrintedInBackground(); // 按了列印＝登記已列印（背景，不擋列印對話框）
+    print(); // 叫出瀏覽器列印對話框
+  }
 
   // V30.3：作業號碼開關 href——只翻轉 workno，保留 batch／ids／scope／category 等其餘 query string。
   const searchParams = useSearchParams();
@@ -147,12 +182,13 @@ export default function TabletPrintPage({
         >
           {currentPerPage === 6 ? "一頁 6 張（地址/陽上較大）· 點此改 7 張" : "一頁 7 張 · 點此改 6 張（字較大）"}
         </Link>
-        <button type="button" onClick={print} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#e7efe4", padding: "6px 16px", fontSize: 14 }}>
-          🖨 列印
+        <button type="button" onClick={handlePrintAndConfirm} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#e7efe4", padding: "6px 16px", fontSize: 14, fontWeight: 600 }}>
+          🖨 列印（按下即登記已列印）
         </button>
         <Link href={`/universal-salvation/${year}/print-center`} style={{ borderRadius: 999, border: "1px solid #cfc8bb", background: "#fff", padding: "6px 16px", fontSize: 14, textDecoration: "none", color: "#2c2a27" }}>
           返回列印管理
         </Link>
+        {printMsg && <span style={{ fontSize: 13, color: printMsg.startsWith("✅") ? "#2f6f3f" : "#b45309" }}>{printMsg}</span>}
       </div>
 
       {/* V33 §8：正式列印/預覽不得有任何 Debug/排版資訊。以下排版摘要僅在 ?debug=1 顯示、且列印隱藏。 */}

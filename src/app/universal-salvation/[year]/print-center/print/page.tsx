@@ -109,6 +109,7 @@ export default async function TabletBatchPrintRoute({
       batchLabel={meta.label}
       paperLabel={meta.paperLabel}
       count={chosen.length}
+      itemIds={chosen.map((c) => c.id)}
       groups={groups}
       debug={debugParam === "1"}
       showWorkNumber={showWorkNumber}

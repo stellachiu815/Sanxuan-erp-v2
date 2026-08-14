@@ -49,12 +49,16 @@ function FamilyCell({ e, showWorkNumber, documentType }: { e: PrintTabletEntry; 
   //   只有超出 bounding box 才等比縮小。寶袋（POCKET）維持原本較小字級（沿用 CSS 固定值），不套用。
   const isTablet = documentType !== "POCKET";
   const mainStyle = isTablet ? { fontSize: `${fitV34MainSizeMm(p.displayName.length)}mm` } : undefined;
+  // V40：陽上人多名字（例：「A、B、C叩薦」）時字級自動縮小，塞進「同一直行」不跳兩排。
+  //   基準 3.6mm、約 12 字內不縮；超過就等比縮小，最小 2.4mm，仍清楚可讀。
+  const yangLen = (p.yangshangText ?? "").length;
+  const yangStyle = yangLen > 12 ? { fontSize: `${Math.max(2.4, 3.6 * (12 / yangLen))}mm` } : undefined;
   return (
     <div className="v34-cell">
       {showWorkNumber && no && <span className="v34-no">{no}</span>}
       <div className="v34-cell-cols">
         <div className="v34-main" style={mainStyle}>{p.displayName}</div>
-        <div className="v34-yang">{p.yangshangText}</div>
+        <div className="v34-yang" style={yangStyle}>{p.yangshangText}</div>
         <div className="v34-addr">{p.locationText}</div>
       </div>
     </div>
@@ -173,7 +177,9 @@ export default function TabletLandscapeSheetV34({
         .v34-yang {
           writing-mode: vertical-rl; text-orientation: upright;
           font-size: var(--v34-yang-size); line-height: 1.12; color: #111;
-          display: flex; align-items: flex-start; flex: 0 1 auto; max-width: 8mm; overflow: hidden;
+          /* V40：陽上人固定「只排一直行」——寬度只留一行的量（多名字時跳成兩排的元凶就是這裡原本 8mm、
+             容得下兩行）。多名字用 FamilyCell 內的自動縮小字級塞進同一行。 */
+          display: flex; align-items: flex-start; flex: 0 0 auto; max-width: 5mm; overflow: hidden;
         }
         .v34-addr {
           writing-mode: vertical-rl; text-orientation: upright;
