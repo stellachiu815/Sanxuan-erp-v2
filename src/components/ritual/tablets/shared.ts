@@ -96,10 +96,12 @@ export function toPrintableTablet(entry: PrintTabletEntry): PrintableTabletEntry
  *   export const TABLET_FONT_FAMILY = '"DFKai-SB", "BiauKai", "標楷體", serif';
  */
 // V39：公廟文書一律用**標楷體**（楷書、莊重、與宮方既有樣張一致）。
-// 優先序：Windows 內建 DFKai-SB → Mac BiauKai → 標楷體／KaiTi → 退回明體 serif（仍比黑體軟，不退回黑體）。
-// 列印用列印那台電腦上安裝的字體；Windows 內建標楷體，故正常印出即為標楷體。
+// V40 修正：新版 macOS 已移除 BiauKai，楷體改名為「Kaiti TC／STKaiti／楷體-繁」，
+//   舊字體鏈只有 Windows 名字，Mac 找不到就退回明體。這裡把 Mac 楷體名字補進去。
+// 優先序：Windows（DFKai-SB／標楷體／KaiTi）→ Mac（Kaiti TC／STKaiti／楷體-繁／BiauKai）
+//   → 退回明體 serif（仍比黑體軟，不退回黑體）。列印用列印那台電腦上安裝的字體。
 export const TABLET_FONT_FAMILY =
-  '"DFKai-SB", "BiauKai", "標楷體", "KaiTi", "Noto Serif TC", "PMingLiU", serif';
+  '"DFKai-SB", "標楷體", "標楷體-繁", "標楷體-港澳", "BiauKai", "KaiTi", "Kaiti TC", "STKaiti", "華文楷體", "楷體-繁", "Kaiti SC", "Noto Serif TC", "PMingLiU", serif';
 
 /** A4 紙張尺寸與四周留白，列印跟 PDF 匯出都以此為準，維持所見即所印。 */
 export const A4_PAGE = {

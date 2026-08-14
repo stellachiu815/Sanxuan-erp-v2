@@ -125,7 +125,7 @@ export default function TabletLandscapeSheetV34({
           --v34-footer-size: 2.8mm;
           --v34-no-size: 2.6mm;
           --v34-inner-gap: 1mm;      /* 主文/陽上/地址 欄間距 */
-          --v34-serif: "BiauKai", "DFKai-SB", "標楷體", serif;
+          --v34-serif: "DFKai-SB", "標楷體", "標楷體-繁", "標楷體-港澳", "BiauKai", "KaiTi", "Kaiti TC", "STKaiti", "華文楷體", "楷體-繁", "Kaiti SC", "Noto Serif TC", "PMingLiU", serif;
 
           display: flex; flex-direction: column; align-items: center; gap: 16px;
         }

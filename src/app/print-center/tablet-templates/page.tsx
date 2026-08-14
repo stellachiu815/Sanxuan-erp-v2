@@ -40,7 +40,7 @@ const FONT_FAMILY_OPTIONS = [
   { value: "", label: "系統預設牌位字型" },
   { value: '"Noto Serif TC", serif', label: "思源宋體" },
   { value: '"Noto Sans TC", sans-serif', label: "思源黑體" },
-  { value: '"BiauKai", "DFKai-SB", "標楷體", serif', label: "標楷體" },
+  { value: '"DFKai-SB", "標楷體", "標楷體-繁", "標楷體-港澳", "BiauKai", "KaiTi", "Kaiti TC", "STKaiti", "華文楷體", "楷體-繁", "Kaiti SC", "Noto Serif TC", "PMingLiU", serif', label: "標楷體" },
 ];
 const FONT_WEIGHT_OPTIONS = [
   { value: "", label: "預設" },

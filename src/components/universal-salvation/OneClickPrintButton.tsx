@@ -50,9 +50,9 @@ export default function OneClickPrintButton({
     // 優先新分頁（保留本管理頁與確認狀態）；被彈窗封鎖 → 同分頁導向專用列印頁，絕不停在管理頁列印。
     const win = window.open(url, "_blank", "noopener");
     if (!win) window.location.assign(url);
-    // V40：一鍵列印後**自動標記完成**（不用再按第二顆「確認完成列印」）。開了列印頁就直接登記
-    // 這批已列印；若自動登記失敗（例如網路），printedIds 仍在、下方的手動確認鈕會出現當備援。
-    void confirmPrinted(ids);
+    // V40 修正：**不再自動標記**。之前「按一鍵列印就自動標記完成」會讓「只是想看資料」也被標記成
+    //   已列印（Stella 實測回報：查寶袋沒按列印卻全變已列印）。改回：開了列印頁後，真的印完再按下方
+    //   綠色「確認完成列印」才登記——開頁本身不寫任何列印紀錄。
   }
 
   async function confirmPrinted(idsArg?: string[]) {
@@ -115,11 +115,11 @@ export default function OneClickPrintButton({
             </button>
             {printedIds && printedIds.length > 0 && (
               <button type="button" className={secondaryButtonClass} onClick={() => confirmPrinted()} disabled={confirming}>
-                {confirming ? "標記中…" : `✅ 補標記完成列印（${printedIds.length}）`}
+                {confirming ? "確認中…" : `✅ 確認完成列印（${printedIds.length}）`}
               </button>
             )}
           </div>
-          <p className="mt-2 text-xs text-ink-faint">按「{meta.oneClickLabel.replace(/（.*$/, "")}」會開列印頁並**自動標記完成**，不用再按第二顆確認。</p>
+          <p className="mt-2 text-xs text-ink-faint">按「{meta.oneClickLabel.replace(/（.*$/, "")}」只會開列印頁，<b>不會標記</b>；真的印完後，再按上面綠色「確認完成列印」才會登記。</p>
           <p className="mt-2 text-xs text-ink-faint">
             少量／補印：請至下方「牌位與寶袋列印」勾選該筆後按「產生列印頁／預覽」，會進入同一個牌位專用列印頁。
           </p>
