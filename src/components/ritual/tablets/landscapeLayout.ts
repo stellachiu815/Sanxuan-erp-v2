@@ -92,6 +92,29 @@ function maximizeFont(nChars: number, wMm: number, hMm: number, maxPx: number, m
 }
 
 /**
+ * V41 地址「不換欄、只縮字、不裁切」專用字級：
+ *   規則（依 Stella）：地址一律排成**單一直欄**（上→下一整條），太長時**縮小字級**塞進同一欄，
+ *   **絕不**折成第二直欄（換欄），也**絕不**被裁掉（裁切＝地址資料錯誤，禁止）。
+ *   作法：字級 = min(字級上限, 單字寬不超欄, 讓 nChars 全部塞進單欄欄高的字級)。
+ *   為避免瀏覽器字寬與估算誤差在單欄底部裁掉最後一個字，欄容量預留少量安全餘裕。
+ *   若地址真的長到連很小的字都放不下（極端），才回 overflow=true（呼叫端顯示警告，但仍不裁字）。
+ */
+function maximizeAddressFont(nChars: number, wMm: number, hMm: number, maxPx: number): { px: number; overflow: boolean } {
+  const lineHeight = 1.15, colSpacing = 1.08;
+  const n = Math.max(1, nChars);
+  const heightPx = hMm * PX_PER_MM;
+  // 單字寬不超欄（否則單一直欄的字會被左右裁）。
+  const widthCapPx = Math.max(1, Math.floor((wMm * PX_PER_MM) / colSpacing));
+  // 讓 n 個字全部塞進「單一直欄」的欄高：安全餘裕 +0.5 字，避免最後一字被 overflow:hidden 裁掉。
+  const heightCapPx = Math.floor(heightPx / ((n + 0.5) * lineHeight));
+  const ADDR_HARD_FLOOR_PX = 5; // 極端長地址的最小可讀底線（仍不裁字，只是很小）。
+  let px = Math.min(maxPx, widthCapPx, heightCapPx);
+  let overflow = false;
+  if (px < ADDR_HARD_FLOOR_PX) { px = ADDR_HARD_FLOOR_PX; overflow = true; } // 連底線都放不下才標警告（仍單欄、不裁）。
+  return { px, overflow };
+}
+
+/**
  * 陽上人＋叩薦＝**同一組連續文字**（正式規格）：以共用 formatYangshangAcclaim 組字
  * 「姓名、姓名、姓名叩薦」，「叩薦」緊接最後一位姓名之後，1~3 人與 4+ 皆同、絕不另起一段/一行、
  * 不獨立成區塊。無姓名時回空字串（不顯示單獨「叩薦」）。fallback（已含叩薦的文字）原樣沿用。
@@ -181,7 +204,8 @@ export function buildLandscapeTabletLayout(
       yangGeo = { x: xYang, y: contentTop, w: wYang, h: contentH };
       mainX = xMain;
     }
-    const addrFit = maximizeFont(addrText.length, addrGeo.w, contentH, ADDR_MAX_PX, ADDR_MIN_PX);
+    // V41：地址單一直欄、只縮字不換欄不裁切（不再用會折多欄的 maximizeFont）。
+    const addrFit = maximizeAddressFont(addrText.length, addrGeo.w, contentH, ADDR_MAX_PX);
     const yangFit = fitYangshangVertical(yangText.length, yangGeo.w, yangGeo.h, yangCfg);
 
     pend.push({ recordIndex, pageIndex, slotIndex, rec, xLeft, threeCol, addrText, mainText, yangText, mainFit, addrGeo, addrFit, yangGeo, yangFit, mainX });

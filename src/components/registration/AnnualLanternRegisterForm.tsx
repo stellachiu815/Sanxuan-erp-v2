@@ -14,6 +14,7 @@ import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass, error
 type Row = {
   existingMemberId: string;
   existingLabel: string;
+  householdId: string;
   name: string;
   phone: string;
   address: string;
@@ -25,9 +26,9 @@ type Row = {
   taisuiQty: string;
   purification: boolean;
 };
-type SearchResult = { memberId: string; name: string; householdName: string; address: string | null };
+type SearchResult = { memberId: string; householdId: string; name: string; householdName: string; address: string | null };
 
-const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
+const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", householdId: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
 
 export default function AnnualLanternRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
@@ -97,11 +98,11 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     }, 300);
   }
   function pickExisting(i: number, r: SearchResult) {
-    update(i, { existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, name: r.name, address: r.address ?? "" });
+    update(i, { existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, householdId: r.householdId, name: r.name, address: r.address ?? "" });
     setResults((p) => ({ ...p, [i]: [] }));
   }
   function clearExisting(i: number) {
-    update(i, { existingMemberId: "", existingLabel: "", name: "", address: "" });
+    update(i, { existingMemberId: "", existingLabel: "", householdId: "", name: "", address: "" });
   }
 
   async function submit() {
@@ -208,6 +209,9 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
               {r.existingMemberId ? (
                 <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl bg-sage-50 px-4 py-2.5">
                   <span className="text-sm text-ink">已選既有信眾：<b>{r.existingLabel}</b></span>
+                  {!publicSlug && r.householdId && (
+                    <a href={`/household/${r.householdId}`} className="rounded-full bg-mist-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／全戶點燈）</a>
+                  )}
                   <button type="button" onClick={() => clearExisting(i)} className="text-xs text-ink-faint hover:underline">改填新的 / 換一位</button>
                 </div>
               ) : (

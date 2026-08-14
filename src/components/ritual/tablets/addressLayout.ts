@@ -47,7 +47,10 @@ export function verticalTextInnerStyle(
   sizePx: number,
   soft: boolean,
   /** V32 §4 模板可調樣式（未提供時維持既有預設，確保未設定模板時輸出不變）。 */
-  style?: { fontFamily?: string | null; fontWeight?: string | null; letterSpacingPx?: number | null; lineHeight?: number | null }
+  style?: { fontFamily?: string | null; fontWeight?: string | null; letterSpacingPx?: number | null; lineHeight?: number | null },
+  /** V41 地址「不換欄」：true 時 whiteSpace:nowrap，直式文字一律**單一直欄**、絕不折成第二欄。
+   *  搭配版面計算把字級縮到單欄放得下，達成「太長只縮字、不換欄、不裁切」。 */
+  singleColumn?: boolean
 ) {
   const base = {
     writingMode: "vertical-rl" as const,
@@ -57,6 +60,7 @@ export function verticalTextInnerStyle(
     textAlign: align,
     height: "100%",
     color: soft ? "#333" : "#000",
+    ...(singleColumn ? { whiteSpace: "nowrap" as const } : {}),
   };
   const extra: Record<string, string> = {};
   if (style?.fontFamily) extra.fontFamily = style.fontFamily;

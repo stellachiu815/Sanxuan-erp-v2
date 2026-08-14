@@ -28,3 +28,5 @@ yarn.lock
 scripts/data/*.json
 # 沙盒臨時診斷檔（可手動刪）
 tmp_*.ts
+__*.mjs
+__addrcheck.mjs

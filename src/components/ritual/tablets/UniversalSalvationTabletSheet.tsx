@@ -52,6 +52,7 @@ function VerticalText({
   soft,
   align = "center",
   style,
+  singleColumn,
 }: {
   text: string;
   sizePx: number;
@@ -60,10 +61,12 @@ function VerticalText({
   align?: "center" | "end" | "start";
   /** V32 §4 模板樣式覆寫。 */
   style?: TabletTemplateStyle;
+  /** V41 地址不換欄：單一直欄（whiteSpace:nowrap）。 */
+  singleColumn?: boolean;
 }) {
   if (!text) return null;
   // 未指定模板字型時維持既有 TABLET_FONT_FAMILY；指定則覆寫。
-  const inner = verticalTextInnerStyle(align, sizePx, !!soft, style);
+  const inner = verticalTextInnerStyle(align, sizePx, !!soft, style, singleColumn);
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", justifyContent: "center" }}>
       <div style={{ fontFamily: TABLET_FONT_FAMILY, ...inner }}>
@@ -123,6 +126,8 @@ function BlockView({ block, mode, documentType, style }: { block: PositionedBloc
         soft={block.blockType !== "main"}
         // V33：橫式版由 vAlign 指定（主文置中、地址/陽上人靠上＝start）；未指定沿用 V30.5 地址兩行底部對齊規則。
         align={block.vAlign ? block.vAlign : block.blockType === "address" ? addressVerticalAlign(block.text.length, block.heightMm, fit.px) : "center"}
+        // V41：地址一律單一直欄、不換欄（字級已由版面計算縮到單欄放得下）。
+        singleColumn={block.blockType === "address"}
         // V33 陽上人縮字：以區塊自帶 lineHeight/letterSpacingPx 收緊（只作用該區塊），其餘沿用模板樣式。
         style={{
           ...(style ?? {}),

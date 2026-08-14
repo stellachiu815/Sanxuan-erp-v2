@@ -20,7 +20,7 @@ import { ensureTabletPrintObjects } from "@/lib/additionalPrintItems";
 import { getAdditionalPrintItemPaidAmounts } from "@/lib/receivableAdapters";
 import { createPurificationEntryForRecordInTx } from "@/lib/purification";
 import { applyRegistrationOrder } from "@/lib/registrationOrder";
-import { displayDebtCreditorName } from "@/lib/debtCreditorName";
+import { displayDebtCreditorName, DEBT_CREDITOR_CANONICAL } from "@/lib/debtCreditorName";
 import {
   getAnnualLanternPrices,
   isAnnualLanternPricedItemKey,
@@ -967,9 +967,13 @@ export async function registerItemsBatch(
           operatorName,
         });
 
-        // V14.2：累世冤親債主（全戶加入）——為每位成員各建一筆 DEBT_CREDITOR 牌位並
-        // **正式連結**（universalSalvationEntryId），displayName = 當事人姓名。之後名稱／
-        // 陽上／地址／列印／補印／收款／查詢一律讀這一筆 entry，不依賴建立順序。
+        // V14.2 → V41 防呆：累世冤親債主（全戶加入）——為每位成員各建一筆 DEBT_CREDITOR 牌位並
+        // **正式連結**（universalSalvationEntryId）。
+        //   ⚠️ 舊版把 displayName 設成「當事人姓名」（靠顯示層再正名為累世冤親債主），且陽上人留空，
+        //      造成：① 有些檢視／列印路徑直接吃 displayName，冤親牌位主文出現「人名」而非「累世冤親債主」；
+        //           ② 當事人沒有進到陽上人（叩薦不見）。
+        //   ✅ 對齊「中元普渡現場快速報名」的標準（quickRegistration）：主文固定「累世冤親債主」，
+        //      當事人姓名放到**陽上人**。
         if (p.itemType.key === "US_YUANQIN") {
           const detail = await tx.universalSalvationDetail.upsert({
             where: { ritualRecordId: recordId },
@@ -978,11 +982,15 @@ export async function registerItemsBatch(
             select: { id: true },
           });
           const memberName = memberMap.get(p.entry.memberId)?.name ?? null;
+          // 陽上人＝自訂名或當事人姓名（報冤親的人本人）。
+          const creditorYang = (p.entry.customName?.trim() || memberName) ?? null;
           const entry = await tx.universalSalvationEntry.create({
             data: {
               universalSalvationId: detail.id,
               category: "DEBT_CREDITOR",
-              displayName: (p.entry.customName?.trim() || memberName) ?? p.itemType.name,
+              displayName: DEBT_CREDITOR_CANONICAL, // 主文固定「累世冤親債主」，不放人名
+              yangshangName: creditorYang,
+              yangshangNames: creditorYang ? [creditorYang] : [],
               sortOrder: 0,
             },
             select: { id: true },
@@ -992,13 +1000,13 @@ export async function registerItemsBatch(
             data: { universalSalvationEntryId: entry.id },
           });
           // V14.4 Part 2：全戶冤親牌位建立時，共用 ensureTabletPrintObjects
-          // 自動建立 TABLET＋預設 POCKET（同一 tx；不各自手寫）。
+          // 自動建立 TABLET＋預設 POCKET（同一 tx；不各自手寫）。列印名同樣用固定主文。
           await ensureTabletPrintObjects(
             {
               ritualRecordId: recordId,
               householdId: p.householdId,
               sourceEntryId: entry.id,
-              printName: (p.entry.customName?.trim() || memberName) ?? p.itemType.name,
+              printName: DEBT_CREDITOR_CANONICAL,
               memberId: p.entry.memberId,
               activityId: null,
             },

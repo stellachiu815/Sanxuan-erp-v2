@@ -240,6 +240,9 @@ function Inner() {
           )}
           {existing && (
             <p className="text-xs text-emerald-700">已帶入既有信眾：<b>{existing.name}</b>（{existing.householdName}）
+              {existing.householdId && (
+                <a href={`/household/${existing.householdId}`} className="ml-2 rounded-full bg-mist-100 px-3 py-1 text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／既有牌位）</a>
+              )}
               <button type="button" onClick={clearExisting} className="ml-2 text-ink-soft underline">改用新信眾</button></p>
           )}
           <label className="flex flex-col gap-1">
