@@ -156,10 +156,7 @@ export function buildLandscapeTabletLayout(
     const mainText = cleanTabletMainText(rec.mainText ?? "");
     const nameCount = (rec.yangshangNames?.filter((s) => s.trim()).length ?? 0) || (rec.yangshangText ? 1 : 0);
     const yangText = yangshangDisplay(rec.yangshangNames, rec.yangshangText);
-    // V40：陽上人「排主文下方」空間有限，多名字/長字會跳成兩排。改成——3 人以上、或陽上文字較長
-    //   （>= 11 字，約主文下方一直行放不下的量）→ 改用「自己的獨立直行」（空間足、固定排一行、不裁字）。
-    //   1~2 位且字短仍走主文下方（主文較大，維持原樣）。
-    const threeCol = nameCount >= 3 || yangText.length >= 11 || nameCount >= YANGSHANG_THREE_COL_THRESHOLD;
+    const threeCol = nameCount >= YANGSHANG_THREE_COL_THRESHOLD;
 
     const mainFit = maximizeFont(mainText.length, wMain, hMain, mainMax, MAIN_MIN_PX);
 
@@ -172,7 +169,10 @@ export function buildLandscapeTabletLayout(
       const yYang = contentTop + hMain + SAFE_GAP_MM;
       const yangH = Math.max(4, contentBottom - yYang);
       addrGeo = { x: xLeft, w: wAddr };
-      yangGeo = { x: xRightCol, y: yYang, w: wMain, h: yangH };
+      // V40：主文下方的陽上人「固定一直行」——把框寬縮成一欄（原本 wMain 太寬→會排成多欄/兩排）。
+      //   置中在主文正下方；一欄放不下（7 筆/頁高度不足）時會標「需人工調整」，改 6 筆/頁即可放下。
+      const yangW = Math.min(wMain, 5);
+      yangGeo = { x: xRightCol + (wMain - yangW) / 2, y: yYang, w: yangW, h: yangH };
       mainX = xRightCol;
     } else {
       const remain = groupW - wMain - SAFE_GAP_MM * 2;
