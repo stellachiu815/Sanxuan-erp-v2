@@ -12,7 +12,7 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  */
 
 type Activity = { templeEventId: string; year: number; name: string; canRegister: boolean };
-type DevoteeHit = { memberId: string; name: string; householdId: string; householdName: string; address: string | null };
+type DevoteeHit = { memberId: string; name: string; householdId: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null };
 
 type NamedRow = { displayName: string; yangshang: string; tabletAddress: string; pocketQty: string; pocketNames: string };
 type UnbornRow = { mainText: "無緣子女" | "本宅地基主"; yangshang: string; tabletAddress: string };
@@ -239,11 +239,22 @@ function Inner() {
             </div>
           )}
           {existing && (
-            <p className="text-xs text-emerald-700">已帶入既有信眾：<b>{existing.name}</b>（{existing.householdName}）
-              {existing.householdId && (
-                <a href={`/household/${existing.householdId}`} className="ml-2 rounded-full bg-mist-100 px-3 py-1 text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／既有牌位）</a>
-              )}
-              <button type="button" onClick={clearExisting} className="ml-2 text-ink-soft underline">改用新信眾</button></p>
+            <div className="flex flex-col gap-1 rounded-xl bg-emerald-50/60 px-3 py-2 ring-1 ring-emerald-100">
+              <p className="text-xs text-emerald-700">已帶入既有信眾：<b>{existing.name}</b>（{existing.householdName}）
+                {existing.householdId && (
+                  <a href={`/household/${existing.householdId}`} className="ml-2 rounded-full bg-mist-100 px-3 py-1 text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／既有牌位）</a>
+                )}
+                <button type="button" onClick={clearExisting} className="ml-2 text-ink-soft underline">改用新信眾</button>
+              </p>
+              {/* V41 現場核對（唯讀）：姓名／農曆生日／歲數（生肖）／地址，資料有誤進家戶頁改。 */}
+              <p className="text-xs text-ink-soft">
+                核對資料　農曆生日：<b className="text-ink">{existing.lunarBirthDisplay ?? "未登記"}</b>
+                　｜　歲數：<b className="text-ink">{existing.nominalAge != null ? `虛歲 ${existing.nominalAge}` : "未登記"}</b>
+                {existing.zodiac ? `（生肖 ${existing.zodiac}）` : ""}
+                　｜　地址：<b className="text-ink">{existing.address ?? "未登記"}</b>
+              </p>
+              <p className="text-[11px] text-ink-faint">資料有誤請按「🏠 進這一戶完整報名」到家戶頁修改（此處唯讀）。</p>
+            </div>
           )}
           <label className="flex flex-col gap-1">
             <span className="text-xs text-ink-soft">地址（冤親牌位會用這個地址；祖先／正魂用各自安奉地）</span>

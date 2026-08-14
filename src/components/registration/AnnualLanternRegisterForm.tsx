@@ -20,15 +20,19 @@ type Row = {
   address: string;
   gender: string;
   solarBirthDate: string;
+  // V41 現場核對用（唯讀顯示）：選既有信眾時帶入農曆生日／虛歲／生肖。
+  existingLunar: string;
+  existingAge: string;
+  existingZodiac: string;
   guangming: boolean;
   guangmingQty: string;
   taisui: boolean;
   taisuiQty: string;
   purification: boolean;
 };
-type SearchResult = { memberId: string; householdId: string; name: string; householdName: string; address: string | null };
+type SearchResult = { memberId: string; householdId: string; name: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null };
 
-const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", householdId: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
+const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", householdId: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", existingLunar: "", existingAge: "", existingZodiac: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
 
 export default function AnnualLanternRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
@@ -98,11 +102,14 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     }, 300);
   }
   function pickExisting(i: number, r: SearchResult) {
-    update(i, { existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, householdId: r.householdId, name: r.name, address: r.address ?? "" });
+    update(i, {
+      existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, householdId: r.householdId, name: r.name, address: r.address ?? "",
+      existingLunar: r.lunarBirthDisplay ?? "", existingAge: r.nominalAge != null ? String(r.nominalAge) : "", existingZodiac: r.zodiac ?? "",
+    });
     setResults((p) => ({ ...p, [i]: [] }));
   }
   function clearExisting(i: number) {
-    update(i, { existingMemberId: "", existingLabel: "", householdId: "", name: "", address: "" });
+    update(i, { existingMemberId: "", existingLabel: "", householdId: "", name: "", address: "", existingLunar: "", existingAge: "", existingZodiac: "" });
   }
 
   async function submit() {
@@ -207,12 +214,22 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
               </div>
 
               {r.existingMemberId ? (
-                <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl bg-sage-50 px-4 py-2.5">
-                  <span className="text-sm text-ink">已選既有信眾：<b>{r.existingLabel}</b></span>
-                  {!publicSlug && r.householdId && (
-                    <a href={`/household/${r.householdId}`} className="rounded-full bg-mist-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／全戶點燈）</a>
-                  )}
-                  <button type="button" onClick={() => clearExisting(i)} className="text-xs text-ink-faint hover:underline">改填新的 / 換一位</button>
+                <div className="mt-2 flex flex-col gap-1 rounded-xl bg-sage-50 px-4 py-2.5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-sm text-ink">已選既有信眾：<b>{r.existingLabel}</b></span>
+                    {!publicSlug && r.householdId && (
+                      <a href={`/household/${r.householdId}`} className="rounded-full bg-mist-100 px-3 py-1 text-xs text-ink-soft hover:bg-mist-200">🏠 進這一戶完整報名（選家人／全戶點燈）</a>
+                    )}
+                    <button type="button" onClick={() => clearExisting(i)} className="text-xs text-ink-faint hover:underline">改填新的 / 換一位</button>
+                  </div>
+                  {/* V41 現場核對（唯讀）：農曆生日／歲數（生肖）／地址，資料有誤進家戶頁改。 */}
+                  <p className="text-xs text-ink-soft">
+                    核對資料　農曆生日：<b className="text-ink">{r.existingLunar || "未登記"}</b>
+                    　｜　歲數：<b className="text-ink">{r.existingAge ? `虛歲 ${r.existingAge}` : "未登記"}</b>
+                    {r.existingZodiac ? `（生肖 ${r.existingZodiac}）` : ""}
+                    　｜　地址：<b className="text-ink">{r.address || "未登記"}</b>
+                  </p>
+                  <p className="text-[11px] text-ink-faint">資料有誤請按「🏠 進這一戶完整報名」到家戶頁修改（此處唯讀）。</p>
                 </div>
               ) : (
                 <>

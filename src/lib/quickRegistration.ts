@@ -22,6 +22,7 @@ import { addSponsorItemInTx } from "@/lib/registrationItemRegistration";
 import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { normalizeYangshangNames } from "@/lib/yangshang";
+import { composeDevoteeSummary, DEVOTEE_SUMMARY_INCLUDE } from "@/lib/devoteeProfile";
 import type { Role } from "@/lib/permissions";
 
 /** 報名人（信眾）——既有就帶 existingMemberId，否則用姓名等欄位當場建立。 */
@@ -399,9 +400,24 @@ export async function quickRegister(
 }
 
 /** 現場報名的信眾查詢（輕量）：回傳可選的既有信眾清單。 */
+/**
+ * 現場快速報名：查既有信眾。V41 起除了姓名／家戶／地址，另回傳「現場核對用」資料：
+ * 農曆生日、虛歲、生肖（皆由 composeDevoteeSummary 即時計算，不另存）。供各活動報名表
+ * 選到既有信眾後，唯讀顯示讓宮務人員當場跟信眾核對姓名／歲數／農曆生日／地址。
+ */
 export async function quickRegSearchDevotees(
   q: string
-): Promise<{ memberId: string; name: string; householdId: string; householdName: string; address: string | null }[]> {
+): Promise<{
+  memberId: string;
+  name: string;
+  householdId: string;
+  householdName: string;
+  address: string | null;
+  lunarBirthDisplay: string | null;
+  nominalAge: number | null;
+  zodiac: string | null;
+  solarBirthDate: string | null;
+}[]> {
   const query = q.trim();
   if (!query) return [];
   const members = await prisma.member.findMany({
@@ -410,20 +426,23 @@ export async function quickRegSearchDevotees(
       household: { deletedAt: null },
       name: { contains: query },
     },
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      household: { select: { id: true, name: true, address: true } },
-    },
+    include: DEVOTEE_SUMMARY_INCLUDE,
     take: 20,
     orderBy: { createdAt: "desc" },
   });
-  return members.map((m) => ({
-    memberId: m.id,
-    name: m.name,
-    householdId: m.household.id,
-    householdName: m.household.name,
-    address: (m as unknown as { address: string | null }).address ?? m.household.address ?? null,
-  }));
+  return members.map((m) => {
+    const sum = composeDevoteeSummary(m);
+    return {
+      memberId: sum.memberId,
+      name: sum.name,
+      householdId: sum.householdId,
+      householdName: sum.householdName,
+      // 個人地址優先 → 家戶地址（與原本 fallback 行為一致）。
+      address: sum.displayAddress,
+      lunarBirthDisplay: sum.lunarBirthDisplay,
+      nominalAge: sum.nominalAge,
+      zodiac: sum.zodiac,
+      solarBirthDate: sum.solarBirthDate,
+    };
+  });
 }
