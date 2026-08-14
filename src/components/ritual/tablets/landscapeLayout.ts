@@ -156,7 +156,10 @@ export function buildLandscapeTabletLayout(
     const mainText = cleanTabletMainText(rec.mainText ?? "");
     const nameCount = (rec.yangshangNames?.filter((s) => s.trim()).length ?? 0) || (rec.yangshangText ? 1 : 0);
     const yangText = yangshangDisplay(rec.yangshangNames, rec.yangshangText);
-    const threeCol = nameCount >= YANGSHANG_THREE_COL_THRESHOLD;
+    // V40：陽上人「排主文下方」空間有限，多名字/長字會跳成兩排。改成——3 人以上、或陽上文字較長
+    //   （>= 11 字，約主文下方一直行放不下的量）→ 改用「自己的獨立直行」（空間足、固定排一行、不裁字）。
+    //   1~2 位且字短仍走主文下方（主文較大，維持原樣）。
+    const threeCol = nameCount >= 3 || yangText.length >= 11 || nameCount >= YANGSHANG_THREE_COL_THRESHOLD;
 
     const mainFit = maximizeFont(mainText.length, wMain, hMain, mainMax, MAIN_MIN_PX);
 
