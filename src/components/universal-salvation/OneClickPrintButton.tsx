@@ -80,7 +80,7 @@ export default function OneClickPrintButton({
         setError(detail);
         return;
       }
-      setToast(`已自動標記完成列印：${printed.length} 筆（已累計列印次數並建立列印批次）。`);
+      setToast(`已確認完成列印：${printed.length} 筆（已累計列印次數並建立列印批次）。`);
       setPrintedIds(null);
       onChanged();
     } catch {

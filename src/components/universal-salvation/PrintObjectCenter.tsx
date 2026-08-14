@@ -362,6 +362,17 @@ export default function PrintObjectCenter({ year }: { year: number }) {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => selectWhere((o) => o.itemType === "TABLET" && o.printCount <= 0)} className={`${btn} bg-butter-100 text-ink-soft`}>只選未列印牌位</button>
             <button onClick={() => selectWhere((o) => o.itemType === "POCKET" && o.printCount <= 0)} className={`${btn} bg-butter-100 text-ink-soft`}>只選未列印寶袋</button>
+            {/* V40：誤標救回——選「最近一批」被標記的寶袋（同一次批次標記＝同一瞬間，2 分鐘內視為同批）。
+                你之前真正印過的那批時間不同，不會被選到。 */}
+            <button
+              onClick={() => {
+                const printedPockets = allObjects.filter((o) => o.itemType === "POCKET" && o.printCount > 0 && o.firstPrintedAt);
+                if (printedPockets.length === 0) { selectWhere(() => false); return; }
+                const latest = Math.max(...printedPockets.map((o) => new Date(o.firstPrintedAt as string).getTime()));
+                selectWhere((o) => o.itemType === "POCKET" && o.printCount > 0 && !!o.firstPrintedAt && Math.abs(new Date(o.firstPrintedAt).getTime() - latest) < 120000);
+              }}
+              className={`${btn} bg-blossom-100 text-blossom-500`}
+            >選取最近一批標記的寶袋</button>
             <button onClick={() => selectWhere((o) => o.needsReprint)} className={`${btn} bg-amber-100 text-amber-700`}>只選需補印</button>
             <button onClick={() => selectWhere(() => true)} className={`${btn} bg-cream-100 text-ink-soft`}>全選</button>
             <button onClick={() => { setSelected(new Set()); setPreviewReady(false); }} className={`${btn} bg-cream-100 text-ink-soft`}>清除選取</button>
