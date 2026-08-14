@@ -169,10 +169,7 @@ export function buildLandscapeTabletLayout(
       const yYang = contentTop + hMain + SAFE_GAP_MM;
       const yangH = Math.max(4, contentBottom - yYang);
       addrGeo = { x: xLeft, w: wAddr };
-      // V40：主文下方的陽上人「固定一直行」——把框寬縮成一欄（原本 wMain 太寬→會排成多欄/兩排）。
-      //   置中在主文正下方；一欄放不下（7 筆/頁高度不足）時會標「需人工調整」，改 6 筆/頁即可放下。
-      const yangW = Math.min(wMain, 5);
-      yangGeo = { x: xRightCol + (wMain - yangW) / 2, y: yYang, w: yangW, h: yangH };
+      yangGeo = { x: xRightCol, y: yYang, w: wMain, h: yangH };
       mainX = xRightCol;
     } else {
       const remain = groupW - wMain - SAFE_GAP_MM * 2;

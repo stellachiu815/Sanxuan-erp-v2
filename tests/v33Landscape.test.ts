@@ -40,9 +40,7 @@ test("陽上人 1~3 人 → 主文上下組合，主文↔陽上人固定 4mm �
   const main = b.find((x) => x.blockType === "main")!;
   const addr = b.find((x) => x.blockType === "address")!;
   const yang = b.find((x) => x.blockType === "yangshang")!;
-  // V40：陽上人縮成「一直行」並置中於主文欄正下方（原本佔滿主文欄寬會排成多欄/兩排）。
-  assert.ok(Math.abs((yang.xMm + yang.widthMm / 2) - (main.xMm + main.widthMm / 2)) < 0.5, "陽上人置中於主文欄下方（上下組合）");
-  assert.ok(yang.widthMm <= main.widthMm + 0.01, "陽上人為一直行，寬度不超過主文欄");
+  assert.equal(Math.round(main.xMm), Math.round(yang.xMm), "主文與陽上人同欄（上下組合）");
   assert.ok(main.yMm < yang.yMm, "主文在上、陽上人在下");
   assert.ok(Math.abs((yang.yMm - (main.yMm + main.heightMm)) - 4) < 0.01, "主文↔陽上人固定 4mm");
   assert.ok(addr.xMm < main.xMm, "地址獨立於左側直欄");
