@@ -492,10 +492,23 @@ export async function registerItemsBatch(
   const memberIds = Array.from(new Set(entries.map((e) => e.memberId)));
   const [itemTypes, members] = await Promise.all([
     prisma.registrationItemType.findMany({ where: { id: { in: itemTypeIds } } }),
-    prisma.member.findMany({ where: { id: { in: memberIds }, deletedAt: null }, select: { id: true, householdId: true, name: true } }),
+    // V41：多帶 address，供冤親牌位自動帶地址（當事人個人地址 → 家戶地址）。
+    prisma.member.findMany({ where: { id: { in: memberIds }, deletedAt: null }, select: { id: true, householdId: true, name: true, address: true } }),
   ]);
   const itemTypeMap = new Map(itemTypes.map((t) => [t.id, t]));
   const memberMap = new Map(members.map((m) => [m.id, m]));
+
+  // V41：冤親（US_YUANQIN）牌位自動帶地址用——家戶地址（當事人個人地址為第一優先，家戶地址退而求其次）。
+  // 只在這批真的有冤親時才多撈一次家戶地址（一次撈齊，非 N+1）。
+  const hasCreditorEntry = entries.some((e) => itemTypeMap.get(e.registrationItemTypeId)?.key === "US_YUANQIN");
+  const creditorHouseholdAddr = new Map<string, string | null>();
+  if (hasCreditorEntry) {
+    const hhIds = Array.from(new Set(members.map((m) => m.householdId)));
+    const hhs = hhIds.length
+      ? await prisma.household.findMany({ where: { id: { in: hhIds } }, select: { id: true, address: true } })
+      : [];
+    for (const h of hhs) creditorHouseholdAddr.set(h.id, h.address ?? null);
+  }
 
   // V14.2：先把中元普渡四類牌位的「年度單價」按年度一次撈齊（非 N+1）。
   // 這四類 feeMode=NONE、defaultUnitPrice=null，金額改由 TempleEvent 年度單價決定。
@@ -981,9 +994,14 @@ export async function registerItemsBatch(
             update: {},
             select: { id: true },
           });
-          const memberName = memberMap.get(p.entry.memberId)?.name ?? null;
+          const memberRec = memberMap.get(p.entry.memberId);
+          const memberName = memberRec?.name ?? null;
           // 陽上人＝自訂名或當事人姓名（報冤親的人本人）。
           const creditorYang = (p.entry.customName?.trim() || memberName) ?? null;
+          // V41 地址防呆：冤親牌位自動帶地址＝當事人個人地址 → 家戶地址（與快速報名標準、既有回填規則一致）。
+          const memberAddr = (memberRec?.address ?? "").trim();
+          const hhAddr = (creditorHouseholdAddr.get(p.householdId) ?? "").trim();
+          const creditorAddr = memberAddr || hhAddr || null;
           const entry = await tx.universalSalvationEntry.create({
             data: {
               universalSalvationId: detail.id,
@@ -991,6 +1009,7 @@ export async function registerItemsBatch(
               displayName: DEBT_CREDITOR_CANONICAL, // 主文固定「累世冤親債主」，不放人名
               yangshangName: creditorYang,
               yangshangNames: creditorYang ? [creditorYang] : [],
+              tabletAddress: creditorAddr, // 冤親地址：當事人個人地址 → 家戶地址（不再空白）
               sortOrder: 0,
             },
             select: { id: true },
