@@ -23,6 +23,8 @@ type Props = {
   /** V14.1：家戶成員姓名（供陽上人快速加入）與家戶地址（供帶入牌位地址）。 */
   householdMemberNames?: string[];
   householdAddress?: string | null;
+  /** V41：本戶成員「姓名→個人聯絡地址」。供冤親／無緣「帶入個人地址」（＝陽上人個人聯絡地址）。 */
+  memberAddressByName?: Record<string, string>;
   /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」的回呼。 */
   householdYangshangNames?: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
@@ -57,6 +59,7 @@ export default function EntryRow({
   onRecordUpdated,
   householdMemberNames = [],
   householdAddress = null,
+  memberAddressByName = {},
   householdYangshangNames = [],
   onAddToHouseholdYangshang,
   showYangshang = false,
@@ -78,6 +81,9 @@ export default function EntryRow({
   const [submitting, setSubmitting] = useState<"save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPrintItems, setShowPrintItems] = useState(false);
+  // V41：冤親／無緣「帶入個人地址」＝第一位陽上人的個人聯絡地址（由本戶成員姓名→地址對照取得）。
+  const firstYangName = (yangshangNames[0] ?? "").trim();
+  const yangPersonalAddress = firstYangName ? (memberAddressByName[firstYangName] ?? "") : "";
 
   // V27.1 回歸修正：移除 d411768 引入的「entry 變動同步 effect」（原依賴 entry 與 editing）。
   //
@@ -209,14 +215,15 @@ export default function EntryRow({
         {showTabletAddress && (
           <div>
             <label className={labelClass}>牌位地址</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 className={inputClass}
                 value={tabletAddress}
                 onChange={(e) => setTabletAddress(e.target.value)}
                 placeholder="此牌位的地址"
               />
-              {householdAddress && (
+              {/* 祖先／正魂：帶入家戶地址（沿用既有）。 */}
+              {showHouseholdSync && householdAddress && (
                 <button
                   type="button"
                   onClick={() => setTabletAddress(householdAddress)}
@@ -225,7 +232,20 @@ export default function EntryRow({
                   帶入家戶地址
                 </button>
               )}
+              {/* V41 冤親／無緣：帶入「陽上人的個人聯絡地址」（不是家戶地址）。 */}
+              {!showHouseholdSync && yangPersonalAddress && (
+                <button
+                  type="button"
+                  onClick={() => setTabletAddress(yangPersonalAddress)}
+                  className="min-h-10 shrink-0 rounded-full bg-cream-100 px-3 text-xs text-ink-soft hover:bg-cream-200"
+                >
+                  帶入個人地址
+                </button>
+              )}
             </div>
+            {!showHouseholdSync && (
+              <p className="mt-1 text-xs text-ink-faint">冤親／無緣的牌位地址＝陽上人的個人聯絡地址。</p>
+            )}
           </div>
         )}
         {/* V15R6.1：同步更新家戶永久名單——僅可同步類別（祖先／正魂）顯示；冤親／無緣不顯示（不適用）。 */}

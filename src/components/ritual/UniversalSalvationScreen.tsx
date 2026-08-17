@@ -77,6 +77,8 @@ export default function UniversalSalvationScreen({
    * 不再從外層一路傳 props（避免增加傳遞層數）。只讀不寫，不會動到家戶主檔。
    */
   const [householdAddress, setHouseholdAddress] = useState<string | null>(null);
+  // V41：本戶成員「姓名→個人聯絡地址」，供冤親／無緣「帶入個人地址」（＝陽上人個人地址）。
+  const [memberAddressByName, setMemberAddressByName] = useState<Record<string, string>>({});
   /**
    * V14.2：兩組**不同**的本戶固定選項，由 GET /api/households/[id]/registration-options
    * 一次取回：
@@ -106,8 +108,16 @@ export default function UniversalSalvationScreen({
         const res = await fetchUniversalSalvation(`/api/households/${householdId}`);
         const data = await res.json();
         if (cancelled || !res.ok || !data?.data) return;
-        const h = data.data as { address?: string | null };
+        const h = data.data as { address?: string | null; members?: { name?: string | null; address?: string | null }[] };
         setHouseholdAddress(h.address ?? null);
+        // 建立「成員姓名→個人聯絡地址」對照（去空白、同名取第一筆有地址者）。
+        const map: Record<string, string> = {};
+        for (const m of h.members ?? []) {
+          const nm = (m.name ?? "").trim();
+          const ad = (m.address ?? "").trim();
+          if (nm && ad && !map[nm]) map[nm] = ad;
+        }
+        setMemberAddressByName(map);
       } catch {
         /* 取不到不影響報名；只是少了「帶入地址」的便利 */
       }
@@ -347,6 +357,7 @@ export default function UniversalSalvationScreen({
               entries={detail.entries.filter((e) => e.category === section.category && !e.deletedAt)}
               onRecordUpdated={handleUpdated}
               householdAddress={householdAddress}
+              memberAddressByName={memberAddressByName}
               ancestorOptions={ancestorOptions}
               individualSoulOptions={individualSoulOptions}
               debtCreditorNames={debtCreditorNames}

@@ -28,6 +28,8 @@ type Props = {
   /** V14.1：家戶成員姓名與地址，供超拔祖先／乙位正魂的陽上人與牌位地址使用。 */
   householdMemberNames?: string[];
   householdAddress?: string | null;
+  /** V41：本戶成員「姓名→個人聯絡地址」，供冤親／無緣「帶入個人地址」。 */
+  memberAddressByName?: Record<string, string>;
   /** V14.2：本戶固定陽上人名單與「存入本戶固定名單」回呼。 */
   householdYangshangNames?: string[];
   onAddToHouseholdYangshang?: (name: string) => void | Promise<void>;
@@ -91,6 +93,7 @@ export default function EntryCategorySection({
   onRecordUpdated,
   householdMemberNames = [],
   householdAddress = null,
+  memberAddressByName = {},
   householdYangshangNames = [],
   onAddToHouseholdYangshang,
   ancestorOptions = [],
@@ -144,6 +147,7 @@ export default function EntryCategorySection({
             onRecordUpdated={onRecordUpdated}
             householdMemberNames={householdMemberNames}
             householdAddress={householdAddress}
+            memberAddressByName={memberAddressByName}
             householdYangshangNames={householdYangshangNames}
             onAddToHouseholdYangshang={onAddToHouseholdYangshang}
             showYangshang={yangshangConfig.showYangshang}
