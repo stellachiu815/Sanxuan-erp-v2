@@ -32,8 +32,10 @@ type Props = {
    * 回填 YangshangEditor，儲存仍寫回同一筆 UniversalSalvationEntry.yangshangNames。
    */
   showYangshang?: boolean;
-  /** 牌位地址欄與「同步家戶永久名單」：僅歷代祖先／乙位正魂顯示（維持原行為）。 */
+  /** 牌位地址編輯欄：四類牌位都可顯示（V41：冤親／無緣也開放，讓報完才發現地址錯的能就地改）。 */
   showTabletAddress?: boolean;
+  /** 「同步家戶永久名單」勾選框：只有可同步的類別（歷代祖先／乙位正魂）才顯示；冤親／無緣不適用。 */
+  showHouseholdSync?: boolean;
   /** 確認前「尚缺」提示：是否要求陽上人（歷代祖先／乙位正魂／累世冤親債主為 true）。 */
   requireYangshang?: boolean;
   /** 確認前「尚缺」提示：是否要求牌位地址（僅歷代祖先／乙位正魂）。 */
@@ -59,6 +61,7 @@ export default function EntryRow({
   onAddToHouseholdYangshang,
   showYangshang = false,
   showTabletAddress = false,
+  showHouseholdSync = false,
   requireYangshang = false,
   requireTabletAddress = false,
 }: Props) {
@@ -119,8 +122,8 @@ export default function EntryRow({
             notes: notes.trim() || null,
             // V32 單筆列印主文覆寫（空白→清除、用系統預設）。
             printMainText: printMainText.trim() || null,
-            // V15R6.1：只有祖先／正魂顯示牌位地址時，才依使用者勾選同步永久名單。
-            ...(showTabletAddress ? { syncToHousehold } : {}),
+            // V15R6.1：只有可同步類別（祖先／正魂）才依使用者勾選同步永久名單；冤親／無緣不送。
+            ...(showHouseholdSync ? { syncToHousehold } : {}),
           }),
         }
       );
@@ -204,41 +207,41 @@ export default function EntryRow({
           </div>
         )}
         {showTabletAddress && (
-          <>
-            <div>
-              <label className={labelClass}>牌位地址</label>
-              <div className="flex gap-2">
-                <input
-                  className={inputClass}
-                  value={tabletAddress}
-                  onChange={(e) => setTabletAddress(e.target.value)}
-                  placeholder="此牌位的地址"
-                />
-                {householdAddress && (
-                  <button
-                    type="button"
-                    onClick={() => setTabletAddress(householdAddress)}
-                    className="min-h-10 shrink-0 rounded-full bg-cream-100 px-3 text-xs text-ink-soft hover:bg-cream-200"
-                  >
-                    帶入家戶地址
-                  </button>
-                )}
-              </div>
-            </div>
-            {/* V15R6.1：同步更新家戶永久名單（預設勾選；不勾則只改本次活動草稿，不動永久名單）。 */}
-            <label className="flex items-start gap-2 rounded-xl bg-sage-50 px-3 py-2 text-xs text-ink">
+          <div>
+            <label className={labelClass}>牌位地址</label>
+            <div className="flex gap-2">
               <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4"
-                checked={syncToHousehold}
-                onChange={(e) => setSyncToHousehold(e.target.checked)}
+                className={inputClass}
+                value={tabletAddress}
+                onChange={(e) => setTabletAddress(e.target.value)}
+                placeholder="此牌位的地址"
               />
-              <span>
-                同步更新家戶永久名單
-                <span className="ml-1 text-ink-faint">（下次活動可自動帶入；不勾選則只修改本次活動草稿）</span>
-              </span>
-            </label>
-          </>
+              {householdAddress && (
+                <button
+                  type="button"
+                  onClick={() => setTabletAddress(householdAddress)}
+                  className="min-h-10 shrink-0 rounded-full bg-cream-100 px-3 text-xs text-ink-soft hover:bg-cream-200"
+                >
+                  帶入家戶地址
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {/* V15R6.1：同步更新家戶永久名單——僅可同步類別（祖先／正魂）顯示；冤親／無緣不顯示（不適用）。 */}
+        {showHouseholdSync && (
+          <label className="flex items-start gap-2 rounded-xl bg-sage-50 px-3 py-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4"
+              checked={syncToHousehold}
+              onChange={(e) => setSyncToHousehold(e.target.checked)}
+            />
+            <span>
+              同步更新家戶永久名單
+              <span className="ml-1 text-ink-faint">（下次活動可自動帶入；不勾選則只修改本次活動草稿）</span>
+            </span>
+          </label>
         )}
         <div>
           <label className={labelClass}>自訂列印主文（選填）</label>

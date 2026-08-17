@@ -90,12 +90,12 @@ test("EntryRow：重新進入以 entry.yangshangNames 回填（相容舊 yangsha
 });
 
 // ── 四類牌位一致（需求一、二、三、四）：四種都可查看／增修既有陽上人 ──
-test("EntryCategorySection：四類牌位都 showYangshang（可回填/增修）；地址欄僅歷代祖先/乙位正魂", () => {
+test("EntryCategorySection：四類牌位都 showYangshang＋可編輯地址；同步永久名單僅歷代祖先/乙位正魂（V41）", () => {
   const src = readSrc("src/components/ritual/EntryCategorySection.tsx");
-  // 四種 case 都設 showYangshang: true。
-  assert.ok(/ANCESTOR_LINE[\s\S]*?INDIVIDUAL_SOUL[\s\S]*?showYangshang: true, showTabletAddress: true, requireYangshang: true, requireTabletAddress: true/.test(src), "歷代祖先/乙位正魂：陽上人＋地址");
-  assert.ok(/DEBT_CREDITOR[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: true, requireTabletAddress: false/.test(src), "累世冤親債主：可增修陽上人、需陽上人、不需地址");
-  assert.ok(/UNBORN_CHILD[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false/.test(src), "無緣子女：可增修陽上人、不強制陽上人");
+  // V41：四類都可編輯地址（showTabletAddress: true）；showHouseholdSync 只給祖先/正魂。
+  assert.ok(/ANCESTOR_LINE[\s\S]*?INDIVIDUAL_SOUL[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: true, requireYangshang: true, requireTabletAddress: true/.test(src), "歷代祖先/乙位正魂：陽上人＋地址＋可同步永久名單");
+  assert.ok(/DEBT_CREDITOR[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: true, requireTabletAddress: false/.test(src), "累世冤親債主：可增修陽上人＋可編輯地址、需陽上人、不需地址、不同步永久名單");
+  assert.ok(/UNBORN_CHILD[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: false, requireTabletAddress: false/.test(src), "無緣子女：可增修陽上人＋可編輯地址、不強制、不同步永久名單");
   // 傳入 EntryRow 的四個旗標。
   assert.ok(/showYangshang=\{yangshangConfig\.showYangshang\}/.test(src) && /requireYangshang=\{yangshangConfig\.requireYangshang\}/.test(src), "旗標傳入 EntryRow");
 });

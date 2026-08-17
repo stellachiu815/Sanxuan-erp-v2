@@ -49,6 +49,8 @@ type Props = {
 type CategoryYangshangConfig = {
   showYangshang: boolean;
   showTabletAddress: boolean;
+  /** 「同步家戶永久名單」勾選框：只有可同步類別（祖先／正魂）才顯示。 */
+  showHouseholdSync: boolean;
   requireYangshang: boolean;
   requireTabletAddress: boolean;
 };
@@ -56,13 +58,14 @@ function categoryYangshangConfig(category: EntryCategory): CategoryYangshangConf
   switch (category) {
     case "ANCESTOR_LINE":
     case "INDIVIDUAL_SOUL":
-      return { showYangshang: true, showTabletAddress: true, requireYangshang: true, requireTabletAddress: true };
+      return { showYangshang: true, showTabletAddress: true, showHouseholdSync: true, requireYangshang: true, requireTabletAddress: true };
+    // V41：冤親／無緣也開放「牌位地址」編輯欄（報完才發現地址錯時可就地改）；但不顯示「同步永久名單」（不適用）。
     case "DEBT_CREDITOR":
-      return { showYangshang: true, showTabletAddress: false, requireYangshang: true, requireTabletAddress: false };
+      return { showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: true, requireTabletAddress: false };
     case "UNBORN_CHILD":
-      return { showYangshang: true, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false };
+      return { showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: false, requireTabletAddress: false };
     default:
-      return { showYangshang: false, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false };
+      return { showYangshang: false, showTabletAddress: false, showHouseholdSync: false, requireYangshang: false, requireTabletAddress: false };
   }
 }
 
@@ -145,6 +148,7 @@ export default function EntryCategorySection({
             onAddToHouseholdYangshang={onAddToHouseholdYangshang}
             showYangshang={yangshangConfig.showYangshang}
             showTabletAddress={yangshangConfig.showTabletAddress}
+            showHouseholdSync={yangshangConfig.showHouseholdSync}
             requireYangshang={yangshangConfig.requireYangshang}
             requireTabletAddress={yangshangConfig.requireTabletAddress}
           />

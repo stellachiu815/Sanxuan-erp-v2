@@ -142,12 +142,12 @@ test("4/5. 每筆 entry 陽上人與地址獨立（EntryRow 以自身 entry 初�
   assert.equal(row.includes("<YangshangEditor"), true);
 });
 
-test("V27：四類牌位皆可回填陽上人；地址欄僅歷代祖先/乙位正魂；require 依既有確認規則", () => {
+test("V41：四類牌位皆可回填陽上人＋可編輯地址；同步永久名單僅歷代祖先/乙位正魂；require 依既有確認規則", () => {
   const sec = R("src/components/ritual/EntryCategorySection.tsx");
-  // 四種 case 都 showYangshang: true。
-  assert.equal(/ANCESTOR_LINE[\s\S]*?INDIVIDUAL_SOUL[\s\S]*?showYangshang: true, showTabletAddress: true, requireYangshang: true, requireTabletAddress: true/.test(sec), true);
-  assert.equal(/DEBT_CREDITOR[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: true, requireTabletAddress: false/.test(sec), true);
-  assert.equal(/UNBORN_CHILD[\s\S]*?showYangshang: true, showTabletAddress: false, requireYangshang: false, requireTabletAddress: false/.test(sec), true);
+  // V41：四類都 showYangshang: true 且 showTabletAddress: true（冤親/無緣也能就地改地址）；showHouseholdSync 僅祖先/正魂。
+  assert.equal(/ANCESTOR_LINE[\s\S]*?INDIVIDUAL_SOUL[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: true, requireYangshang: true, requireTabletAddress: true/.test(sec), true);
+  assert.equal(/DEBT_CREDITOR[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: true, requireTabletAddress: false/.test(sec), true);
+  assert.equal(/UNBORN_CHILD[\s\S]*?showYangshang: true, showTabletAddress: true, showHouseholdSync: false, requireYangshang: false, requireTabletAddress: false/.test(sec), true);
 });
 
 test("YangshangEditor：家戶勾選＋手動新增＋去重＋移除", () => {

@@ -145,7 +145,17 @@ export default function RegisteredItemsPanel({
 
   return (
     <section className="rounded-3xl bg-white/70 p-6 shadow-card">
-      <h2 className="text-sm text-ink">已報名項目</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm text-ink">已報名項目</h2>
+        {/* V41：一鍵重新整理清單（加項目後若沒自動更新，按這顆即可，不必整頁重載）。 */}
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-full bg-cream-100 px-3 py-1 text-xs text-ink-soft hover:bg-cream-200"
+        >
+          🔄 重新整理
+        </button>
+      </div>
       {error && <p className="mt-2 text-xs text-blossom-500">{error}</p>}
       {items === null ? (
         <p className="mt-2 text-xs text-ink-faint">讀取中…</p>
