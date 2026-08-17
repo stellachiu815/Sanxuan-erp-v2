@@ -197,16 +197,19 @@ export async function saveWorkOrders(updates: { id: string; workOrder: number | 
       seen.add(finalWo);
     }
   }
-  const saved = await prisma.$transaction(async (tx) => {
+  // V41：同批次版——避免逐筆更新「暫時撞號」違反 (templeEventId,registrationItemTypeId,workOrder)
+  //   唯一約束（23505）。先清空要改的這些筆的號碼，再逐筆設最終號碼。
+  const applicable = updates.filter((u) => ctxById.has(u.id));
+  const saved = applicable.length === 0 ? 0 : await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`UPDATE "ritual_registration_items" SET "workOrder" = NULL WHERE "id" IN (${Prisma.join(applicable.map((u) => u.id))})`;
     let n = 0;
-    for (const u of updates) {
-      if (!ctxById.has(u.id)) continue;
+    for (const u of applicable) {
       // V32 §5：workOrder 變更亦更新 updatedAt，讓「已列印後改號」能被 needsReprint 偵測。
       await tx.$executeRaw`UPDATE "ritual_registration_items" SET "workOrder" = ${u.workOrder}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${u.id}`;
       n += 1;
     }
     return n;
-  });
+  }, { maxWait: 15000, timeout: 60000 });
   return { ok: true, saved };
 }
 
@@ -239,15 +242,23 @@ export async function saveWorkOrdersForBatch(
     if (seen.has(finalWo)) return { ok: false, status: 409, error: `這一批的作業號碼重複：No.${finalWo}（同一批不得重號）` };
     seen.add(finalWo);
   }
+  // V41：資料庫對 (templeEventId, registrationItemTypeId, workOrder) 有唯一約束。逐筆更新時，
+  //   把某筆改成 N，而另一筆還沒讓出 N，就會「暫時撞號」立刻違反唯一約束（23505）→ 整批 500 失敗。
+  //   解法：分兩階段——先把要改的這些筆的 workOrder 全部清成 NULL（NULL 不參與唯一比對），
+  //   再逐筆設最終號碼（彼此已由上方檢查過不重號、其餘為 NULL），就不會暫時撞號。
+  const applicable = updates.filter((u) => batchIds.has(u.id));
+  if (applicable.length === 0) return { ok: true, saved: 0 };
   const saved = await prisma.$transaction(async (tx) => {
+    // 階段一：先全部清空要改的這些筆的號碼。
+    await tx.$executeRaw`UPDATE "ritual_registration_items" SET "workOrder" = NULL WHERE "id" IN (${Prisma.join(applicable.map((u) => u.id))})`;
+    // 階段二：設定最終號碼。
     let n = 0;
-    for (const u of updates) {
-      if (!batchIds.has(u.id)) continue; // 只寫這一批的
+    for (const u of applicable) {
       await tx.$executeRaw`UPDATE "ritual_registration_items" SET "workOrder" = ${u.workOrder}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${u.id}`;
       n += 1;
     }
     return n;
-  });
+  }, { maxWait: 15000, timeout: 60000 });
   return { ok: true, saved };
 }
 
