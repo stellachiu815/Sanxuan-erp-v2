@@ -210,6 +210,47 @@ export async function saveWorkOrders(updates: { id: string; workOrder: number | 
   return { ok: true, saved };
 }
 
+/**
+ * V41 批次模式儲存 workOrder（祖先組／冤親組）。
+ *
+ * ⚠️ 修正「一律儲存失敗」：舊版共用 saveWorkOrders，其重號檢查是照「registrationItemTypeId
+ * 整個類別」看。但無緣子女（US_WUYUAN）同時屬於祖先組（地基主）與冤親組（無緣子女），兩批
+ * 各自從 1..N 編號 → 同一類別必然出現重複號 → 每次存檔都被判重號、一律失敗。
+ *
+ * 正解：批次是「一起編號」的單位，重號檢查就**只在這一批的 item 之間**做（不跨批、不看整類別）。
+ * 只寫入這一批、且真的在 updates 裡的 item。
+ */
+export async function saveWorkOrdersForBatch(
+  year: number,
+  batchKey: WorkOrderBatchKey,
+  updates: { id: string; workOrder: number | null }[]
+): Promise<SaveResult> {
+  if (updates.length === 0) return { ok: true, saved: 0 };
+  const batchRows = await listWorkOrderRowsForBatch(year, batchKey);
+  const activeRows = batchRows.filter((r) => r.status !== "CANCELLED");
+  const batchIds = new Set(activeRows.map((r) => r.id));
+  const updById = new Map(updates.map((u) => [u.id, u.workOrder]));
+  // 只在「這一批」內查重號（不跨批）。
+  const seen = new Set<number>();
+  for (const r of activeRows) {
+    const finalWo = updById.has(r.id) ? updById.get(r.id)! : r.workOrder;
+    if (finalWo == null) continue;
+    if (finalWo < 1) return { ok: false, status: 400, error: "作業號碼必須 ≥ 1" };
+    if (seen.has(finalWo)) return { ok: false, status: 409, error: `這一批的作業號碼重複：No.${finalWo}（同一批不得重號）` };
+    seen.add(finalWo);
+  }
+  const saved = await prisma.$transaction(async (tx) => {
+    let n = 0;
+    for (const u of updates) {
+      if (!batchIds.has(u.id)) continue; // 只寫這一批的
+      await tx.$executeRaw`UPDATE "ritual_registration_items" SET "workOrder" = ${u.workOrder}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${u.id}`;
+      n += 1;
+    }
+    return n;
+  });
+  return { ok: true, saved };
+}
+
 /** 讀鎖定狀態（容錯：workorder_locks 表尚未部署時視為未鎖定，不拋錯）。 */
 export async function isWorkOrderLocked(templeEventId: string, registrationItemTypeId: string): Promise<boolean> {
   try {

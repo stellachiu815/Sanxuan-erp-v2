@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertRitualRegistrationPermissionForOperator } from "@/lib/operator";
 import { readOperatorUserId, readJsonBody } from "@/lib/requestOperator";
 import {
-  listWorkOrderRows, listWorkOrderRowsForBatch, saveWorkOrders, proposeInitialFromRegistrationOrder,
+  listWorkOrderRows, listWorkOrderRowsForBatch, saveWorkOrders, saveWorkOrdersForBatch, proposeInitialFromRegistrationOrder,
   isWorkOrderLocked, setWorkOrderLock, templeEventIdForYear, itemTypeIdForKey,
   type WorkOrderBatchKey,
 } from "@/lib/workOrderRepo";
@@ -61,7 +61,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       ? body.updates.filter((u: unknown): u is { id: string; workOrder: number | null } => !!u && typeof (u as { id?: unknown }).id === "string")
       : [];
     if (updates.length > 0) {
-      const res = await saveWorkOrders(updates);
+      // V41：批次存檔用批次專用函式（重號檢查只在本批內，修正無緣/地基主同類別跨批誤判重號→一律失敗）。
+      const res = await saveWorkOrdersForBatch(year, batch, updates);
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
     }
     const rows = await listWorkOrderRowsForBatch(year, batch);

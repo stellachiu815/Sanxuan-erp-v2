@@ -133,7 +133,6 @@ function Inner() {
     setMsg("已依原始報名順序（Excel 匯入在前、之後新增往後）重新帶入號碼。");
   };
 
-  const changedPrinted = rows.filter((r) => r.printCount > 0 && r.workOrder !== (orig.get(r.id) ?? null));
 
   const save = async () => {
     setBusy(true); setErr(null); setMsg(null);
@@ -167,7 +166,6 @@ function Inner() {
       </div>
       <p className="mb-2 text-xs text-ink-faint">號碼已自動帶入（1..N，不用手動編）。要調整順序：在該筆「移到」框輸入目標號碼按「移」——例如把 76 移到 5，原本 5 之後全部自動順延；或用 ▲▼ 一格格移。改完按「儲存」。</p>
       {locked && <p className="mb-2 text-xs text-rose-600">已鎖定：Excel／牌位／寶袋使用已鎖定號碼；需先解除才能修改，新增資料排最後不重排既有號。</p>}
-      {changedPrinted.length > 0 && <p className="mb-2 text-xs text-amber-700">⚠ 有 {changedPrinted.length} 筆曾列印且號碼已變更，儲存後需重新列印。</p>}
       {msg && <p className="mb-2 text-xs text-sage-700">{msg}</p>}
       {err && <p className="mb-2 text-xs text-rose-600">{err}</p>}
       <div className="overflow-x-auto rounded-2xl bg-white/70 p-3 shadow-card">
