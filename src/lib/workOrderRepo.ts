@@ -47,7 +47,14 @@ export async function listWorkOrderRows(year: number, itemKey: string): Promise<
     SELECT rri."id", rri."registrationOrder" AS ro, rri."workOrder" AS wo,
            rit."key", rit."name", e."displayName", rri."customName", m."name" AS member,
            h."name" AS household, e."yangshangNames" AS yang, e."yangshangName" AS yang1,
-           rri."status", rri."printCount" AS printcount, rri."printedAt" AS printedat
+           rri."status",
+           -- V41 列印狀態改讀「牌位列印物件」(additional_print_items, itemType=TABLET)——實際列印記在這裡。
+           (SELECT MAX(api."printCount") FROM "additional_print_items" api
+             WHERE api."sourceEntryId" = rri."universalSalvationEntryId"
+               AND api."itemType" = 'TABLET' AND api."deletedAt" IS NULL AND api."status" <> 'CANCELLED') AS printcount,
+           (SELECT MAX(api."lastPrintedAt") FROM "additional_print_items" api
+             WHERE api."sourceEntryId" = rri."universalSalvationEntryId"
+               AND api."itemType" = 'TABLET' AND api."deletedAt" IS NULL AND api."status" <> 'CANCELLED') AS printedat
     FROM "ritual_registration_items" rri
     JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
     JOIN "ritual_records" rr ON rr."id" = rri."ritualRecordId"
@@ -98,7 +105,15 @@ export async function listWorkOrderRowsForBatch(year: number, batchKey: WorkOrde
     SELECT rri."id", rri."registrationOrder" AS ro, rri."workOrder" AS wo,
            rit."key", rit."name", e."displayName", e."printMainText", rri."customName", m."name" AS member,
            h."name" AS household, e."yangshangNames" AS yang, e."yangshangName" AS yang1,
-           rri."status", rri."printCount" AS printcount, rri."printedAt" AS printedat, rri."createdAt" AS createdat
+           rri."status",
+           -- V41 列印狀態改讀「牌位列印物件」(additional_print_items, itemType=TABLET)。
+           (SELECT MAX(api."printCount") FROM "additional_print_items" api
+             WHERE api."sourceEntryId" = rri."universalSalvationEntryId"
+               AND api."itemType" = 'TABLET' AND api."deletedAt" IS NULL AND api."status" <> 'CANCELLED') AS printcount,
+           (SELECT MAX(api."lastPrintedAt") FROM "additional_print_items" api
+             WHERE api."sourceEntryId" = rri."universalSalvationEntryId"
+               AND api."itemType" = 'TABLET' AND api."deletedAt" IS NULL AND api."status" <> 'CANCELLED') AS printedat,
+           rri."createdAt" AS createdat
     FROM "ritual_registration_items" rri
     JOIN "registration_item_types" rit ON rit."id" = rri."registrationItemTypeId"
     JOIN "ritual_records" rr ON rr."id" = rri."ritualRecordId"

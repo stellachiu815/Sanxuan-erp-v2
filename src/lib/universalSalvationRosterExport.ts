@@ -94,6 +94,22 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
     ? new Map((await prisma.member.findMany({ where: { id: { in: memberIds } }, select: { id: true, address: true } })).map((m) => [m.id, m.address]))
     : new Map<string, string | null>();
 
+  // V41 列印狀態改讀「牌位列印物件」(additional_print_items, itemType=TABLET)——實際列印是記在這裡
+  //   （列印確認 confirmPrintObjects 更新 printCount/firstPrintedAt），報名項目的 printCount 根本沒被動過，
+  //   舊版讀報名項目所以永遠顯示「未列印」。以 sourceEntryId 對應到各牌位 entry。
+  const printCountByEntry = new Map<string, number>();
+  if (entryIds.length) {
+    const tabletPrintObjs = await prisma.additionalPrintItem.findMany({
+      where: { itemType: "TABLET", deletedAt: null, status: { not: "CANCELLED" }, sourceEntryId: { in: entryIds } },
+      select: { sourceEntryId: true, printCount: true },
+    });
+    for (const p of tabletPrintObjs) {
+      const prev = printCountByEntry.get(p.sourceEntryId) ?? 0;
+      const c = p.printCount ?? 0;
+      if (c > prev) printCountByEntry.set(p.sourceEntryId, c);
+    }
+  }
+
   const raw: (Raw & { typeName: string; address: string; unpaid: number; printStatus: string })[] = items.map((it) => {
     const entryName = it.universalSalvationEntry?.displayName ?? null;
     const pmt = it.universalSalvationEntryId ? pmtByEntry.get(it.universalSalvationEntryId) : null;
@@ -108,7 +124,11 @@ export async function getUniversalSalvationRosterExport(year: number): Promise<R
       quantity: it.quantity,
       amountDue: Number(it.amountDue),
       unpaid: Number(it.amountUnpaid),
-      printStatus: (it.printCount ?? 0) > 0 ? `已列印×${it.printCount}` : "未列印",
+      // V41：列印狀態＝該牌位的列印物件 printCount（不再讀報名項目那個一直是 0 的欄位）。
+      printStatus: (() => {
+        const c = it.universalSalvationEntryId ? (printCountByEntry.get(it.universalSalvationEntryId) ?? 0) : 0;
+        return c > 0 ? `已列印×${c}` : "未列印";
+      })(),
       memberName: it.member?.name ?? null,
       customName: it.customName,
       // V32：Excel 主文顯示實際列印主文（printMainText 有值優先）。
