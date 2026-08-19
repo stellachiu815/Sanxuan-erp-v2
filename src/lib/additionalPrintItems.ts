@@ -1502,6 +1502,8 @@ export type GroupedTabletPrintView = {
   household: { id: string; name: string };
   sourceCategoryLabel: string;
   sourceDisplayName: string;
+  /** V41 搜尋／顯示用：陽上人姓名（多位以「、」相連）。冤親/無緣主文是類別字，靠這個才認得出是誰。 */
+  yangshang: string;
   tablet: PrintObjectView | null;
   pocket: PrintObjectView | null;
   extras: PrintObjectView[];
@@ -1527,6 +1529,10 @@ export async function listUniversalSalvationPrintGroups(
         household: it.household,
         sourceCategoryLabel: it.sourceCategoryLabel,
         sourceDisplayName: it.sourceDisplayName,
+        // V41：陽上人姓名（供搜尋與卡片顯示）——冤親/無緣主文是類別字，靠陽上人才認得出是誰。
+        yangshang: (it.sourceYangshangNames && it.sourceYangshangNames.length > 0
+          ? it.sourceYangshangNames
+          : it.sourceYangshangName ? [it.sourceYangshangName] : []).join("、"),
         tablet: null,
         pocket: null,
         extras: [],

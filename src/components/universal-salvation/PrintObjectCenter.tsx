@@ -36,6 +36,8 @@ type Group = {
   household: { id: string; name: string };
   sourceCategoryLabel: string;
   sourceDisplayName: string;
+  /** V41：陽上人姓名（供搜尋與顯示）。 */
+  yangshang: string;
   tablet: PrintObject | null;
   pocket: PrintObject | null;
   extras: PrintObject[];
@@ -77,8 +79,8 @@ function matchesFilter(o: PrintObject | null, f: StatusFilter): boolean {
   return false;
 }
 
-/** V32 §5 搜尋：workOrder（作業號）／姓名／牌位主文／家戶。空字串＝全部通過。 */
-function matchesSearch(o: PrintObject, groupName: string, householdName: string, q: string): boolean {
+/** V32 §5 搜尋：workOrder（作業號）／姓名（含陽上人）／牌位主文／家戶。空字串＝全部通過。 */
+function matchesSearch(o: PrintObject, groupName: string, yangshang: string, householdName: string, q: string): boolean {
   const term = q.trim().toLowerCase();
   if (!term) return true;
   const hay = [
@@ -87,6 +89,7 @@ function matchesSearch(o: PrintObject, groupName: string, householdName: string,
     o.printName ?? "",
     o.printMainText ?? "",
     groupName,
+    yangshang, // V41：冤親/無緣主文是類別字，靠陽上人姓名才搜得到「是誰」。
     householdName,
   ]
     .join(" ")
@@ -164,7 +167,7 @@ export default function PrintObjectCenter({ year }: { year: number }) {
           : filter === "INCOMPLETE"
             ? g.tabletMissingFields.length > 0
             : objs.some((o) => matchesFilter(o, filter));
-      const passSearch = !search.trim() || objs.some((o) => matchesSearch(o, g.sourceDisplayName, g.household.name, search));
+      const passSearch = !search.trim() || objs.some((o) => matchesSearch(o, g.sourceDisplayName, g.yangshang, g.household.name, search));
       return passFilter && passSearch;
     });
   }, [groups, filter, search]);
@@ -387,6 +390,8 @@ export default function PrintObjectCenter({ year }: { year: number }) {
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium text-ink">{g.sourceDisplayName}</span>
+                {/* V41：顯示陽上人姓名——冤親/無緣主文是類別字，靠這個才看得出是誰。 */}
+                {g.yangshang && <span className="text-xs text-ink-soft">陽上：{g.yangshang}</span>}
                 {/* V36.4：直接顯示完整度 gate 結果——完整／資料不完整（列出缺漏欄位）。 */}
                 {g.tabletMissingFields.length === 0 ? (
                   <span className="rounded-full bg-sage-100 px-2 py-0.5 text-xs text-ink-soft">完整</span>
