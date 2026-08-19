@@ -1392,15 +1392,11 @@ export async function listPrintItemsForPrintCenter(
     // V32 §5 需補印：彙整此列印物件的「內容最後變更時間」。
     //   entry.updatedAt   → 牌位名稱／陽上人／地址／printMainText（含 raw SQL 已同步 updatedAt）
     //   item.updatedAt    → 寶袋指定名稱（printName）等列印物件本身變更
-    //   RRI.updatedAt     → workOrder 改號（TABLET 取牌位 RRI；POCKET 取自身 US_POCKET_EXTRA RRI）
-    const rriUpdated =
-      item.itemType === "TABLET"
-        ? tabletRriUpdatedByEntryId.get(item.sourceEntryId) ?? null
-        : pocketRriUpdatedById.get(registrationItemIdByPrintItem.get(item.id) ?? "") ?? null;
+    // V41：**不再**把 RRI.updatedAt（＝workOrder 改號）算進「需要補印」——牌位上不列印作業號，
+    //   改號不影響印出來的內容,不該判定為需要補印(避免存作業號後整批誤判成需要補印)。
     const editedAt = latestIso(
       source.updatedAt ? source.updatedAt.toISOString() : null,
-      item.updatedAt ? item.updatedAt.toISOString() : null,
-      rriUpdated
+      item.updatedAt ? item.updatedAt.toISOString() : null
     );
     const lastPrintedAtIso = (item.lastPrintedAt ?? item.printedAt) ? (item.lastPrintedAt ?? item.printedAt)!.toISOString() : null;
     const itemNeedsReprint = computeNeedsReprint(item.printCount ?? 0, lastPrintedAtIso, editedAt);

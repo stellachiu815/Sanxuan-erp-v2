@@ -216,9 +216,10 @@ export default function PrintManagementCenter() {
       {msg && <p className="rounded-2xl bg-sage-100 px-4 py-2 text-sm text-ink">{msg}</p>}
       {error && <p className="text-sm text-blossom-500">⚠️ {error}</p>}
 
-      {/* V21.1 列印確認：按下列印／補印後先進入此確認，確認內容無誤再「開始列印」，完成後才更新列印次數。 */}
+      {/* V21.1 列印確認：按下列印／補印後先進入此確認，確認內容無誤再「開始列印」，完成後才更新列印次數。
+          V41：改成**固定浮在畫面底部**——原本在畫面上方，使用者捲到下面按「補印」會看不到確認橫幅、以為沒反應。 */}
       {pending && (
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-yolk-100 px-4 py-3 text-sm text-ink shadow-card">
+        <div className="fixed inset-x-0 bottom-4 z-50 mx-auto flex max-w-2xl flex-wrap items-center justify-center gap-3 rounded-2xl bg-yolk-100 px-4 py-3 text-sm text-ink shadow-xl ring-1 ring-yolk-300">
           <span>
             即將列印 <span className="font-medium">{pending.count}</span> 筆
             {pending.kind === "all" ? "（依目前篩選）" : ""}。
