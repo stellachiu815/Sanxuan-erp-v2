@@ -179,6 +179,15 @@ function PrintCenterInner() {
           )}
           {a.activityGroup === "ANNUAL_LANTERN" && (
             <>
+              {/* V41：年度燈報名總名單 Excel——照燈別分表（光明／太歲／祭改／全家），欄位含農曆生日/生肖/歲數/地址。 */}
+              <div className="mt-3">
+                <a
+                  href={`/api/print-center/annual-lantern-roster/${a.year}`}
+                  className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300"
+                >
+                  ⬇ 匯出年度燈報名總名單 Excel（光明／太歲／祭改／全家 分表）
+                </a>
+              </div>
               <p className="mt-3 mb-2 text-xs text-ink-soft">燈牌／疏文正式列印（mm 版型，含虛歲自動＋1、生肖、太歲）：</p>
               <div className="flex flex-wrap gap-2">
                 <Link href={`/lantern/GUANGMING_LANTERN/print?year=${a.year}`} className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300">光明燈牌列印（橫式 42 張）</Link>

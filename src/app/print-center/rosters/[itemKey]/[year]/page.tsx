@@ -175,6 +175,15 @@ function RosterInner({ itemKey, year }: { itemKey: string; year: string }) {
         </h1>
         <div className="flex items-center gap-2">
           {blocked && <span className="text-sm text-blossom-500">預檢未通過</span>}
+          {/* V41：補庫／宮燈 專屬「匯出 Excel 總名單」（作業號｜姓名｜家戶｜地址｜電話｜金額｜收款｜列印）。 */}
+          {(itemKey === "STORAGE_TROUSERS" || itemKey === "PALACE_LANTERN") && (
+            <a
+              href={`/api/print-center/name-list-roster/${itemKey}/${year}`}
+              className="rounded-full bg-yolk-200 px-4 py-1.5 text-sm text-ink hover:bg-yolk-300"
+            >
+              ⬇ 匯出 Excel 總名單
+            </a>
+          )}
           <RosterPrintButton itemKey={itemKey} year={year} disabled={blocked} count={roster.rows.length} onPrinted={load} />
         </div>
       </div>
