@@ -831,6 +831,28 @@ export async function createUniversalSalvationEntry(
       tx
     );
   };
+  // V41「同一項目一人一份」守門：同一筆報名裡，已有「同類別＋同主文＋同陽上人[0]＋同地址」的
+  //   **未刪除**牌位 → 不再建立第二筆，直接回傳現況（冪等）。
+  //   尤其冤親／無緣主文是類別字（累世冤親債主／無緣子女），靠**陽上人**才辨識得出是「誰」的牌位——
+  //   所以 key 一定要含陽上人（只用名稱會把不同人的冤親誤判成同一筆；只用地址會把同戶不同人誤判）。
+  //   祖先／乙位正魂 名稱本身可區分，含陽上人只會更保守（不同陽上人各自保留），不會誤併。
+  //   修正：快速報名重複送、或跨入口重複建立同一個人的累世冤親債主，會再出現兩筆。
+  {
+    const dupNameKey = normalizeTabletText(input.displayName);
+    const dupAddrKey = normalizeTabletText(resolvedTabletAddress);
+    const dupYangKey = normalizeTabletText(yangshangFirst ?? "");
+    const dup = sameCategory.find((e) => {
+      const ey0 = (e.yangshangNames && e.yangshangNames.length > 0 ? e.yangshangNames[0] : e.yangshangName) ?? "";
+      return normalizeTabletText(e.displayName) === dupNameKey
+        && normalizeTabletText(e.tabletAddress) === dupAddrKey
+        && normalizeTabletText(ey0) === dupYangKey;
+    });
+    if (dup) {
+      const record = await getUniversalSalvationRecord(householdId, year, db);
+      return { ok: true, record: record! };
+    }
+  }
+
   // 有外部 tx → 納入呼叫端交易（Excel 匯入單列整批 rollback）；否則自開交易（原行為）。
   if (db) await run(db);
   else await prisma.$transaction(run);
