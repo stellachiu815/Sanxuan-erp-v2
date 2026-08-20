@@ -24,15 +24,17 @@ type Row = {
   existingLunar: string;
   existingAge: string;
   existingZodiac: string;
+  // V41 重複報名提示：這個人今年已報名的項目。
+  existingYearReg: string;
   guangming: boolean;
   guangmingQty: string;
   taisui: boolean;
   taisuiQty: string;
   purification: boolean;
 };
-type SearchResult = { memberId: string; householdId: string; name: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null };
+type SearchResult = { memberId: string; householdId: string; name: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null; yearRegistrations: string };
 
-const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", householdId: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", existingLunar: "", existingAge: "", existingZodiac: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
+const emptyRow = (): Row => ({ existingMemberId: "", existingLabel: "", householdId: "", name: "", phone: "", address: "", gender: "", solarBirthDate: "", existingLunar: "", existingAge: "", existingZodiac: "", existingYearReg: "", guangming: true, guangmingQty: "1", taisui: false, taisuiQty: "1", purification: false });
 
 export default function AnnualLanternRegisterForm(props: { templeEventId: string; activityName: string; publicSlug?: string }) {
   return (
@@ -105,11 +107,12 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
     update(i, {
       existingMemberId: r.memberId, existingLabel: `${r.name}（${r.householdName}）`, householdId: r.householdId, name: r.name, address: r.address ?? "",
       existingLunar: r.lunarBirthDisplay ?? "", existingAge: r.nominalAge != null ? String(r.nominalAge) : "", existingZodiac: r.zodiac ?? "",
+      existingYearReg: r.yearRegistrations ?? "",
     });
     setResults((p) => ({ ...p, [i]: [] }));
   }
   function clearExisting(i: number) {
-    update(i, { existingMemberId: "", existingLabel: "", householdId: "", name: "", address: "", existingLunar: "", existingAge: "", existingZodiac: "" });
+    update(i, { existingMemberId: "", existingLabel: "", householdId: "", name: "", address: "", existingLunar: "", existingAge: "", existingZodiac: "", existingYearReg: "" });
   }
 
   async function submit() {
@@ -222,6 +225,12 @@ function Inner({ templeEventId, activityName, publicSlug }: { templeEventId: str
                     )}
                     <button type="button" onClick={() => clearExisting(i)} className="text-xs text-ink-faint hover:underline">改填新的 / 換一位</button>
                   </div>
+                  {/* V41 重複報名提示：這個人今年已報名的項目（同姓名同項目就別再報第二筆）。 */}
+                  {r.existingYearReg && (
+                    <p className="rounded-lg bg-blossom-50 px-2 py-1 text-xs font-medium text-blossom-500">
+                      ⚠️ 這個人今年已報名：{r.existingYearReg}（同項目不會再建立第二筆）
+                    </p>
+                  )}
                   {/* V41 現場核對（唯讀）：農曆生日／歲數（生肖）／地址，資料有誤進家戶頁改。 */}
                   <p className="text-xs text-ink-soft">
                     核對資料　農曆生日：<b className="text-ink">{r.existingLunar || "未登記"}</b>

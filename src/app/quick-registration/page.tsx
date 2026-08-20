@@ -12,7 +12,7 @@ import { fetchRegistration, toFriendlyError } from "@/lib/registrationFetch";
  */
 
 type Activity = { templeEventId: string; year: number; name: string; canRegister: boolean };
-type DevoteeHit = { memberId: string; name: string; householdId: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null };
+type DevoteeHit = { memberId: string; name: string; householdId: string; householdName: string; address: string | null; lunarBirthDisplay: string | null; nominalAge: number | null; zodiac: string | null; solarBirthDate: string | null; yearRegistrations: string };
 
 type NamedRow = { displayName: string; yangshang: string; tabletAddress: string; pocketQty: string; pocketNames: string };
 type UnbornRow = { mainText: "無緣子女" | "本宅地基主"; yangshang: string; tabletAddress: string };
@@ -246,6 +246,12 @@ function Inner() {
                 )}
                 <button type="button" onClick={clearExisting} className="ml-2 text-ink-soft underline">改用新信眾</button>
               </p>
+              {/* V41 重複報名提示：這個人今年已報過的項目（同姓名同項目就別再報第二筆）。 */}
+              {existing.yearRegistrations && (
+                <p className="rounded-lg bg-blossom-50 px-2 py-1 text-xs font-medium text-blossom-500">
+                  ⚠️ 這個人今年已報名：{existing.yearRegistrations}（同項目不會再建立第二筆）
+                </p>
+              )}
               {/* V41 現場核對（唯讀）：姓名／農曆生日／歲數（生肖）／地址，資料有誤進家戶頁改。 */}
               <p className="text-xs text-ink-soft">
                 核對資料　農曆生日：<b className="text-ink">{existing.lunarBirthDisplay ?? "未登記"}</b>

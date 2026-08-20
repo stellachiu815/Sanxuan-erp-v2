@@ -23,6 +23,7 @@ import { createAdditionalPrintItem } from "@/lib/additionalPrintItems";
 import { getUniversalSalvationSponsorPrice } from "@/lib/universalSalvationTabletPricing";
 import { normalizeYangshangNames } from "@/lib/yangshang";
 import { composeDevoteeSummary, DEVOTEE_SUMMARY_INCLUDE } from "@/lib/devoteeProfile";
+import { formatMemberYearRegistrations, type MemberYearRegistration } from "@/lib/duplicateRegistrationCheck";
 import type { Role } from "@/lib/permissions";
 
 /** 報名人（信眾）——既有就帶 existingMemberId，否則用姓名等欄位當場建立。 */
@@ -417,6 +418,8 @@ export async function quickRegSearchDevotees(
   nominalAge: number | null;
   zodiac: string | null;
   solarBirthDate: string | null;
+  /** V41 重複報名提示：這個人「今年已報名」的項目（例：「補庫、光明燈×2」）。空字串＝今年還沒報過。 */
+  yearRegistrations: string;
 }[]> {
   const query = q.trim();
   if (!query) return [];
@@ -430,8 +433,35 @@ export async function quickRegSearchDevotees(
     take: 20,
     orderBy: { createdAt: "desc" },
   });
+
+  // V41：一次批次查這批人「今年已報名的項目」，供選到既有信眾時提示重複報名（不擋、只提醒）。
+  const rocYear = new Date().getFullYear() - 1911;
+  const memberIds = members.map((m) => m.id);
+  const regItems = memberIds.length
+    ? await prisma.ritualRegistrationItem.findMany({
+        where: {
+          memberId: { in: memberIds },
+          deletedAt: null,
+          status: { not: "CANCELLED" },
+          ritualRecord: { deletedAt: null, year: rocYear, household: { deletedAt: null } },
+        },
+        select: { memberId: true, registrationItemType: { select: { key: true, name: true, activityGroupName: true } } },
+      })
+    : [];
+  const regByMember = new Map<string, Map<string, MemberYearRegistration>>();
+  for (const it of regItems) {
+    if (!it.memberId) continue;
+    const mm = regByMember.get(it.memberId) ?? new Map<string, MemberYearRegistration>();
+    const t = it.registrationItemType;
+    const cur = mm.get(t.key);
+    if (cur) cur.count += 1;
+    else mm.set(t.key, { itemKey: t.key, itemName: t.name, activityGroupName: t.activityGroupName, count: 1 });
+    regByMember.set(it.memberId, mm);
+  }
+
   return members.map((m) => {
     const sum = composeDevoteeSummary(m);
+    const mm = regByMember.get(m.id);
     return {
       memberId: sum.memberId,
       name: sum.name,
@@ -443,6 +473,7 @@ export async function quickRegSearchDevotees(
       nominalAge: sum.nominalAge,
       zodiac: sum.zodiac,
       solarBirthDate: sum.solarBirthDate,
+      yearRegistrations: mm ? formatMemberYearRegistrations([...mm.values()]) : "",
     };
   });
 }
