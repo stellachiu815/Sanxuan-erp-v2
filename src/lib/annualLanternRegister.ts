@@ -58,7 +58,7 @@ export type AnnualLanternRegInput = {
 };
 
 export type AnnualLanternRegResult =
-  | { ok: true; created: number; ritualRecordIds: string[]; confirmed: number; confirmErrors: string[] }
+  | { ok: true; created: number; alreadyExists: number; ritualRecordIds: string[]; confirmed: number; confirmErrors: string[] }
   | { ok: false; status: number; error: string };
 
 function s(v: string | null | undefined): string | null {
@@ -234,6 +234,9 @@ export async function annualLanternRosterRegister(
 
   const res = await registerItemsBatch(entries, operator.name, operator.id);
   if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  // V41：分開統計「新建」與「今年已報過（未重複建立）」，供現場人員送出後跟信眾再確認。
+  const createdCount = res.outcomes.filter((o) => o.outcome === "CREATED").length;
+  const alreadyExists = res.outcomes.filter((o) => o.outcome === "ALREADY_EXISTS").length;
 
   const ritualRecordIds = res.ritualRecordIds;
 
@@ -247,5 +250,5 @@ export async function annualLanternRosterRegister(
     }
   }
 
-  return { ok: true, created: entries.length, ritualRecordIds, confirmed, confirmErrors };
+  return { ok: true, created: createdCount, alreadyExists, ritualRecordIds, confirmed, confirmErrors };
 }

@@ -34,9 +34,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     created: result.created,
+    alreadyExists: result.alreadyExists,
     ritualRecordIds: result.ritualRecordIds,
     confirmed: result.confirmed,
     confirmErrors: result.confirmErrors,
-    message: `已建立 ${result.created} 筆報名${result.confirmed > 0 ? `，其中 ${result.confirmed} 筆已確認為正式` : "（草稿，可到報名管理確認）"}。`,
+    // V41：附上「今年已報過、未重複建立」筆數，讓現場人員送出後跟信眾再確認。
+    message: `已建立 ${result.created} 筆報名${result.confirmed > 0 ? `，其中 ${result.confirmed} 筆已確認為正式` : "（草稿，可到報名管理確認）"}。`
+      + (result.alreadyExists > 0 ? `另有 ${result.alreadyExists} 筆這個人今年已報過同項目，未重複建立。` : ""),
   });
 }
