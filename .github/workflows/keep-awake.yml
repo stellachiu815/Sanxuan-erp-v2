@@ -1,0 +1,29 @@
+name: Keep ERP awake
+
+# 免費 Render 網站閒置 15 分鐘就會休眠（下次開啟要等約 50 秒）。
+# 這個排程在「台灣工作時段」每隔約 12 分鐘戳一次首頁，讓它保持清醒、隨開隨用。
+# 只在工作時段跑（台灣 06:00–22:00），避免整天喚醒吃光免費方案的每月時數。
+# 由 GitHub 免費執行，不需自架伺服器。想手動測試可用 workflow_dispatch。
+
+on:
+  schedule:
+    # cron 為 UTC 時間。UTC 22:00–14:59 ＝ 台灣 06:00–22:59；每 12 分鐘一次。
+    - cron: "*/12 22,23,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14 * * *"
+  workflow_dispatch: {}
+
+# 同時只跑一個，避免重疊。
+concurrency:
+  group: keep-awake
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ERP homepage
+        run: |
+          echo "戳一下 ERP 讓它別睡著…"
+          code=$(curl -sS -m 90 -o /dev/null -w "%{http_code}" https://sanxuan-erp-v2.onrender.com/ || echo "000")
+          echo "HTTP 狀態碼：$code"
+          # 首頁醒來後常見 200；即使回非 200，喚醒的目的已達成，不讓工作失敗紅字。
+          exit 0
